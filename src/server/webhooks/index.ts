@@ -182,16 +182,16 @@ export async function createEndpoint(input: CreateEndpointInput): Promise<{ endp
     if (n >= MAX_ENDPOINTS_PER_ORG) throw conflict(`An organization can have at most ${MAX_ENDPOINTS_PER_ORG} webhook endpoints. Delete one to add another.`);
     const [inserted] = await tx
       .insert(endpoints)
-    .values({
-      id: newSortableId("webhookEndpoint"),
-      orgId: data.orgId,
-      url: target.url,
-      description: data.description ?? null,
-      secretEnc: sealEndpointSecrets({ current: secret }),
-      eventTypes: data.eventTypes,
-      format: data.format,
-      status: "active",
-      failureCount: 0,
+      .values({
+        id: newSortableId("webhookEndpoint"),
+        orgId: data.orgId,
+        url: target.url,
+        description: data.description ?? null,
+        secretEnc: sealEndpointSecrets({ current: secret }),
+        eventTypes: data.eventTypes,
+        format: data.format,
+        status: "active",
+        failureCount: 0,
         createdAt: now(),
       })
       .returning();

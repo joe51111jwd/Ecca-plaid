@@ -30,7 +30,8 @@ function text(max: number, what: string) {
 /** Optional text: missing, null and blank all become null. */
 function optionalText(max: number) {
   return z
-    .union([z.string(), z.null(), z.undefined()], { error: "must be text or null" })
+    .string({ error: "must be text or null" })
+    .nullish()
     .transform((value, ctx) => {
       if (value === null || value === undefined) return null;
       const normalized = normalizeText(value);
@@ -49,7 +50,10 @@ function id(what: string) {
 }
 
 function optionalId() {
-  return z.union([z.string(), z.null(), z.undefined()], { error: "must be an identifier or null" }).transform((value, ctx) => {
+  return z
+    .string({ error: "must be an identifier or null" })
+    .nullish()
+    .transform((value, ctx) => {
     if (value === null || value === undefined || value === "") return null;
     if (value.length > L.id || !ID_PATTERN.test(value)) return fail(ctx, `is not a valid identifier (letters, digits, "_", "-", "." and ":" only, at most ${L.id} characters)`);
     return value;
@@ -78,7 +82,10 @@ function timestamp(what: string) {
 }
 
 function optionalTimestamp() {
-  return z.unknown().transform((value, ctx) => (value === undefined || value === null ? null : parseTimestamp(value, ctx, "timestamp")));
+  return z
+    .unknown()
+    .optional()
+    .transform((value, ctx) => (value === undefined || value === null ? null : parseTimestamp(value, ctx, "timestamp")));
 }
 
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -98,7 +105,10 @@ function calendarDate(what: string) {
 }
 
 function optionalCalendarDate() {
-  return z.unknown().transform((value, ctx) => (value === undefined || value === null ? null : parseCalendarDate(value, ctx, "date")));
+  return z
+    .unknown()
+    .optional()
+    .transform((value, ctx) => (value === undefined || value === null ? null : parseCalendarDate(value, ctx, "date")));
 }
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -122,11 +132,28 @@ function positiveCents(what: string) {
 }
 
 function optionalEnum<const T extends readonly [string, ...string[]]>(values: T) {
-  return z.union([z.enum(values), z.null(), z.undefined()], { error: `must be one of ${values.join(", ")} or null` }).transform((value) => value ?? null);
+  return z
+    .enum(values, { error: `must be one of ${values.join(", ")} or null` })
+    .nullish()
+    .transform((value) => value ?? null);
 }
 
 function optionalBoolean() {
-  return z.union([z.boolean(), z.null(), z.undefined()], { error: "must be true, false or null" }).transform((value) => value ?? null);
+  return z
+    .boolean({ error: "must be true, false or null" })
+    .nullish()
+    .transform((value) => value ?? null);
+}
+
+/** Optional whole number in a closed range; missing and null both become null. */
+function optionalInt(min: number, max: number, what: string) {
+  const message = `must be ${what}, or null`;
+  return z
+    .int({ error: message })
+    .min(min, { error: message })
+    .max(max, { error: message })
+    .nullish()
+    .transform((value) => value ?? null);
 }
 
 function requiredEnum<const T extends readonly [string, ...string[]]>(values: T, what: string) {
@@ -185,9 +212,7 @@ const memberSchema = z.object({
 
 const custodySchema = z.object({
   livesInMultipleHouseholds: z.boolean({ error: "is required: whether the student lives in more than one household" }),
-  monthsInThisHousehold: z
-    .union([z.int().min(0).max(12), z.null(), z.undefined()], { error: "must be a whole number of months from 0 to 12, or null" })
-    .transform((value) => value ?? null),
+  monthsInThisHousehold: optionalInt(0, 12, "a whole number of months from 0 to 12"),
   equalTime: optionalBoolean(),
   thisHouseholdHasHigherIncome: optionalEnum(["yes", "no", "unknown"]),
   notes: optionalText(L.longText),
@@ -210,7 +235,9 @@ const geographySchema = z.object({
   areaCode: text(L.shortText, "the income-limit area code"),
   areaName: text(L.shortText, "the income-limit area name"),
   zip: z
-    .union([z.string().regex(/^\d{5}$/), z.null(), z.undefined()], { error: "must be a 5-digit ZIP code or null" })
+    .string({ error: "must be a 5-digit ZIP code or null" })
+    .regex(/^\d{5}$/, { error: "must be a 5-digit ZIP code or null" })
+    .nullish()
     .transform((value) => value ?? null),
   countyResolution: optionalEnum(["geocoder", "zip_unique", "self_selected"]),
 });
@@ -290,10 +317,11 @@ const extractedFieldSchema = z.object({
   key: text(L.shortText, "the field key"),
   label: text(L.shortText, "the field label"),
   value: optionalText(L.longText),
-  amountCents: z.union([z.int(), z.null(), z.undefined()], { error: "must be a whole number of cents or null" }).transform((value) => value ?? null),
-  confidencePct: z
-    .union([z.int().min(0).max(100), z.null(), z.undefined()], { error: "must be a whole percent from 0 to 100, or null" })
+  amountCents: z
+    .int({ error: "must be a whole number of cents or null" })
+    .nullish()
     .transform((value) => value ?? null),
+  confidencePct: optionalInt(0, 100, "a whole percent from 0 to 100"),
 });
 
 const documentSchema = z.object({
@@ -350,11 +378,14 @@ function parseScopeValue(value: unknown, ctx: Ctx, depth: number, path: string):
   return fail(ctx, `${path} is not plain JSON`);
 }
 
-const scopeSchema = z.unknown().transform((value, ctx): { [key: string]: ScopeValue } => {
-  if (value === undefined || value === null) return {};
-  if (typeof value !== "object" || Array.isArray(value)) return fail(ctx, "must be an object describing who receives what, for what purpose and for how long");
-  return parseScopeValue(value, ctx, 0, "scope") as { [key: string]: ScopeValue };
-});
+const scopeSchema = z
+  .unknown()
+  .optional()
+  .transform((value, ctx): { [key: string]: ScopeValue } => {
+    if (value === undefined || value === null) return {};
+    if (typeof value !== "object" || Array.isArray(value)) return fail(ctx, "must be an object describing who receives what, for what purpose and for how long");
+    return parseScopeValue(value, ctx, 0, "scope") as { [key: string]: ScopeValue };
+  });
 
 const consentSchema = z.object(
   {
@@ -397,12 +428,15 @@ const sgoSchema = z.object(
   {
     id: id("the SGO's organization id"),
     name: text(L.shortText, "the SGO's name"),
-    ein: z.union([z.string(), z.null(), z.undefined()], { error: "must be an EIN or null" }).transform((value, ctx) => {
-      if (value === null || value === undefined || value.trim() === "") return null;
-      const digits = value.trim().replace(/^(\d{2})-(\d{7})$/, "$1$2");
-      if (!/^\d{9}$/.test(digits)) return fail(ctx, "must be an EIN written NN-NNNNNNN");
-      return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    }),
+    ein: z
+      .string({ error: "must be an EIN or null" })
+      .nullish()
+      .transform((value, ctx) => {
+        if (value === null || value === undefined || value.trim() === "") return null;
+        const digits = value.trim().replace(/^(\d{2})-(\d{7})$/, "$1$2");
+        if (!/^\d{9}$/.test(digits)) return fail(ctx, "must be an EIN written NN-NNNNNNN");
+        return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+      }),
   },
   { error: "is required: the SGO this pack is for" },
 );

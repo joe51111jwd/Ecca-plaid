@@ -2,13 +2,41 @@ import { EVIDENCE_POLICY } from "./policy";
 
 /**
  * Text hygiene for everything that enters an evidence record. Pure string functions.
+ *
+ * Character classes are written as code-point ranges and compiled once, so this file contains no invisible
+ * characters of its own.
  */
 
-/* C0 and C1 controls, DEL, zero-width and bidirectional formatting characters, BOM. The bidi controls can make
-   a line read differently from its bytes, which has no place in a record a person signs off on. */
-const INVISIBLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F­​-‏‪-‮⁠-⁩﻿]/g;
-const WHITESPACE_RUN = /[\s  ]+/g;
+type CodePointRange = readonly [from: number, to: number];
+
+function charClass(ranges: readonly CodePointRange[]): string {
+  return ranges.map(([from, to]) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join("");
+}
+
+/* C0 and C1 controls (tab, line feed and carriage return are treated as white space instead), DEL, the soft
+   hyphen, zero-width and bidirectional formatting characters, and the byte-order mark. The bidirectional
+   controls can make a line read differently from its bytes, which has no place in a record a person signs
+   off on. */
+const INVISIBLE_RANGES: readonly CodePointRange[] = [
+  [0x00, 0x08],
+  [0x0b, 0x0c],
+  [0x0e, 0x1f],
+  [0x7f, 0x9f],
+  [0xad, 0xad],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2069],
+  [0xfeff, 0xfeff],
+];
+/* Line separator and paragraph separator: white space that `\s` already covers, listed so the intent is explicit. */
+const SEPARATOR_RANGES: readonly CodePointRange[] = [[0x2028, 0x2029]];
+/* Hyphen, non-breaking hyphen, figure dash, en dash, em dash, horizontal bar. */
+const DASH_RANGES: readonly CodePointRange[] = [[0x2010, 0x2015]];
+
+const INVISIBLE = new RegExp(`[${charClass(INVISIBLE_RANGES)}]`, "gu");
+const WHITESPACE_RUN = new RegExp(`[\\s${charClass(SEPARATOR_RANGES)}]+`, "gu");
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
 
 /**
  * One canonical spelling for a piece of text: NFC, no control or invisible formatting characters, single
@@ -16,12 +44,13 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
  * tilde becomes the single letter the PDF fonts can print.
  */
 export function normalizeText(input: string): string {
-  return input.replace(LONE_SURROGATE, "�").normalize("NFC").replace(INVISIBLE, "").replace(WHITESPACE_RUN, " ").trim();
+  return input.replace(LONE_SURROGATE, REPLACEMENT_CHARACTER).normalize("NFC").replace(INVISIBLE, "").replace(WHITESPACE_RUN, " ").trim();
 }
 
 /* 3-2-4 digits with a separator, or exactly nine digits in a row. Digits on either side disqualify a match,
    so longer numbers (phone numbers, cents, byte counts written as text) are left alone. */
-const SSN_SEPARATED = /(?<!\d)\d{3}[-‐-― .]\d{2}[-‐-― .]\d{4}(?!\d)/g;
+const SSN_SEPARATOR = `[-. ${charClass(DASH_RANGES)}]`;
+const SSN_SEPARATED = new RegExp(`(?<!\\d)\\d{3}${SSN_SEPARATOR}\\d{2}${SSN_SEPARATOR}\\d{4}(?!\\d)`, "gu");
 const SSN_BARE = /(?<!\d)\d{9}(?!\d)/g;
 
 /** Removes anything shaped like a Social Security number from free text. Returns the text and how many tokens went. */
@@ -35,11 +64,9 @@ export function removeSsnPatterns(text: string): { text: string; removed: number
   return { text: cleaned, removed };
 }
 
-/** True when text still contains something shaped like a Social Security number. */
+/** True when text contains something shaped like a Social Security number. */
 export function containsSsnPattern(text: string): boolean {
-  SSN_SEPARATED.lastIndex = 0;
-  SSN_BARE.lastIndex = 0;
-  return SSN_SEPARATED.test(text) || SSN_BARE.test(text);
+  return removeSsnPatterns(text).removed > 0;
 }
 
 /* Field names that identify a birth date, a government identity number or a financial account. Matched on
@@ -86,7 +113,7 @@ function initial(part: string): string {
   return first ? `${first.toUpperCase()}.` : "";
 }
 
-/** "María", "Peña" -> "M.P.". Works on code points, so a name that starts outside the BMP keeps a whole character. */
+/** First letters of the two names, each with a period. Works on code points, so a name that starts outside the BMP keeps a whole character. */
 export function initialsOf(firstName: string, lastName: string): string {
   return `${initial(firstName)}${initial(lastName)}`;
 }
