@@ -64,7 +64,7 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
 
   const failure = state?.ok ? state.data.failureReason : state ? null : (lastFailure ?? null);
 
-  function useTestCard(card: SandboxTestCard) {
+  function fillTestCard(card: SandboxTestCard) {
     setCardNumber(card.display);
     setExpiry(testExpiry);
     setSecurityCode(TEST_SECURITY_CODE);
@@ -144,7 +144,7 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
                 </p>
                 <p className="text-sm text-fg-muted">{card.description}</p>
               </div>
-              <Button variant="secondary" size="sm" onClick={() => useTestCard(card)} aria-label={`Use test number ${card.display}: ${card.label}`} data-testid={`sandbox-use-${card.outcome}`}>
+              <Button variant="secondary" size="sm" onClick={() => fillTestCard(card)} aria-label={`Use test number ${card.display}: ${card.label}`} data-testid={`sandbox-use-${card.outcome}`}>
                 Use this number
               </Button>
             </li>

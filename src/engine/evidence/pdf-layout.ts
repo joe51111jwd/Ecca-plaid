@@ -144,7 +144,7 @@ export interface CellPart {
 }
 
 /** A cell is one piece of text or several parts, each starting on its own line. */
-export type Cell = string | CellPart[];
+export type Cell = string | readonly CellPart[];
 
 export interface Column {
   header: string;
@@ -484,7 +484,7 @@ export class PdfWriter {
     rows.forEach((row, rowIndex) => {
       const cells = columns.map((column, index) => {
         const cell = row[index] ?? "";
-        const parts: CellPart[] = typeof cell === "string" ? [{ text: cell }] : cell;
+        const parts: readonly CellPart[] = typeof cell === "string" ? [{ text: cell }] : cell;
         return parts.flatMap((part) => this.linesOf(part.text, part.style ?? column.style ?? STYLE.small, column.width - 2 * CELL_PAD_X));
       });
       const lineHeight = Math.max(...cells.flat().map((line) => this.lineHeight(line.style)), this.lineHeight(STYLE.small));

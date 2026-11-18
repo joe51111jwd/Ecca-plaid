@@ -24,7 +24,7 @@ export function signInEmailCopy(locale: EmailLocale, expiresInMinutes: number): 
         `El enlace y el código vencen en ${expiresInMinutes} minutos y se pueden usar una sola vez.`,
       ],
       cta: "Iniciar sesión",
-      codeLabel: "Su código:",
+      codeLabel: "Su código",
       footerNote: "Si usted no pidió esto, ignore este correo. Nadie puede entrar a su cuenta sin este enlace o código.",
     };
   }
@@ -37,7 +37,7 @@ export function signInEmailCopy(locale: EmailLocale, expiresInMinutes: number): 
       `The link and the code expire in ${expiresInMinutes} minutes and can be used once.`,
     ],
     cta: "Sign in",
-    codeLabel: "Your code:",
+    codeLabel: "Your code",
     footerNote: "If you did not ask for this, ignore this email. No one can get into your account without this link or code.",
   };
 }

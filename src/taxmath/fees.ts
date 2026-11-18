@@ -20,7 +20,7 @@ import { BRAND } from "@/lib/brand";
 import { invalid } from "@/lib/errors";
 import { mulDivRound } from "@/lib/money";
 import { DEFAULT_FEE_STRUCTURE, FEE_STRUCTURES_REQUIRING_COUNSEL_MEMO, TAXMATH_VERSION } from "./constants";
-import { COPY_LOCALES, COPY_VERSION, renderCopyDynamic, type CopyId, type CopyLocale } from "./copy";
+import { COPY_LOCALES, COPY_VERSION, getCopy, renderCopyDynamic, type CopyId, type CopyLocale } from "./copy";
 import { bpsSchema, centsSchema, parseInput, sumCents } from "./validation";
 
 export const FEE_STRUCTURES = ["none", "sgo_invoiced", "donor_service_fee"] as const;
@@ -226,15 +226,16 @@ export function describeFeeStructure(structure: FeeStructure, options: { platfor
   const platformName = options.platformName ?? BRAND.name;
   const ids = DESCRIPTION_COPY[parsed];
   const facts = FEE_STRUCTURE_FACTS[parsed];
-  const withPlatform = (id: CopyId) => renderCopyDynamic(id, { platformName }, { locale });
+  // Not every sentence names the platform; pass the name only to the ones that do.
+  const text = (id: CopyId) => renderCopyDynamic(id, getCopy(id).variables.includes("platformName") ? { platformName } : {}, { locale });
   return {
     structure: parsed,
     isDefault: parsed === DEFAULT_FEE_STRUCTURE.value,
     ...facts,
-    title: renderCopyDynamic(ids.title, {}, { locale }),
-    donorExplanation: withPlatform(ids.donor),
-    sgoExplanation: parsed === "none" ? renderCopyDynamic(ids.sgo, {}, { locale }) : withPlatform(ids.sgo),
-    counselMemoRequirement: facts.requiresCounselMemo ? renderCopyDynamic("fee.counsel_memo_required", {}, { locale }) : null,
+    title: text(ids.title),
+    donorExplanation: text(ids.donor),
+    sgoExplanation: text(ids.sgo),
+    counselMemoRequirement: facts.requiresCounselMemo ? text("fee.counsel_memo_required") : null,
     copyIds: { ...ids, counselMemo: facts.requiresCounselMemo ? "fee.counsel_memo_required" : null },
     copyVersion: COPY_VERSION,
   };

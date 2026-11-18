@@ -91,7 +91,6 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
 
   const total = formatUsd(payment.amountCents, { cents: true });
   const lines = showLines ?? payment.lines.length > 1;
-  const payable = status === "requires_payment" || status === "failed";
 
   return (
     <div className={className} data-testid="payment-form" data-provider={payment.provider} data-status={status}>
@@ -118,7 +117,7 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
           </p>
         )}
 
-        {!payable ? (
+        {status !== "requires_payment" && status !== "failed" ? (
           <PaymentOutcome status={status} sandbox={sandbox} />
         ) : payment.provider === "sandbox" ? (
           <SandboxPaymentForm
@@ -136,8 +135,7 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
             clientSecret={payment.clientSecret}
             publishableKey={payment.publishableKey}
             connectedAccountId={payment.connectedAccountId}
-            // Stripe needs an absolute URL for payment methods that leave the page; it adds its own query parameters.
-            returnUrl={new URL(withResult(target ?? window.location.pathname + window.location.search, payment.paymentId), window.location.origin).toString()}
+            returnUrl={target ? withResult(target, payment.paymentId) : null}
             submitLabel={submitLabel ?? `Pay ${total}`}
             onResult={onStripeResult}
           />

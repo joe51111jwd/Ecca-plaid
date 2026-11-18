@@ -20,8 +20,11 @@ export interface StripePaymentFormProps {
   publishableKey: string;
   /** Set for direct charges: the payment lives on this connected account and Stripe.js must be loaded for it. */
   connectedAccountId: string | null;
-  /** Absolute URL Stripe returns the payer to when the payment method needs a redirect. */
-  returnUrl: string;
+  /**
+   * Where Stripe returns the payer when the payment method needs to leave the page: an in-app path or an
+   * absolute URL. Null returns them to the page they are on.
+   */
+  returnUrl: string | null;
   submitLabel: ReactNode;
   onResult: (result: StripeFormResult) => void;
 }
@@ -65,7 +68,9 @@ function Inner({ returnUrl, submitLabel, onResult }: Pick<StripePaymentFormProps
     const submitted = await elements.submit();
     if (submitted.error) return fail(submitted.error.message ?? "Please check your payment details.");
 
-    const confirmed = await stripe.confirmPayment({ elements, confirmParams: { return_url: returnUrl }, redirect: "if_required" });
+    // Stripe requires an absolute URL and adds its own query parameters to it.
+    const absoluteReturnUrl = new URL(returnUrl ?? window.location.href, window.location.origin).toString();
+    const confirmed = await stripe.confirmPayment({ elements, confirmParams: { return_url: absoluteReturnUrl }, redirect: "if_required" });
     if (confirmed.error) return fail(confirmed.error.message ?? NOT_COMPLETED);
 
     const status = confirmed.paymentIntent.status;
