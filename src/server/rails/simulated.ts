@@ -117,7 +117,7 @@ export function simulatedPersonasFor(kind: RailKind): SimulatedPersonaOption[] {
 
 const clientResultSchema = z.strictObject({ persona: z.enum(SIMULATED_PERSONA_IDS) });
 
-const EXTERNAL_ID = /^sim:([a-z_]+):(\d{1,15})$/;
+const EXTERNAL_ID = /^sim:([a-z0-9_]+):(\d{1,15})$/;
 
 export function simulatedExternalId(persona: SimulatedPersonaId, linkedAt: Date): string {
   return `sim:${persona}:${linkedAt.getTime()}`;

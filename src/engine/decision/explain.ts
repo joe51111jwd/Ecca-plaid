@@ -24,7 +24,7 @@ import { CUSTODY_REVIEW_CODES, LETTER_AMBIGUOUS_CODES, type Decision, type Lette
 export type ExplanationLocale = "en" | "es";
 
 /** Bump when any sentence in this file changes. */
-export const DECISION_EXPLANATION_COPY_VERSION = "decision-explanation-copy.v1";
+export const DECISION_EXPLANATION_COPY_VERSION = "decision-explanation-copy.v2";
 
 export interface DecisionExplanation {
   locale: ExplanationLocale;
@@ -222,6 +222,25 @@ function familyExplanation(decision: Decision, locale: ExplanationLocale, provis
   return { headline: FAMILY_HEADLINE[locale][status], paragraphs, missing: decision.missing.map((item) => item.message[locale]) };
 }
 
+/** Which figure the income comparison rested on, for SGO staff; null when no comparison decided the outcome. */
+function reliedOnSentence(threshold: NonNullable<Decision["threshold"]>, locale: ExplanationLocale): string | null {
+  if (threshold.reliedOn === "none" || threshold.reliedOnLimitCents === null) return null;
+  const amount = formatUsd(threshold.reliedOnLimitCents);
+  const es = locale === "es";
+  switch (threshold.reliedOn) {
+    case "single_limit":
+      return es ? `La comparación de ingresos se basó en el límite de ${amount}.` : `The income comparison rested on the limit of ${amount}.`;
+    case "lower_bound":
+      return es ? `La comparación de ingresos se basó en la lectura más baja del límite, ${amount}.` : `The income comparison rested on the lower reading of the limit, ${amount}.`;
+    case "upper_bound":
+      return es ? `La comparación de ingresos se basó en la lectura más alta del límite, ${amount}.` : `The income comparison rested on the higher reading of the limit, ${amount}.`;
+    case "statutory_limit":
+      return es
+        ? `La comparación de ingresos se basó en el límite legal del 300%, ${amount}, no en el tope más estricto de la organización.`
+        : `The income comparison rested on the statutory 300% limit, ${amount}, not on the SGO's stricter cap.`;
+  }
+}
+
 function sgoExplanation(decision: Decision, locale: ExplanationLocale, sourceLine: string): DecisionExplanation["sgo"] {
   const es = locale === "es";
   const paragraphs: string[] = [];
@@ -307,6 +326,8 @@ function sgoExplanation(decision: Decision, locale: ExplanationLocale, sourceLin
           : `The proposed rules can be read two ways, which give different limits for this county and household size at the SGO's cap of ${cap}: ${readings}. It is not known which reading, if either, the IRS-published limits will follow, so automatic decisions are made only where both readings agree.`,
       );
     }
+    const relied = reliedOnSentence(threshold, locale);
+    if (relied) paragraphs.push(relied);
     if (threshold.reviewBand.applied) {
       const from = formatUsd(threshold.autoEligibleMaxCents + 1);
       const to = formatUsd(threshold.autoIneligibleAboveCents);
