@@ -84,6 +84,13 @@ export interface AwardLetterInput {
   extractedBy: "parser" | "model" | "reviewer";
   /** End of the certification or benefit period printed on the document, when one was read. */
   benefitPeriodEnd?: IsoDate | null;
+  /**
+   * `award_letter` (the default): an award, approval or eligibility notice from the agency. `other`: other
+   * written documentation of participation, such as a benefits-portal printout or a benefits card. The
+   * proposed rule says "written documentation, such as an award letter" and does not say what else
+   * qualifies, so anything other than a letter goes to a person.
+   */
+  documentType?: "award_letter" | "other";
 }
 
 export interface DirectEvidenceInput {
@@ -96,6 +103,18 @@ export interface DirectEvidenceInput {
   sources?: IncomeDocumentSource[];
   /** Flags raised while turning documents into items (`reconcileIncomeEvidence(...).flags`). */
   evidenceFlags?: IncomeReviewFlag[];
+  /**
+   * Income documents on file from which nothing could be read: a failed parse, a scan or photo without a
+   * text layer, an unsupported form. They go to a person, and the household is not asked to send the same
+   * thing again until that person has looked.
+   */
+  unreadDocuments?: UnreadDocument[];
+}
+
+export interface UnreadDocument {
+  documentId: string;
+  /** Household member the document is about, when known. */
+  memberId: string | null;
 }
 
 /** Summary of one data-rail report behind `rail` income items. */
@@ -156,6 +175,7 @@ export const LETTER_AMBIGUOUS_CODES = [
   "letter_dated_in_future",
   "letter_window_depends_on_reference_date",
   "benefit_period_ended",
+  "documentation_not_award_letter",
   "recipient_not_matched",
   "recipient_match_low_confidence",
   "letter_low_extraction_confidence",

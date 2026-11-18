@@ -11,11 +11,11 @@
 /** Glyph families from the top band to the bottom band. Repeats weight the pick toward a character. */
 export const FIELD_BANDS: readonly string[] = [
   "$$$$$$§$0",
-  "$$$/|$§%",
-  "%/|()2(5)",
-  "()[]{}25F1",
-  "[]{}?-+7",
-  "-+<>~?.:",
+  "$$$/%$§%8",
+  "%/25F/%09",
+  "[]{}25F1/",
+  "[]{}<>+7-",
+  "-+<>~.:",
   "$.:~-",
 ] as const;
 

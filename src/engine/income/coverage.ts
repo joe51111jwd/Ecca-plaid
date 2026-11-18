@@ -72,6 +72,8 @@ export interface CoverageAssessment {
   requiredMemberCount: number;
   documentedMemberCount: number;
   certifiedZeroIncomeMemberCount: number;
+  /** Income items for the year that can count and are backed by a document, a data rail or a reviewer, for any member. */
+  evidencedItemCount: number;
   /** What to ask the household for, in roster order. */
   missing: MissingItem[];
   /** Contradictions a reviewer must settle. */
@@ -251,6 +253,7 @@ export function assessCoverage(input: AssessCoverageInput): CoverageAssessment {
     requiredMemberCount: required.length,
     documentedMemberCount: required.filter((entry) => entry.status === "documented").length,
     certifiedZeroIncomeMemberCount: required.filter((entry) => entry.status === "certified_zero_income").length,
+    evidencedItemCount: inYear.filter((item) => isEvidenced(item) && canCount(item)).length,
     missing,
     flags,
   };

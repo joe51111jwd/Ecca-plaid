@@ -4,6 +4,7 @@ import { execRows, getDb, schema, type DbOrTx } from "@/db/client";
 import type { InvoiceStatus, Mode } from "@/db/schema";
 import { BRAND } from "@/lib/brand";
 import { addMs, centralYear, MS, now } from "@/lib/clock";
+import { env } from "@/lib/env";
 import { AppError, conflict, invalid, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { formatUsd } from "@/lib/money";
@@ -166,7 +167,8 @@ export async function createBusinessInvoice(input: CreateBusinessInvoiceInput, d
         periodStart: data.periodStart ?? null,
         periodEnd: data.periodEnd ?? null,
         totalCents,
-        processor: getProcessor().name,
+        // Which processor issues it is settled when it is sent; until then this is the configured one.
+        processor: env().PAYMENTS_PROVIDER,
         createdAt: at,
       })
       .returning();

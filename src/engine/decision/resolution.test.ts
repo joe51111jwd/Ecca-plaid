@@ -216,7 +216,7 @@ describe("applyReviewerResolution", () => {
     // A letter that is not on the file.
     expect(refusal(() => applyReviewerResolution(doubtfulLetter(), categorical("doc_other"))).reason).toBe("letter_not_on_record");
     // What a reviewer can settle: the recipient, a low-confidence read, an unclear status, the reference date.
-    for (const overrides of [{ matchedMemberId: null }, { extractionConfidence: 0.3 }, { approvalStatus: "unclear" as const }, { benefitPeriodEnd: "2027-02-28" }]) {
+    for (const overrides of [{ matchedMemberId: null }, { extractionConfidence: 0.3 }, { approvalStatus: "unclear" as const }, { benefitPeriodEnd: "2027-02-28" }, { documentType: "other" as const }]) {
       const decision = decide(decisionInput({ categorical: { letters: [awardLetter(overrides)] } }));
       expect(applyReviewerResolution(decision, categorical()).status).toBe("eligible");
     }

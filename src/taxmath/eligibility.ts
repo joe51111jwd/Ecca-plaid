@@ -17,6 +17,7 @@ import {
   DATE_BEGUN_EVERYWHERE_TIME_ZONE,
   DIGITAL_ASSET_PAYMENT_METHODS,
   ELIGIBLE_CURRENCY,
+  FIRST_ELIGIBLE_DATE,
   TAX_YEAR_BASIS,
   TAXMATH_VERSION,
 } from "./constants";
@@ -43,7 +44,10 @@ export interface CreditEligibilityInput {
   paidAt: Date;
   /** The instant the donor started this payment. When given it must also fall on or after the credit start. */
   initiatedAt?: Date | null;
-  /** First credit-eligible date, YYYY-MM-DD (platform setting `credit.startDate`; FIRST_ELIGIBLE_DATE by default). */
+  /**
+   * First credit-eligible date, YYYY-MM-DD (platform setting `credit.startDate`; FIRST_ELIGIBLE_DATE by default).
+   * A live payment is never treated as on or after the start before FIRST_ELIGIBLE_DATE, even if this is earlier.
+   */
   creditStartDate: string;
   sgo: {
     /** Which list the entry comes from. Only the IRS-published list supports the credit-eligible label. */
@@ -164,7 +168,7 @@ export interface CreditEligibilityResult {
   /** `headline.message` when the gift is not credit-eligible (for `donations.credit_ineligible_reason`); null when it is. */
   ineligibleReason: string | null;
   beforeCreditStart: boolean;
-  /** The instant the credit-eligible path opens for `creditStartDate`, ISO 8601 UTC. */
+  /** The instant the credit-eligible path opens for this payment (live: never before FIRST_ELIGIBLE_DATE), ISO 8601 UTC. */
   creditStartInstant: string;
   paymentMethodClass: PaymentMethodClass;
   /** Present when `donorTimeZone` was given. */
@@ -223,8 +227,11 @@ export function assessCreditEligibility(input: CreditEligibilityInput): CreditEl
   const parsed = parseInput(eligibilityInputSchema, input, "eligibility input");
   const { paidAt, sgo, attestations } = parsed;
   const renderOptions: RenderCopyOptions = { sgoListSource: sgo.listSource };
-  const startDateText = formatIsoDateLong(parsed.creditStartDate);
-  const startInstant = creditStartInstant(parsed.creditStartDate);
+  // The configured start date may be moved earlier for sandbox demos, but no real payment made before the first
+  // date a qualified contribution can be made is ever labeled credit-eligible, whatever the setting says.
+  const startDate = parsed.liveMode && parsed.creditStartDate < FIRST_ELIGIBLE_DATE.value ? FIRST_ELIGIBLE_DATE.value : parsed.creditStartDate;
+  const startDateText = formatIsoDateLong(startDate);
+  const startInstant = creditStartInstant(startDate);
 
   const blockers: EligibilityBlocker[] = [];
   const warnings: EligibilityWarning[] = [];

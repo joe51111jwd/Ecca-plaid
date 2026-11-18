@@ -23,7 +23,7 @@ import {
 import { sha256Hex, stableStringify } from "./hash";
 
 /** Version of the rules and algorithms in src/taxmath. Stored with every preview and donation. */
-export const TAXMATH_VERSION = "25f-taxmath.2026-11-18.v1";
+export const TAXMATH_VERSION = "25f-taxmath.2026-11-18.v2";
 
 /* ------------------------------------------------------------------ credit amount */
 

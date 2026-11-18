@@ -65,10 +65,10 @@ export function extractDocument(
   subtype: DocumentSubtype | Classification,
   policy?: Partial<DocumentReaderPolicy>,
 ): Extraction {
-  const doc = stripSyntheticBanner(typeof input === "string" ? documentTextFromString(input) : input);
   const target = typeof subtype === "string" ? subtype : subtype.subtype;
-  const ctx = defaultContext(doc, policy);
+  const ctx = defaultContext({ pages: [], source: "plain" }, policy);
   try {
+    ctx.doc = stripSyntheticBanner(typeof input === "string" ? documentTextFromString(input) : input);
     return EXTRACTORS[target](ctx);
   } catch (e) {
     // A defect in an extractor must not become a silent yes or an escaped exception: send it to review.

@@ -47,7 +47,7 @@ import { formatIsoDateLong, formatMonthDayLong } from "./dates";
 import { sha256Hex, stableStringify } from "./hash";
 
 /** Version of the words below. Stored with every designation, consent, receipt and preview snapshot. */
-export const COPY_VERSION = "25f-copy.2026-11-18.v1";
+export const COPY_VERSION = "25f-copy.2026-11-18.v2";
 
 export const COPY_LOCALES = ["en", "es"] as const;
 export type CopyLocale = (typeof COPY_LOCALES)[number];
@@ -1222,6 +1222,13 @@ const DEFINITIONS = {
     text: "Large-donor advisory. This donor's contributions, combined with any spouse's, total {aggregateAmount}: more than {substantialAmount} and more than {substantialPercent} of the {totalContributions} recorded as total contributions for the taxable year ({sharePercent}). Under the proposed rules that makes the donor a substantial contributor, and the organization may not award a scholarship to the donor or a member of the donor's family for that taxable year and the next.",
     authority: "proposed_reg",
     citation: `Prop. Treas. Reg. 1.25F-3(d) and Examples 2 and 3 (${NPRM}). [${REF} F49, F50, F53]`,
+  },
+  "sgo.substantial_contributor.is_running": {
+    kind: "statement",
+    audience: "sgo",
+    text: "Large-donor advisory. On the contributions received so far this taxable year, this donor's contributions, combined with any spouse's, total {aggregateAmount}: more than {substantialAmount} and more than {substantialPercent} of the {totalContributions} recorded as total contributions to date ({sharePercent}). Under the proposed rules, substantial-contributor status is determined at the close of the organization's taxable year, but on these figures a scholarship awarded now to the donor or a member of the donor's family would not qualify as an excepted scholarship.",
+    authority: "proposed_reg",
+    citation: `Prop. Treas. Reg. 1.25F-3(d)(2) (status at the close of the taxable year) and (d)(2)(ii) (excepted scholarships, tested on contributions received through the award date) (${NPRM}). [${REF} F50, F50a, F53]`,
   },
   "sgo.substantial_contributor.not": {
     kind: "statement",

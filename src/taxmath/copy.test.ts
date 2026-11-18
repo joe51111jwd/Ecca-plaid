@@ -35,6 +35,7 @@ import {
  */
 const PUBLISHED_REGISTRY_HASHES: Record<string, string> = {
   "25f-copy.2026-11-18.v1": "a15be8bbc5c8d924ac2e01c772ed752749b674ba81ec2163ebc089eb79066a8a",
+  "25f-copy.2026-11-18.v2": "e06fe170aeee7d6e11e2346cd74d1569945301bd244172bfd5947fa20571d5fc",
 };
 
 const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");

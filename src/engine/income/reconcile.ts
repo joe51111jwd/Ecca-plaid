@@ -34,6 +34,11 @@
  * annualized.
  *
  * JOINT RETURNS cover both spouses: the wage item names one and lists the other in `alsoCoversMemberIds`.
+ *
+ * THE SAME FORM TWICE. A Form W-2 that arrives both as an upload and through a payroll rail, or is uploaded
+ * twice, is one form: W-2s for the same person and employer with the same box 1 amount are counted once.
+ * When the amounts are equal and only one of the two names its employer, the engine cannot tell one form
+ * from two; it records both, leaves one out of the lower bound and raises `income_figures_conflict`.
  */
 import { z } from "zod";
 import { formatUsd } from "@/lib/money";
@@ -199,7 +204,7 @@ export const TAX_RECORD_LINES: Readonly<Record<TaxRecordLineKey, TaxRecordLineRu
 
 /* -------------------------------------------------------------------------------------- results */
 
-export type IgnoredEvidenceReason = "different_year" | "no_year_to_date_figure";
+export type IgnoredEvidenceReason = "different_year" | "no_year_to_date_figure" | "duplicate";
 
 export interface IgnoredEvidence {
   sourceId: string;
@@ -331,6 +336,37 @@ function latestPerEmployer(stubs: StubInYear[]): StubInYear[] {
   return [...latest.values()].sort((a, b) => a.stub.sourceId.localeCompare(b.stub.sourceId));
 }
 
+/* ------------------------------------------------------------------------------------ Forms W-2 */
+
+interface DistinctW2s {
+  /** One entry per distinct form. */
+  forms: W2Evidence[];
+  /** Copies of a form already in `forms`. */
+  duplicates: W2Evidence[];
+  /** Pairs with the same amount where only one names its employer: one form or two. */
+  possibleDuplicates: Array<{ kept: W2Evidence; other: W2Evidence }>;
+}
+
+/** Removes repeated copies of the same Form W-2 for one person and year. */
+function distinctW2s(w2s: W2Evidence[]): DistinctW2s {
+  const result: DistinctW2s = { forms: [], duplicates: [], possibleDuplicates: [] };
+  for (const w2 of [...w2s].sort((a, b) => a.sourceId.localeCompare(b.sourceId) || a.wagesCents - b.wagesCents)) {
+    const key = employerKey(w2.employerName);
+    const sameForm = result.forms.findIndex((form) => form.wagesCents === w2.wagesCents && employerKey(form.employerName) === key);
+    if (sameForm >= 0) {
+      const kept = result.forms[sameForm];
+      // The copy that also carries box 5 keeps it.
+      result.forms[sameForm] = { ...kept, medicareWagesCents: kept.medicareWagesCents === null ? w2.medicareWagesCents : Math.max(kept.medicareWagesCents, w2.medicareWagesCents ?? 0) };
+      result.duplicates.push(w2);
+      continue;
+    }
+    const maybeSame = result.forms.find((form) => form.wagesCents === w2.wagesCents && (employerKey(form.employerName) === "") !== (key === ""));
+    if (maybeSame) result.possibleDuplicates.push({ kept: maybeSame, other: w2 });
+    result.forms.push(w2);
+  }
+  return result;
+}
+
 /* ------------------------------------------------------------------------------------- internals */
 
 const FORM_RANK: Record<TaxRecordForm, number> = { irs_return_transcript: 0, irs_wage_income_transcript: 1, filed_return: 2 };
@@ -405,6 +441,18 @@ export function reconcileIncomeEvidence(input: { incomeYear: number; evidence: I
     }
   }
 
+  /* The same Form W-2 from two channels is one form. */
+  const possibleDuplicateCents = new Map<string, number>();
+  for (const memberId of unique(w2s.map((w2) => w2.memberId))) {
+    const mine = w2s.filter((w2) => w2.memberId === memberId);
+    const distinct = distinctW2s(mine);
+    w2s.splice(0, w2s.length, ...w2s.filter((w2) => w2.memberId !== memberId), ...distinct.forms);
+    for (const duplicate of distinct.duplicates) {
+      ignored.push({ sourceId: duplicate.sourceId, kind: "w2", reason: "duplicate", detail: "Another copy of the same Form W-2 (same person, employer and box 1 amount) is on file and is counted once." });
+    }
+    if (distinct.possibleDuplicates.length > 0) possibleDuplicateCents.set(memberId, distinct.possibleDuplicates.reduce((total, pair) => total + pair.other.wagesCents, 0));
+  }
+
   const flag = (code: IncomeFlagCode, severity: IncomeFlagSeverity, message: string, memberIds: string[], sourceIds: string[], itemId: string | null = null): void => {
     flags.push({ code, severity, message, itemId, memberIds: [...memberIds], sourceIds: unique(sourceIds) });
   };
@@ -450,7 +498,11 @@ export function reconcileIncomeEvidence(input: { incomeYear: number; evidence: I
       figure = { tier: own[0].form, amountCents: own[0].wagesCents, lowCents, highCents, governingSourceIds: [own[0].sourceId], origin: own[0].origin };
     } else if (memberW2s.length > 0) {
       const sorted = [...memberW2s].sort((a, b) => a.sourceId.localeCompare(b.sourceId));
-      figure = { tier: "w2", amountCents: taxable, lowCents: taxable, highCents: taxable, governingSourceIds: unique(sorted.map((w2) => w2.sourceId)), origin: sorted[0].origin };
+      const maybeCountedTwice = possibleDuplicateCents.get(memberId) ?? 0;
+      if (maybeCountedTwice > 0) {
+        conflicts.push(`two Forms W-2 show the same amount and only one names its employer, so ${formatUsd(maybeCountedTwice)} may be the same wages counted twice`);
+      }
+      figure = { tier: "w2", amountCents: taxable, lowCents: taxable - maybeCountedTwice, highCents: taxable, governingSourceIds: unique(sorted.map((w2) => w2.sourceId)), origin: sorted[0].origin };
     }
 
     const upliftBase = memberW2s.length > 0 ? taxable : (figure?.amountCents ?? 0);

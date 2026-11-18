@@ -220,7 +220,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     ["Scholarship granting organization", [part(record.sgo.name), ...(sgoDetail === "" ? [] : [part(sgoDetail, MUTED)])]],
     [household.students.length === 1 ? "Student" : "Students", [part(students)]],
     ["Household size", [part(`${household.size} ${household.size === 1 ? "person" : "persons"}`)]],
-    ["Method", [part(decision.method_label), part(`${METHOD_BASIS_LABEL[decision.method_basis]}. ${decision.method_citation}`, MUTED)]],
+    ["Method", [part(decision.method_label), part(`${METHOD_BASIS_LABEL[decision.method_basis]}.${decision.method_citation ? ` ${decision.method_citation}` : ""}`, MUTED)]],
     ["County and area", [part(`${county} (FIPS ${geography.county_fips})`), part(`${geography.area_name} (area code ${geography.area_code})`, MUTED)]],
     [threshold.label.limit_label, limitFact],
     ...basisFacts,
@@ -607,7 +607,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   const generatedAt = new Date(record.generated_at);
   const doc = pdf.doc;
   doc.setTitle(`${DOCUMENT_TITLE} ${record.verification_id}`, { showInWindowTitleBar: true });
-  doc.setSubject(`Household income verification for ${record.sgo.name}: ${STATUS_LABEL[decision.status].toLowerCase()}, ${decision.method} method${test ? " (test mode)" : ""}`);
+  doc.setSubject(`Household income verification for ${record.sgo.name}: ${STATUS_LABEL[decision.status].toLowerCase()}${decision.method ? `, ${decision.method} method` : ""}${test ? " (test mode)" : ""}`);
   doc.setAuthor(brandName);
   doc.setCreator(`${brandName} evidence engine ${record.versions.engine}`);
   doc.setProducer(`${EVIDENCE_PDF_RENDERER} (pdf-lib)`);

@@ -2,7 +2,7 @@ import { KeyObject } from "node:crypto";
 import type { z } from "zod";
 import { canonicalJson, ed25519Sign, ed25519Verify, publicKeyFromJwk, sha256Hex } from "@/lib/crypto";
 import { invalid } from "@/lib/errors";
-import { EVIDENCE_COPY_VERSION, METHOD_LABEL, PROGRAM_LABEL, decisionSummary, methodCitation, reliedOnStatement, type LimitFacts } from "./copy";
+import { APPROVAL_RULED_OUT, EVIDENCE_COPY_VERSION, METHOD_LABEL, METHOD_NOT_DETERMINED, PROGRAM_LABEL, decisionSummary, methodCitation, reliedOnStatement, type LimitFacts } from "./copy";
 import { formatMoney } from "./format";
 import { EVIDENCE_POLICY } from "./policy";
 import { evidenceInputSchema, type ParsedEvidenceInput } from "./schema";
@@ -216,6 +216,7 @@ function crossFieldIssues(input: ParsedEvidenceInput, detail: Detail, add: (path
   const applicationYear = Number(decision.applicationDate.slice(0, 4));
   if (decision.incomeYear !== applicationYear - 1) add("decision.incomeYear", "inconsistent", `must be the calendar year before the application date (${applicationYear - 1})`);
   if (decision.status === "needs_review" && decision.reasons.length === 0) add("decision.reasons", "invalid", "must say why the verification needs review");
+  if (decided && decision.method === null) add("decision.method", "invalid", "is required for a decided verification: direct or categorical");
   if (decision.decidedAt > input.generatedAt) add("decision.decidedAt", "inconsistent", "is later than generatedAt");
   if (decision.expiresAt !== null && decision.expiresAt <= decision.decidedAt) add("decision.expiresAt", "inconsistent", "is not later than decidedAt");
   if (consent.grantedAt > decision.decidedAt) add("consent.grantedAt", "inconsistent", "is later than the decision: consent has to come first");
@@ -326,7 +327,9 @@ function crossFieldIssues(input: ParsedEvidenceInput, detail: Detail, add: (path
       if (categorical.program === null) add("categorical.program", "missing_audit_field", "is required for an eligible categorical decision");
       if (categorical.letterDate === null) add("categorical.letterDate", "missing_audit_field", "is required for an eligible categorical decision");
       if (categorical.documentId === null) add("categorical.documentId", "missing_audit_field", "is required for an eligible categorical decision: the document that shows the approval");
-      if (categorical.approvalStatus === "not_current") add("decision.status", "decision_contradicts_record", "is eligible, but the documentation shows the approval is not current");
+      if (APPROVAL_RULED_OUT.has(categorical.approvalStatus)) {
+        add("decision.status", "decision_contradicts_record", `is eligible, but the documentation shows the approval is ${categorical.approvalStatus}, not current`);
+      }
       if (categorical.approvalStatus === "unclear" && decision.decidedBy.type === "engine") {
         add("decision.status", "decision_contradicts_record", "is eligible by the engine, but the approval status is unclear: an unclear document goes to a reviewer");
       }
@@ -379,6 +382,7 @@ function scrubRecord(record: EvidenceRecord): { record: EvidenceRecord; removed:
 }
 
 function methodBasis(input: ParsedEvidenceInput): EvidenceMethodBasis {
+  if (input.decision.method === null) return "not_determined";
   if (input.decision.method === "categorical") return input.documents.length > 0 ? "categorical_documentation" : "none_recorded";
   if (input.documents.length > 0 && input.rails.length > 0) return "written_documentation_and_other_relevant_data_sources";
   if (input.documents.length > 0) return "written_documentation";
@@ -519,9 +523,9 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
     decision: {
       status: decision.status,
       method: decision.method,
-      method_label: METHOD_LABEL[decision.method],
+      method_label: decision.method === null ? METHOD_NOT_DETERMINED : METHOD_LABEL[decision.method],
       method_basis: methodBasis(data),
-      method_citation: methodCitation(decision.method),
+      method_citation: decision.method === null ? null : methodCitation(decision.method),
       summary,
       reasons: decision.reasons.map((reason) => ({ code: reason.code, message: reason.message, member_ids: reason.memberIds, source_ids: reason.sourceIds })),
       application_date: decision.applicationDate,

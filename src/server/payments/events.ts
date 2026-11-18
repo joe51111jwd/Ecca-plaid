@@ -6,7 +6,7 @@ import { conflict } from "@/lib/errors";
 import { audit, type AuditActor, type AuditRequestInfo } from "@/server/audit";
 import { enqueue } from "@/server/jobs";
 import { META, readPaymentMeta, type InvoiceRow, type PaymentRow } from "./metadata";
-import { PAID_AT_BASIS } from "./policy";
+import { PAID_AT_BASIS, type PaidAtBasis } from "./policy";
 import type { InvoiceEvent, PaymentEvent, ProcessorEvent } from "./types";
 
 /**
@@ -140,8 +140,9 @@ export function decidePaymentTransition(current: PaymentStateView, event: Paymen
   }
 }
 
-function paidAtFor(event: { chargedAt: Date; occurredAt: Date }): Date {
-  return PAID_AT_BASIS === "charge_created" ? event.chargedAt : event.occurredAt;
+/** The instant recorded as `paid_at` for a success event, under the given policy (see PAID_AT_BASIS). Exported for tests. */
+export function paidAtFor(event: { chargedAt: Date; occurredAt: Date }, basis: PaidAtBasis = PAID_AT_BASIS): Date {
+  return basis === "charge_created" ? event.chargedAt : event.occurredAt;
 }
 
 function eventActor(event: ProcessorEvent): AuditActor {
@@ -167,6 +168,11 @@ async function applyPaymentEvent(event: PaymentEvent, db: DbOrTx): Promise<Apply
     if (!payment) return ignored("unknown_object");
 
     const meta = readPaymentMeta(payment);
+    if (event.connectedAccountId && meta.connectedAccountId && event.connectedAccountId !== meta.connectedAccountId) {
+      // An event from one connected account must never move a payment that belongs to another.
+      console.error(`[payments] ${event.processor} event ${event.id} for ${event.processorPaymentId} came from account ${event.connectedAccountId}, not the account payment ${payment.id} was charged on. Ignored.`);
+      return ignored("unknown_object");
+    }
     const decision = decidePaymentTransition(
       { status: payment.status, attemptId: meta.attemptId, lastEventAt: meta.lastEventAt, refundedCents: meta.refundedCents },
       event,

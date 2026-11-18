@@ -129,6 +129,38 @@ describe("reconcileIncomeEvidence: wages are counted once", () => {
     expect(reconcile([w2({ wagesCents: 3_000_000, medicareWagesCents: 2_900_000 })]).items[0]).toMatchObject({ lowCents: 3_000_000, highCents: 3_000_000 });
   });
 
+  it("counts a W-2 that arrives twice (an upload and a payroll rail) once", () => {
+    const uploaded = w2({ sourceId: "doc_w2_upload", medicareWagesCents: null });
+    const fromRail = w2({ sourceId: "rail_payroll", origin: "rail", employerName: "SYNTHETIC EMPLOYER ONE" });
+    const result = reconcile([fromRail, uploaded]);
+    expect(result.items).toHaveLength(1);
+    // Box 5 from the copy that carries it is kept.
+    expect(result.items[0]).toMatchObject({ annualAmountCents: 5_200_000, lowCents: 5_200_000, highCents: 5_460_000, documentId: "doc_w2_upload" });
+    expect(result.flags).toEqual([]);
+    expect(result.ignored).toEqual([{ sourceId: "rail_payroll", kind: "w2", reason: "duplicate", detail: expect.stringContaining("counted once") }]);
+    // The same upload three times.
+    expect(reconcile([w2(), w2(), w2()]).items[0].annualAmountCents).toBe(5_200_000);
+  });
+
+  it("keeps two W-2s apart when the employer or the amount differs", () => {
+    // Two jobs that happened to pay the same.
+    expect(reconcile([w2(), w2({ employerName: "Synthetic Employer Two" })]).items[0].annualAmountCents).toBe(10_400_000);
+    // Two forms from one employer with different amounts.
+    expect(reconcile([w2(), w2({ wagesCents: 300_000, medicareWagesCents: null })]).items[0].annualAmountCents).toBe(5_500_000);
+    // Two people.
+    expect(reconcile([w2(), w2({ memberId: B })]).items).toHaveLength(2);
+  });
+
+  it("flags two W-2s with the same amount when only one names its employer: one form or two", () => {
+    const result = reconcile([w2({ medicareWagesCents: null }), w2({ employerName: null, medicareWagesCents: null })]);
+    expect(result.items[0]).toMatchObject({ annualAmountCents: 10_400_000, lowCents: 5_200_000, highCents: 10_400_000 });
+    expect(flagCodes(result)).toEqual(["income_figures_conflict:blocking"]);
+    expect(result.flags[0].message).toContain("may be the same wages counted twice");
+    expect(result.ignored).toEqual([]);
+    // Neither names an employer: the same person, year and amount is treated as one form.
+    expect(reconcile([w2({ employerName: null }), w2({ employerName: null })]).items[0].annualAmountCents).toBe(5_200_000);
+  });
+
   it("does not double count a W-2, a filed return and an IRS transcript for the same wages", () => {
     const transcript = record({ form: "irs_return_transcript", wagesCents: 5_200_000 });
     const filed = record({ wagesCents: 5_200_049 }); // cents the transcript rounds away

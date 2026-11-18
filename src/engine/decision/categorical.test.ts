@@ -161,6 +161,14 @@ describe("evaluateAwardLetter", () => {
     expect(codes(evaluate({ benefitPeriodEnd: "2027-03-01" }, { applicationDate: "2027-02-20", today: "2027-03-15" }))).toEqual(["benefit_period_ended"]);
   });
 
+  it("sends written documentation that is not an award letter to a person", () => {
+    const printout = evaluate({ documentType: "other" });
+    expect(printout.outcome).toBe("review");
+    expect(codes(printout)).toEqual(["documentation_not_award_letter"]);
+    expect(printout.defects[0].message).toContain("such as an award letter");
+    expect(evaluate({ documentType: "award_letter" }).outcome).toBe("pass");
+  });
+
   it("requires the recipient to be matched to the roster with confidence", () => {
     expect(codes(evaluate({ matchedMemberId: null }))).toEqual(["recipient_not_matched"]);
     const stranger = evaluate({ matchedMemberId: "hm_not_on_roster" });
@@ -222,6 +230,7 @@ describe("evaluateAwardLetter", () => {
     record(evaluate({ letterDate: "2028-01-01" }));
     record(evaluate({ letterDate: "2026-03-01" }, { applicationDate: "2027-02-20" }));
     record(evaluate({ benefitPeriodEnd: "2027-01-31" }));
+    record(evaluate({ documentType: "other" }));
     record(evaluate({ matchedMemberId: null }));
     record(evaluate({ nameMatchConfidence: 0.2 }));
     record(evaluate({ extractionConfidence: 0.2 }));

@@ -220,7 +220,8 @@ const decidedBySchema = z.discriminatedUnion(
 
 const decisionSchema = z.object({
   status: requiredEnum(["eligible", "ineligible", "needs_review"], "the decision status"),
-  method: requiredEnum(["direct", "categorical"], "the verification method"),
+  method: z
+    .union([z.enum(["direct", "categorical"]), z.null()], { error: (issue) => (issue.input === undefined ? "is required: the verification method (null only while in review)" : "must be direct, categorical or null") }),
   reasons: list(reasonSchema, L.reasons, "the decision reasons"),
   decidedAt: timestamp("when the decision was made"),
   decidedBy: decidedBySchema,
@@ -354,7 +355,7 @@ const incomeSchema = z.object({
 const categoricalSchema = z.object({
   program: optionalEnum(["SNAP", "TANF", "WIC", "SECTION_8", "SSI"]),
   letterDate: optionalCalendarDate(),
-  approvalStatus: requiredEnum(["current", "not_current", "unclear"], "the approval status read from the documentation"),
+  approvalStatus: requiredEnum(["approved", "denied", "terminated", "pending", "unclear"], "the approval status read from the documentation"),
   issuingAgency: optionalText(L.shortText),
   namedMemberId: optionalId(),
   benefitPeriodEnd: optionalCalendarDate(),
@@ -400,8 +401,8 @@ function parseScopeValue(value: unknown, ctx: Ctx, depth: number, path: string):
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "string") return normalizeText(value).slice(0, L.longText);
   if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) return fail(ctx, `${path} is not a whole number; write other numbers as text`);
-    return value;
+    // The record holds no floats. A fraction in a scope (for example a number of years) is kept as its decimal text.
+    return Number.isSafeInteger(value) ? value : String(value);
   }
   if (depth >= L.scopeDepth) return fail(ctx, `${path} is nested more than ${L.scopeDepth} levels deep`);
   if (Array.isArray(value)) {

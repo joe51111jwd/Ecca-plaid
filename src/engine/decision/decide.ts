@@ -90,6 +90,7 @@ const letterSchema = z.strictObject({
   extractionConfidence: confidence,
   extractedBy: z.enum(["parser", "model", "reviewer"]),
   benefitPeriodEnd: isoDateSchema.nullable().optional(),
+  documentType: z.enum(["award_letter", "other"]).optional(),
 });
 
 const directSchema = z.strictObject({
@@ -98,6 +99,7 @@ const directSchema = z.strictObject({
   certifications: z.array(incomeCertificationSchema).max(500).optional(),
   sources: z.array(incomeDocumentSourceSchema).max(500).optional(),
   evidenceFlags: z.array(incomeReviewFlagSchema).max(500).optional(),
+  unreadDocuments: z.array(z.strictObject({ documentId: idSchema, memberId: idSchema.nullable() })).max(200).optional(),
 });
 
 const railReportSchema = z.strictObject({

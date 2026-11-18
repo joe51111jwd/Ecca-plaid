@@ -22,9 +22,9 @@ export const STRIPE_GIFT_PAYMENT_METHOD_TYPES = ["card", "us_bank_account"] as c
 export const STRIPE_INVOICE_PAYMENT_METHOD_TYPES = ["us_bank_account", "card"] as const;
 
 /**
- * Smallest and largest charge accepted. The floor is Stripe's documented USD minimum (reference fact 43);
- * the ceiling is the eight-digit limit documented on PaymentIntent.amount. The sandbox applies the same
- * bounds so a flow that works in the sandbox also works on Stripe.
+ * Smallest and largest charge accepted. Both come from Stripe's documentation of PaymentIntent.amount
+ * (shipped with the SDK's types): "The minimum amount is $0.50 US" and "supports up to eight digits".
+ * The sandbox applies the same bounds so a flow that works in the sandbox also works on Stripe.
  */
 export const MIN_CHARGE_CENTS = 50;
 export const MAX_CHARGE_CENTS = 99_999_999;

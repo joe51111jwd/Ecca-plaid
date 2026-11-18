@@ -7,8 +7,9 @@ import { newId } from "@/lib/ids";
 import { listAuditLogs } from "@/server/audit";
 import { listJobs } from "@/server/jobs";
 import { useTestDb } from "../../../tests/helpers/db";
-import { applyProcessorEvent, canInvoiceBecome, decidePaymentTransition, type PaymentDecision, type PaymentStateView } from "./events";
+import { applyProcessorEvent, canInvoiceBecome, decidePaymentTransition, paidAtFor, type PaymentDecision, type PaymentStateView } from "./events";
 import { META } from "./metadata";
+import { PAID_AT_BASIS } from "./policy";
 import { createTestBusiness, createTestCheckout, createTestSgo } from "./test-support";
 import type { InvoiceEvent, PaymentEvent, ProcessorEvent } from "./types";
 
@@ -115,6 +116,16 @@ describe("decidePaymentTransition", () => {
     expect(short(decidePaymentTransition(state("succeeded"), partial))).toBe("update");
     expect(short(decidePaymentTransition(state("succeeded", { refundedCents: 2_500 }), partial))).toBe("ignore:duplicate");
     expect(short(decidePaymentTransition(state("succeeded", { refundedCents: 2_500 }), event("payment.refunded", { refundedAmountCents: 10_000, fullyRefunded: true })))).toBe("refunded");
+  });
+});
+
+describe("paidAtFor", () => {
+  it("dates a gift by the charge under the default policy, and by the confirmation under the alternative", () => {
+    const times = { chargedAt: at("2026-12-31T23:59:30-06:00"), occurredAt: at("2027-01-05T15:00:00Z") };
+    expect(PAID_AT_BASIS).toBe("charge_created");
+    expect(paidAtFor(times)).toBe(times.chargedAt);
+    expect(paidAtFor(times, "charge_created")).toBe(times.chargedAt);
+    expect(paidAtFor(times, "payment_succeeded")).toBe(times.occurredAt);
   });
 });
 
@@ -299,6 +310,15 @@ describe("applyProcessorEvent", () => {
     expect(await applyProcessorEvent({ ...ev("payment.succeeded"), processor: "sandbox" })).toEqual({ applied: false, ignored: "unknown_object", retry: false });
     expect((await row()).status).toBe("requires_payment");
     expect(await jobsFor()).toHaveLength(0);
+  });
+
+  it("ignores an event that comes from a different connected account than the one the payment was charged on", async () => {
+    const direct = await insertPayment({ metadata: { [META.mode]: "test", [META.connectedAccountId]: "acct_1SyntheticSgo", [META.settlementMode]: "direct" } });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await applyProcessorEvent(ev("payment.succeeded", { connectedAccountId: "acct_1SomeoneElse" }, direct))).toEqual({ applied: false, ignored: "unknown_object", retry: false });
+    expect(error).toHaveBeenCalledOnce();
+    expect((await row(direct)).status).toBe("requires_payment");
+    expect(await applyProcessorEvent(ev("payment.succeeded", { connectedAccountId: "acct_1SyntheticSgo" }, direct))).toMatchObject({ applied: true, to: "succeeded" });
   });
 
   it("refuses to record a success for an amount other than the one collected", async () => {

@@ -103,7 +103,8 @@ function today(): string {
 export type OwnerMemberInput = Omit<MemberInput, "kind">;
 
 /**
- * Creates or updates the owner's own row: kind "adult", linked to the owner's sign-in, `isOwner` true. There
+ * Creates or updates the owner's own row: kind "adult", linked to the owner's sign-in, `isOwner` true. A date
+ * of birth sets it, null clears it, absent keeps the stored one (as in updateMember). There
  * is never more than one; the household is incomplete (snapshot `missing` has "owner_member") until it exists.
  */
 export async function upsertOwnerMember(householdId: string, input: OwnerMemberInput, actor: HouseholdActor, dbOrTx?: DbOrTx): Promise<HouseholdMemberView> {
@@ -114,7 +115,11 @@ export async function upsertOwnerMember(householdId: string, input: OwnerMemberI
     const parsed = parseMemberInput({ ...(input as object), kind: "adult" }, today());
     const members = await listActiveMemberRows(tx, household.id);
     const existing = members.find((m) => m.isOwner);
-    const values = { firstName: parsed.firstName, lastName: parsed.lastName, relationship: parsed.relationship, dobEnc: parsed.dob ? encryptDob(parsed.dob) : null };
+    // Same rule as updateMember: a date sets it, null or "" clears it, absent keeps what is stored, so a form
+    // that edits only the name never silently erases the date of birth.
+    const dobGiven = typeof input === "object" && input !== null && (input as { dob?: unknown }).dob !== undefined;
+    const keptDob = !dobGiven && existing ? existing.dobEnc : null;
+    const values = { firstName: parsed.firstName, lastName: parsed.lastName, relationship: parsed.relationship, dobEnc: parsed.dob ? encryptDob(parsed.dob) : keptDob };
 
     let row: HouseholdMemberRow;
     if (existing) {

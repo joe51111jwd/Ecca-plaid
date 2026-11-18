@@ -72,4 +72,5 @@ export {
   type SgoPolicyInput,
   type ThresholdReliedOn,
   type ThresholdTableInfo,
+  type UnreadDocument,
 } from "./types";

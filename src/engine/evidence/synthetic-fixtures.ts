@@ -184,7 +184,7 @@ export function syntheticCategoricalEligibleInput(): EvidenceInput {
     categorical: {
       program: "SNAP",
       letterDate: "2026-08-14",
-      approvalStatus: "current",
+      approvalStatus: "approved",
       issuingAgency: "Synthetic State Benefits Agency",
       namedMemberId: "hm_SYNTHETICmember000002",
       benefitPeriodEnd: "2027-01-31",

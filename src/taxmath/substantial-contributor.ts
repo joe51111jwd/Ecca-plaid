@@ -150,7 +150,7 @@ function runTest(totals: ContributionTotalsInput, field: string): ThresholdTest 
   };
 }
 
-function advisoryFor(test: ThresholdTest): SubstantialContributorAdvisory | null {
+function advisoryFor(test: ThresholdTest, basis: SubstantialContributorInput["basis"]): SubstantialContributorAdvisory | null {
   if (!test.exceedsAmountThreshold) return null;
   const aggregateAmount = formatUsd(test.aggregateCents);
   if (test.substantial === null || test.totalContributionsCents === null || test.shareBps === null) {
@@ -163,7 +163,9 @@ function advisoryFor(test: ThresholdTest): SubstantialContributorAdvisory | null
     };
   }
   const vars = { aggregateAmount, totalContributions: formatUsd(test.totalContributionsCents), sharePercent: percentText(test.shareBps) };
-  const copyId: CopyId = test.substantial ? "sgo.substantial_contributor.is" : "sgo.substantial_contributor.not";
+  // Status is fixed only at the close of the SGO's taxable year, so a running figure must not be worded as the determination.
+  const metCopyId: CopyId = basis === "year_end" ? "sgo.substantial_contributor.is" : "sgo.substantial_contributor.is_running";
+  const copyId: CopyId = test.substantial ? metCopyId : "sgo.substantial_contributor.not";
   return { code: test.substantial ? "substantial_contributor" : "not_substantial_contributor", audience: "sgo", copyId, message: renderCopyDynamic(copyId, vars) };
 }
 
@@ -196,7 +198,7 @@ export function assessSubstantialContributor(input: SubstantialContributorInput)
   // total, else one that is over the amount but under the share.
   const leading =
     tests.find((test) => test.substantial === true) ?? tests.find((test) => test.substantial === null) ?? tests.find((test) => test.exceedsAmountThreshold);
-  const advisory = leading ? advisoryFor(leading) : null;
+  const advisory = leading ? advisoryFor(leading, parsed.basis) : null;
   if (advisory) advisories.push(advisory);
   if (projected?.exceedsAmountThreshold && !organization.exceedsAmountThreshold) {
     const copyId: CopyId = "sgo.substantial_contributor.projected";

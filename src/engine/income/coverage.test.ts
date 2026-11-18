@@ -33,7 +33,7 @@ describe("assessCoverage", () => {
       [sofia.id, false, "not_required"],
     ]);
     expect(result.members[2].notRequiredReason).toBe("under_18");
-    expect([result.requiredMemberCount, result.documentedMemberCount, result.certifiedZeroIncomeMemberCount]).toEqual([2, 2, 0]);
+    expect([result.requiredMemberCount, result.documentedMemberCount, result.certifiedZeroIncomeMemberCount, result.evidencedItemCount]).toEqual([2, 2, 0, 2]);
     expect(result.flags).toEqual([]);
   });
 
@@ -183,6 +183,20 @@ describe("assessCoverage", () => {
       expect(result.missing[0].message.en).toContain("for a household member");
       expect(result.missing[0].message.es).toContain("de un miembro del hogar");
     });
+  });
+
+  it("counts the items that are backed by evidence and can count, for any member", () => {
+    const result = assess(
+      [
+        item({ memberId: sofia.id, category: "social_security" }), // a child's benefit, documented
+        item({ category: "snap" }), // documented, never counts
+        item({ source: "self_reported", documentId: null }), // not evidenced
+        item({ incomeYear: 2025 }), // another year
+      ],
+      [certification()],
+    );
+    expect(result.evidencedItemCount).toBe(1);
+    expect(result.documentedMemberCount).toBe(0);
   });
 
   it("ignores income items for other years", () => {

@@ -152,7 +152,7 @@ describe("buildEvidenceRecord: the two synthetic samples", () => {
     });
     expect(record.threshold.relied_on_statement).toMatch(/^Household income was not compared with the income limit/);
     expect(record.income).toBeNull();
-    expect(record.categorical).toMatchObject({ program: "SNAP", letter_date: "2026-08-14", approval_status: "current", document_id: "doc_SYNTHETICawardletter01" });
+    expect(record.categorical).toMatchObject({ program: "SNAP", letter_date: "2026-08-14", approval_status: "approved", document_id: "doc_SYNTHETICawardletter01" });
     expect(record.documents).toHaveLength(1);
     expect(record.documents[0]).toMatchObject({ id: "doc_SYNTHETICawardletter01", sha256: syntheticSha256("SNAP award letter"), raw_file_status: "retained", purged_at: null, extracted_by: "parser" });
     expect(record.consent).toMatchObject({ copy_version: "synthetic-consent-copy.v1", granted_at: "2027-01-11T17:55:42.000Z", granted_by: "María Peña", locale: "es" });
@@ -634,7 +634,6 @@ describe("buildEvidenceRecord: refuses malformed values", () => {
     ["documents[0].sizeBytes", (copy: Mutable & EvidenceInput) => void (copy.documents[0].sizeBytes = 0)],
     ["documents[0].kind", (copy: Mutable & EvidenceInput) => void (loose(copy.documents[0]).kind = "passport")],
     ["documents[0].extractedFields[0].confidencePct", (copy: Mutable & EvidenceInput) => void (copy.documents[0].extractedFields[0].confidencePct = 99.5)],
-    ["consent.scope", (copy: Mutable & EvidenceInput) => void (copy.consent.scope = { retentionYears: 2.5 })],
     ["consent.scope", (copy: Mutable & EvidenceInput) => void (copy.consent.scope = { a: { b: { c: { d: { e: 1 } } } } })],
     ["consent.scope", (copy: Mutable & EvidenceInput) => void (loose(copy.consent).scope = ["x"])],
     ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => void (loose(copy.decision.decidedBy).notes = "n".repeat(EVIDENCE_POLICY.limits.notes + 1))],
@@ -645,6 +644,12 @@ describe("buildEvidenceRecord: refuses malformed values", () => {
   ])("%s", (path, change) => {
     const issues = issuesOf(altered(syntheticDirectReviewedInput(), change));
     expect(issues.some((issue) => issue.path === path), JSON.stringify(issues)).toBe(true);
+  });
+
+  it("keeps a fraction in a consent scope as text, so the record stays free of floats", () => {
+    const record = buildEvidenceRecord(altered(syntheticDirectReviewedInput(), (copy) => void (copy.consent.scope = { retentionYears: 2.5, copies: 3, nested: { ratio: 0.1, list: [1, 1.25, null, true] } })));
+    expect(record.consent.scope).toEqual({ retentionYears: "2.5", copies: 3, nested: { ratio: "0.1", list: [1, "1.25", null, true] } });
+    expect(() => canonicalJson(record)).not.toThrow();
   });
 
   it("normalizes an EIN and a hash written in upper case", () => {
@@ -750,7 +755,7 @@ describe("buildEvidenceRecord: the decision has to follow from the record", () =
 
   it("a categorical verification is never ineligible, and never eligible on an approval that is not current", () => {
     expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.decision.status = "ineligible")), "decision.status", "decision_contradicts_record", /cannot be ineligible under the categorical method/);
-    expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.categorical!.approvalStatus = "not_current")), "decision.status", "decision_contradicts_record", /not current/);
+    expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.categorical!.approvalStatus = "denied")), "decision.status", "decision_contradicts_record", /not current/);
     // An unclear approval is a reviewer's call, never the engine's.
     expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.categorical!.approvalStatus = "unclear")), "decision.status", "decision_contradicts_record", /goes to a reviewer/);
     const reviewed = buildEvidenceRecord(
@@ -760,6 +765,35 @@ describe("buildEvidenceRecord: the decision has to follow from the record", () =
       }),
     );
     expect(reviewed.decision.summary).toContain("The approval status read from the document was unclear, and a reviewer made the decision; see the review trail.");
+  });
+
+  it("a verification in review may have no settled method; a decided one may not", () => {
+    const base = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.decision.status = "needs_review";
+      copy.decision.method = null;
+      copy.decision.decidedBy = { type: "engine" };
+      copy.decision.reasons = [{ code: "categorical_direct_conflict", message: "The letter and the income documents point different ways." }];
+      copy.categorical = { program: "TANF", letterDate: "2026-09-01", approvalStatus: "pending" };
+    });
+    const record = buildEvidenceRecord(base);
+    expect(record.decision).toMatchObject({ method: null, method_label: "Not yet determined", method_basis: "not_determined", method_citation: null });
+    expect(record.income).not.toBeNull();
+    expect(record.categorical).toMatchObject({ program: "TANF", approval_status: "pending" });
+    expect(record.decision.summary).toBe(
+      "Needs review: no eligibility decision has been made. Documentation for Temporary Assistance for Needy Families (TANF) was submitted under the categorical eligibility verification method of the proposed regulations (REG-117199-25), which are not final. " +
+        "Household cash income counted so far for calendar year 2026 is $84,250.37. The provisional income limit for a household of 5 in Starr County, TX is between $125,388.00 and $271,200.00, depending on the reading shown in the limit calculation. " +
+        "The reasons are listed in this record.",
+    );
+    expect(record.threshold.relied_on).toBe("none");
+    expectIssue(altered(syntheticDirectReviewedInput(), (copy) => void (copy.decision.method = null)), "decision.method", "invalid", /required for a decided verification/);
+    expectIssue(altered(syntheticDirectReviewedInput(), (copy) => void delete loose(copy.decision).method), "decision.method", "invalid", /is required/);
+    expectIssue(altered(syntheticDirectReviewedInput(), (copy) => void (loose(copy.decision).method = "safe_harbor")), "decision.method", "invalid", /direct, categorical or null/);
+  });
+
+  it("refuses an eligible categorical decision on documentation that shows no current approval", () => {
+    for (const status of ["denied", "terminated", "pending"] as const) {
+      expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.categorical!.approvalStatus = status)), "decision.status", "decision_contradicts_record", new RegExp(`approval is ${status}, not current`));
+    }
   });
 
   it("a categorical verification in review may still lack the program and the date", () => {

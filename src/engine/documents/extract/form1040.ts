@@ -118,7 +118,9 @@ export function extractForm1040(ctx: ExtractContext, subtype: "form_1040" | "for
   for (const spec of LINES) {
     for (const ref of refs) {
       if (!spec.label.test(ref.line.text)) continue;
-      const cents = amountAfterLabel(ref, spec.label, { skipTokens: [spec.id], allowNegative: spec.allowNegative });
+      // 2024 forms print AGI as line "11", later forms as "11a" (G3).
+      const skipTokens = spec.id === "11a" ? ["11a", "11"] : [spec.id];
+      const cents = amountAfterLabel(ref, spec.label, { skipTokens, allowNegative: spec.allowNegative });
       if (cents !== null) {
         b.set(spec.key, cents, CONF_VERIFIED, ref);
         break;

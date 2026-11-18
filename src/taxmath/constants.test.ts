@@ -45,6 +45,8 @@ import {
  */
 const PUBLISHED_RULE_FINGERPRINTS: Record<string, string> = {
   "25f-taxmath.2026-11-18.v1": "603d9c836ec8d87e794a85c7e352380bca0bde86615e2ed14e12e65f55490240",
+  // v2: same rule values; algorithm changes (live eligibility floored at FIRST_ELIGIBLE_DATE, pre-2027 carryforwards refused).
+  "25f-taxmath.2026-11-18.v2": "603d9c836ec8d87e794a85c7e352380bca0bde86615e2ed14e12e65f55490240",
 };
 
 describe("values from the statute", () => {

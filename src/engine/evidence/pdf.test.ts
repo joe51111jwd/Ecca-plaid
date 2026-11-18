@@ -5,7 +5,7 @@ import { PDF_COPY } from "./copy";
 import { formatUtcClock, formatUtcTimestamp, groupHash } from "./format";
 import { EVIDENCE_PDF_RENDERER, renderEvidencePdf } from "./pdf";
 import { buildEvidenceRecord, signEvidenceRecord } from "./record";
-import { syntheticCategoricalEligibleInput, syntheticDirectReviewedInput, syntheticDocuments, syntheticIrsPublishedThreshold } from "./synthetic-fixtures";
+import { syntheticCategoricalEligibleInput, syntheticDirectReviewedInput, syntheticDocuments, syntheticHarrisThreshold, syntheticIrsPublishedThreshold } from "./synthetic-fixtures";
 import { extractPdfText, generateTestSigningKey, type ExtractedPdf } from "./test-support";
 import type { EvidenceInput, EvidencePdfOptions, SignedEvidence } from "./types";
 
@@ -97,7 +97,7 @@ describe("renderEvidencePdf: what an auditor has to find", () => {
 
     // Categorical detail and timeline.
     expect(pdf.text).toContain("4. Categorical eligibility detail");
-    expect(pdf.text).toContain("Approval status read from the document Currently approved");
+    expect(pdf.text).toContain("Approval status read from the document Approved");
     expect(pdf.text).toContain("Household member named M.P. (adult) hm_SYNTHETICmember000002");
     expect(pdf.text).toContain(`${formatUtcClock("2027-01-11T17:55:42.000Z")} Consent given Family`);
     expect(pdf.text).not.toContain("Household income for");
@@ -188,6 +188,86 @@ describe("renderEvidencePdf: what an auditor has to find", () => {
     expect(pdf.text).toContain(PDF_COPY.noTimeline);
     expect(pdf.text).toContain(PDF_COPY.noFields);
     expect(pdf.text).toContain("No fields read");
+  });
+});
+
+describe("renderEvidencePdf: states that are not the plain case", () => {
+  it("describes a verification still in review, with whatever detail exists", async () => {
+    const input = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.decision.status = "needs_review";
+      copy.decision.decidedBy = { type: "engine" };
+      copy.decision.reasons = [{ code: "categorical_direct_conflict", message: "The letter and the income documents point different ways.", memberIds: ["hm_SYNTHETICmember000013"], sourceIds: ["doc_SYNTHETICw200000000001"] }];
+      copy.categorical = { program: "SNAP", letterDate: "2026-08-14", approvalStatus: "unclear", namedMemberId: "hm_SYNTHETICmember000013" };
+      copy.household.custody = { livesInMultipleHouseholds: true, monthsInThisHousehold: 8, equalTime: false, outcome: "this_household_longest" };
+    });
+    const { signed, pdf } = await render(input);
+    const cover = pdf.pages[0];
+    expect(cover).toContain("Needs review - No eligibility decision yet");
+    expect(cover).toContain(signed.record.decision.summary);
+    expect(cover).toContain("Sent to review 2027-02-03 15:12:44 UTC Decision engine, version synthetic-decision-engine-1.0.0");
+    expect(cover).not.toMatch(/\bDecided\b/);
+    expect(cover).toContain("Household income counted (2026) $84,250.37");
+    expect(cover).toContain("Categorical documentation on file Supplemental Nutrition Assistance Program (SNAP) Documentation dated August 14, 2026. Approval status read from the document: unclear from the document.");
+    expect(cover).not.toContain("The decision relied on");
+    expect(pdf.text).toContain("4. Household income for 2026");
+    expect(pdf.text).toContain("Categorical documentation on file Program Supplemental Nutrition Assistance Program (SNAP)");
+    expect(pdf.text).toContain("Sent to review by Decision engine, version synthetic-decision-engine-1.0.0");
+    expect(pdf.text).toContain("categorical_direct_conflict The letter and the income documents point different ways. About: A.G. (adult), doc_SYNTHETICw200000000001");
+    expect(pdf.text).toContain(`Which limit the decision relied on ${signed.record.threshold.relied_on_statement}`);
+    expect(pdf.text).toContain("Months in this household during the income year: 8");
+    expect(pdf.text).toContain("Determination: Under the proposed rules this is the student's household: the student resided here longest during the income year.");
+
+    const unsettled = await render(altered(input, (copy) => void (copy.decision.method = null)));
+    expect(unsettled.pdf.pages[0]).toContain("Method Not yet determined The method will be settled when the review is resolved.");
+    expect(unsettled.pdf.pages[0]).not.toContain("Prop. Reg.");
+    expect(unsettled.pdf.info.Subject).toBe("Household income verification for Synthetic Sample Scholarship Fund (not a real organization): needs review");
+
+    const nothing = await render(altered(input, (copy) => void ((copy.income = null), (copy.categorical = null))));
+    expect(nothing.pdf.pages[0]).toContain("Income or categorical basis Nothing recorded yet");
+    expect(nothing.pdf.text).toContain("4. Income or categorical detail No household income and no categorical documentation have been recorded yet.");
+  });
+
+  it("shows lines whose treatment is open and the range they give", async () => {
+    const input = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.income!.items.push({
+        id: "inc_SYNTHETICopen000000001",
+        category: "regular_contributions_from_outside",
+        categoryLabel: "Regular support from outside the household",
+        annualAmountCents: 600_000,
+        treatment: "review",
+        basis: "The sources do not settle whether this counts",
+        source: "self_reported",
+      });
+    });
+    const { pdf } = await render(input);
+    expect(pdf.pages[0]).toContain("Household income counted (2026) $84,250.37 Between $84,250.37 and $90,250.37 when lines that can be read more than one way are taken into account");
+    expect(pdf.text).toContain("Regular support from outside the household Reported by the family Open: in the upper figure only The sources do not settle whether this counts $6,000.00");
+    expect(pdf.text).toContain("Total household cash income counted for 2026 $84,250.37 Least it can be, where a line can be read more than one way $84,250.37 Most it can be, with the lines whose treatment is open $90,250.37");
+    // Without such lines the range rows are not printed.
+    expect((await render(syntheticDirectReviewedInput())).pdf.text).not.toContain("Most it can be");
+  });
+
+  it("says so when the decision relied on the statutory limit above an SGO's stricter cap", async () => {
+    const input = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.household.members.pop();
+      copy.household.size = 4;
+      copy.threshold = { ...syntheticHarrisThreshold(), capPct: 200, thresholdCents: 20_800_000, lowerBoundCents: 20_800_000, upperBoundCents: 20_800_000 };
+      copy.threshold.readings.forEach((reading) => void (reading.thresholdCents = 20_800_000));
+      copy.income = { year: 2026, totalCountedCents: 25_000_000, items: [{ id: "inc_SYNTHETICsingle0000001", category: "wages", categoryLabel: "Wages and salaries", annualAmountCents: 25_000_000, treatment: "counted", source: "document", documentId: "doc_SYNTHETICw200000000001" }] };
+    });
+    const { signed, pdf } = await render(input);
+    expect(pdf.pages[0]).toContain("$208,000.00 Set at 200% of area median income, the SGO's stricter cap The decision relied on the limit at the statutory 300%: $312,000.00");
+    expect(pdf.pages[0]).toContain(signed.record.decision.summary);
+    expect(pdf.text).toContain("Percent of area median 200% (the SGO's stricter cap) At the statutory 300% the limit is $312,000.00; the largest reading at 300% is $312,000.00");
+    expect(pdf.text).toContain(signed.record.threshold.relied_on_statement);
+  });
+
+  it("notes that income detail was left out of a categorical pack", async () => {
+    const income = { year: 2026, totalCountedCents: 4_200_000, items: [{ id: "inc_SYNTHETICextra00000001", category: "wages", categoryLabel: "Wages and salaries", annualAmountCents: 4_200_000, treatment: "counted" as const, source: "self_reported" as const }] };
+    const { pdf } = await render(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.income = income)));
+    expect(pdf.text).toContain(PDF_COPY.incomeOmitted);
+    expect(pdf.text).not.toContain("$42,000.00");
+    expect((await render(syntheticCategoricalEligibleInput())).pdf.text).not.toContain(PDF_COPY.incomeOmitted);
   });
 });
 
@@ -461,7 +541,7 @@ describe("renderEvidencePdf: reproducible and well described", () => {
 
   it("refuses a key set URL that is not an absolute http(s) URL, and an empty brand", async () => {
     const signed = signEvidenceRecord(buildEvidenceRecord(syntheticCategoricalEligibleInput()), key);
-    for (const verifyUrl of ["", "/.well-known/jwks.json", "javascript:alert(1)", "file:///etc/passwd", "not a url"]) {
+    for (const verifyUrl of ["", "/.well-known/jwks.json", "javascript:alert(1)", "file:///etc/passwd", "not a url", "https://user:secret@passport.example.org/.well-known/jwks.json"]) {
       await expect(renderEvidencePdf(signed, { ...OPTIONS, verifyUrl }), verifyUrl).rejects.toMatchObject({ code: "validation_failed" });
     }
     await expect(renderEvidencePdf(signed, { ...OPTIONS, brand: { name: "  " } })).rejects.toMatchObject({ code: "validation_failed" });

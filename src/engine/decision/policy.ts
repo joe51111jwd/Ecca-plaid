@@ -84,5 +84,5 @@ export const DEFAULT_DECISION_POLICY: Readonly<DecisionPolicy> = Object.freeze({
   certificationsAloneNeedReview: true,
 });
 
-/** Upper limit accepted for an SGO's review band: half the limit on either side. */
-export const MAX_REVIEW_BAND_BPS = 5_000;
+/** Upper limit accepted for an SGO's review band: the whole limit on either side, which sends every direct-method file to a person. */
+export const MAX_REVIEW_BAND_BPS = 10_000;

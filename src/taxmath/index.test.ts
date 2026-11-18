@@ -85,8 +85,8 @@ describe("the public API", () => {
   });
 
   it("exports the versions, the rule registry and the copy registry", () => {
-    expect(taxmath.TAXMATH_VERSION).toBe("25f-taxmath.2026-11-18.v1");
-    expect(taxmath.COPY_VERSION).toBe("25f-copy.2026-11-18.v1");
+    expect(taxmath.TAXMATH_VERSION).toBe("25f-taxmath.2026-11-18.v2");
+    expect(taxmath.COPY_VERSION).toBe("25f-copy.2026-11-18.v2");
     expect(taxmath.CREDIT_CAP_PER_TAXPAYER_CENTS.value).toBe(170_000);
     expect(taxmath.CARRYFORWARD_YEARS.value).toBe(5);
     expect(taxmath.FIRST_ELIGIBLE_DATE.value).toBe("2027-01-01");

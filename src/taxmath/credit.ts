@@ -284,8 +284,15 @@ function applyParsedLiabilityLimit(input: LiabilityLimitInput, path: string): Li
   }
   const seen = new Set<number>();
   const sorted = [...(input.carryforwards ?? [])].sort((a, b) => a.originYear - b.originYear);
+  const firstCreditYear = Number(FIRST_ELIGIBLE_DATE.value.slice(0, 4));
   sorted.forEach((bucket) => {
     const where = field("carryforwards");
+    // No section 25F credit can arise before the first credit year, so an earlier bucket would invent usable credit.
+    if (bucket.originYear < firstCreditYear) {
+      throw invalid("A carryforward cannot come from a tax year before the section 25F credit existed", {
+        fields: { [where]: `Origin year ${bucket.originYear} is before ${firstCreditYear}, the first year of the credit` },
+      });
+    }
     if (bucket.originYear >= input.taxYear) {
       throw invalid("A carryforward must come from a tax year before the current one", { fields: { [where]: `Origin year ${bucket.originYear} is not before ${input.taxYear}` } });
     }

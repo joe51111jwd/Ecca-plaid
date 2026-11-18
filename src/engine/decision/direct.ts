@@ -17,8 +17,8 @@
  * and only when the file can be relied on at all:
  *   - coverage is complete (income/coverage.ts); otherwise the household is asked for what is missing;
  *   - no blocking flag is open: self-employment, documents that disagree, a mid-year pay stub, a document
- *     read by a model or with low confidence, an item with no extraction record behind it, bank deposits
- *     standing in for income, statements with no document at all.
+ *     that could not be read, was read by a model or was read with low confidence, an item with no
+ *     extraction record behind it, bank deposits standing in for income, statements with no document at all.
  * "Over the limit" is an affirmative finding. Missing or doubtful evidence never produces it.
  */
 import { formatUsd } from "@/lib/money";
@@ -120,7 +120,8 @@ export interface EvaluateDirectContext {
 export function evaluateDirect(evidence: DirectEvidenceInput | null | undefined, context: EvaluateDirectContext): DirectEvaluation {
   const { incomeYear, members, threshold, railReports, policy } = context;
   const certifications = evidence?.certifications ?? [];
-  if (!evidence || (evidence.items.length === 0 && certifications.length === 0)) {
+  const unread = evidence?.unreadDocuments ?? [];
+  if (!evidence || (evidence.items.length === 0 && certifications.length === 0 && unread.length === 0)) {
     return { outcome: "none", income: null, coverage: null, methodBasis: null, reasons: [], reviewReasons: [], reliedOn: null };
   }
 
@@ -143,8 +144,16 @@ export function evaluateDirect(evidence: DirectEvidenceInput | null | undefined,
   const blocking = flags.filter((flag) => flag.severity === "blocking");
   const bounded = flags.filter((flag) => flag.severity === "bounded");
   const reviewReasons = blocking.map(flagReason);
+  for (const document of unread) {
+    reviewReasons.push({
+      code: "document_not_read",
+      message: "An income document is on file from which no figures could be read. A reviewer must read it and key the figures before income can be decided.",
+      memberIds: document.memberId === null ? [] : [document.memberId],
+      sourceIds: [document.documentId],
+    });
+  }
 
-  if (coverage.complete && coverage.documentedMemberCount === 0 && policy.certificationsAloneNeedReview) {
+  if (coverage.complete && coverage.evidencedItemCount === 0 && unread.length === 0 && policy.certificationsAloneNeedReview) {
     reviewReasons.push({
       code: "no_documentary_evidence",
       message:
@@ -156,7 +165,8 @@ export function evaluateDirect(evidence: DirectEvidenceInput | null | undefined,
 
   const result = (outcome: DirectOutcome, reliedOn: DirectEvaluation["reliedOn"] = null): DirectEvaluation => ({ outcome, income, coverage, methodBasis, reasons, reviewReasons, reliedOn });
 
-  if (!coverage.complete) return result("incomplete");
+  // An unread document may be the very proof that is missing: a reviewer looks before the household is asked again.
+  if (!coverage.complete) return result(unread.length > 0 ? "needs_review" : "incomplete");
   if (!threshold) return result("not_evaluated");
 
   const low = classifyAgainstThreshold(income.lowerBoundCents, threshold);

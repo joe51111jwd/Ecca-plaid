@@ -78,6 +78,14 @@ export function normalizeFullName(printed: string): NormalizedName {
     const givenTokens = cleanTokens(rest.join(" ")).filter((t) => t.length > 1);
     return { given: givenTokens, surnames: lastTokens, all: [...givenTokens, ...lastTokens] };
   }
+  // A hyphenated last word is a compound surname (ALVAREZ-GARCIA), never a middle name plus surname.
+  const words = raw.trim().split(/\s+/);
+  const last = words[words.length - 1] ?? "";
+  if (words.length >= 2 && /[A-Za-z]-[A-Za-z]/.test(last) && !/,/.test(raw)) {
+    const surnames = cleanTokens(last);
+    const given = cleanTokens(words.slice(0, -1).join(" ")).filter((t, i) => i === 0 || t.length > 1);
+    if (given.length > 0 && surnames.length > 0) return { given, surnames, all: [...given, ...surnames] };
+  }
   const tokens = cleanTokens(raw);
   if (tokens.length <= 1) return { given: tokens, surnames: [], all: tokens };
   const first = tokens[0];
@@ -154,8 +162,31 @@ function surnameAgreement(doc: string[], member: string[]): { agreement: TokenAg
   return { agreement, note: null };
 }
 
+/**
+ * Without a comma or hyphen, "MARIA ALVAREZ GARCIA" may be given name plus two surnames, or given name,
+ * middle name and surname. Both readings are tried and the better grade wins (unless the household gave a
+ * middle name to compare).
+ */
+function readings(printed: string, person: PersonName): NormalizedName[] {
+  const primary = normalizeFullName(printed);
+  // When the household recorded a middle name, the printed middle word is compared with it instead.
+  if (person.middleName?.trim()) return [primary];
+  if (printed.includes(",") || primary.given.length < 2 || primary.surnames.length !== 1) return [primary];
+  const given = primary.given.slice(0, 1);
+  const surnames = [...primary.given.slice(1), ...primary.surnames];
+  return [primary, { given, surnames, all: [...given, ...surnames] }];
+}
+
 export function matchPersonName(printed: string, person: PersonName): NameMatch {
-  const doc = normalizeFullName(printed);
+  let best: NameMatch | null = null;
+  for (const doc of readings(printed, person)) {
+    const r = matchNormalized(doc, person);
+    if (!best || GRADE_ORDER[r.grade] > GRADE_ORDER[best.grade]) best = r;
+  }
+  return best!;
+}
+
+function matchNormalized(doc: NormalizedName, person: PersonName): NameMatch {
   const mem = normalizePerson(person);
   const reasons: string[] = [];
   const result = (grade: NameMatchGrade): NameMatch => ({ grade, confidence: NAME_GRADE_CONFIDENCE[grade], reasons });

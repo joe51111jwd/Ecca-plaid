@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/db/client";
 import { MS, now } from "@/lib/clock";
 import { appUrl } from "@/lib/env";
@@ -85,6 +85,9 @@ export async function inviteAdult(householdId: string, input: InviteAdultInput, 
       }
     }
     if (user.id === household.ownerUserId) throw conflict("That is your own email address.", { fields: { email: "Use the other adult's email address." } });
+    // The same per-person lock getOrCreateHouseholdForUser takes: two owners inviting one person at once, or
+    // an invitation racing that person's own first sign-in, cannot both pass the "one household" check below.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`household-owner:${user.id}`}, 0))`);
     if (member.userId && member.userId !== user.id) throw conflict("This adult is already linked to a different sign-in. Remove them and add them again to change it.");
 
     const [elsewhere] = await tx

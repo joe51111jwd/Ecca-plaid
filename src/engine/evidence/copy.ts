@@ -50,6 +50,7 @@ export const METHOD_LABEL: Readonly<Record<EvidenceMethod, string>> = Object.fre
   direct: "Direct income verification method",
   categorical: "Categorical eligibility verification method",
 });
+export const METHOD_NOT_DETERMINED = "Not yet determined";
 
 export const METHOD_BASIS_LABEL: Readonly<Record<EvidenceMethodBasis, string>> = Object.freeze({
   written_documentation: "Review of written documentation",
@@ -57,6 +58,7 @@ export const METHOD_BASIS_LABEL: Readonly<Record<EvidenceMethodBasis, string>> =
   written_documentation_and_other_relevant_data_sources: "Review of written documentation and other relevant data sources",
   categorical_documentation: "Written documentation of program approval",
   none_recorded: "No document or data source recorded yet",
+  not_determined: "The method will be settled when the review is resolved",
 });
 
 /** Program names as written in the proposed categorical method (docs/reference/sgo-verification-rules.md, F45). */
@@ -69,10 +71,15 @@ export const PROGRAM_LABEL: Readonly<Record<EvidenceProgram, string>> = Object.f
 });
 
 export const APPROVAL_LABEL: Readonly<Record<EvidenceApprovalStatus, string>> = Object.freeze({
-  current: "Currently approved",
-  not_current: "Not currently approved",
+  approved: "Approved",
+  denied: "Denied",
+  terminated: "Terminated",
+  pending: "Application pending",
   unclear: "Unclear from the document",
 });
+
+/** Statuses that rule the categorical method out: the documentation shows there is no current approval. */
+export const APPROVAL_RULED_OUT: ReadonlySet<EvidenceApprovalStatus> = new Set(["denied", "terminated", "pending"]);
 
 export const DOCUMENT_KIND_LABEL: Readonly<Record<EvidenceDocumentKind, string>> = Object.freeze({
   award_letter: "Benefits award letter",
@@ -192,7 +199,7 @@ export interface LimitFacts {
 
 export interface SummaryFacts {
   status: EvidenceStatus;
-  method: EvidenceMethod;
+  method: EvidenceMethod | null;
   decidedByReviewer: boolean;
   incomeYear: number;
   householdSize: number;
@@ -226,7 +233,7 @@ export function decisionSummary(facts: SummaryFacts): string {
 
   if (facts.status === "needs_review") {
     const parts = ["Needs review: no eligibility decision has been made."];
-    if (facts.method === "categorical") {
+    if (facts.method === "categorical" || facts.approvalStatus !== null) {
       const submitted = facts.program ? ` for ${PROGRAM_LABEL[facts.program]}` : "";
       parts.push(`Documentation${submitted} was submitted under the categorical eligibility verification method of ${rules}.`);
     }
@@ -235,7 +242,7 @@ export function decisionSummary(facts: SummaryFacts): string {
         ? `is ${formatMoney(limit.upperBoundCents)}`
         : `is between ${formatMoney(limit.lowerBoundCents)} and ${formatMoney(limit.upperBoundCents)}, depending on the reading shown in the limit calculation`;
       parts.push(`Household cash income counted so far for calendar year ${facts.incomeYear} is ${formatMoney(income.countedCents)}. The ${limitNoun(limit)} for ${householdPhrase(facts)} ${range}.`);
-    } else if (facts.method === "direct") {
+    } else if (facts.method !== "categorical") {
       parts.push(`No household income has been recorded yet for calendar year ${facts.incomeYear}.`);
     }
     parts.push("The reasons are listed in this record.");
@@ -250,7 +257,7 @@ export function decisionSummary(facts: SummaryFacts): string {
     const program = PROGRAM_LABEL[facts.program];
     const dated = facts.letterDate ? ` dated ${formatCalendarDate(facts.letterDate)}` : "";
     const finding =
-      facts.approvalStatus === "current"
+      facts.approvalStatus === "approved"
         ? `Written documentation${dated} shows that an individual in the student's household currently is approved for ${program}.`
         : `Written documentation${dated} names an individual in the student's household in connection with ${program}. The approval status read from the document was unclear, and a reviewer made the decision; see the review trail.`;
     return `Eligible: the household income requirement is met under the categorical eligibility verification method of ${rules}. ${finding}`;
@@ -285,7 +292,7 @@ export function decisionSummary(facts: SummaryFacts): string {
 
 export interface ReliedOnFacts {
   status: EvidenceStatus;
-  method: EvidenceMethod;
+  method: EvidenceMethod | null;
   limit: LimitFacts;
   income: IncomeFacts | null;
 }

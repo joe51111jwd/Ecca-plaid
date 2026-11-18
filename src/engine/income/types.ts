@@ -143,6 +143,7 @@ export const INCOME_FLAG_CODES = [
   "schedule_e_income_needs_review",
   "tax_records_overlap",
   "zero_income_certification_contradicted",
+  "document_not_read",
   "document_read_by_model",
   "document_low_confidence",
   "evidence_source_unknown",

@@ -11,6 +11,7 @@
  */
 export { EVIDENCE_COPY_VERSION } from "./copy";
 export { formatUtcTimestamp, groupHash } from "./format";
+export { parseJsonStrict } from "./json-strict";
 export { EVIDENCE_PDF_RENDERER, renderEvidencePdf } from "./pdf";
 export { buildSignedEvidence, platformJwks, signEvidenceRecordWithPlatformKey, verifySignedEvidenceWithPlatformKey } from "./platform";
 export { EVIDENCE_POLICY } from "./policy";
@@ -51,6 +52,7 @@ export {
   type EvidenceIncomeInput,
   type EvidenceIncomeItemInput,
   type EvidenceIncomeSource,
+  type EvidenceIncomeTreatment,
   type EvidenceInput,
   type EvidenceJwk,
   type EvidenceJwks,

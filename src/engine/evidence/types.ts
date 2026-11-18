@@ -12,8 +12,10 @@
  *  - SGO staff who reviewed an exception are named. Family members acting in the timeline are not.
  *  - Never present: dates of birth, Social Security numbers (not even masked), street addresses, email
  *    addresses, phone numbers, bank or card numbers, raw files. The input types have no field for them, the
- *    builder copies only the fields declared here (an allow-list), drops extracted fields whose key names a
- *    birth date or an identity or account number, and removes any text shaped like a Social Security number.
+ *    builder copies only the fields declared here (an allow-list), drops extracted fields whose key or label
+ *    names a birth date or an identity or account number, and removes anything shaped like a Social Security
+ *    number from every text value of the finished record. Identifiers are the exception: they are not
+ *    rewritten, so one that is shaped like a Social Security number is refused.
  *  - Geography is the county, the income-limit area and the 5-digit ZIP code: what is needed to check that
  *    the right limit was applied.
  *  - A decided verification carries only the detail its method rests on. Under the categorical method income
@@ -61,7 +63,8 @@ export type EvidenceIncomeSource = "document" | "rail" | "self_reported" | "revi
 export type EvidenceIncomeTreatment = "counted" | "excluded" | "review";
 /** The closed program list of the proposed categorical method. */
 export type EvidenceProgram = "SNAP" | "TANF" | "WIC" | "SECTION_8" | "SSI";
-export type EvidenceApprovalStatus = "current" | "not_current" | "unclear";
+/** What the documentation says about the approval (the vocabulary of `AwardLetterApprovalStatus` in src/engine/decision). */
+export type EvidenceApprovalStatus = "approved" | "denied" | "terminated" | "pending" | "unclear";
 export type EvidenceActorType = "engine" | "system" | "reviewer" | "user" | "family" | "api_key";
 
 /* ------------------------------------------------------------------------------------------- input */
@@ -82,8 +85,8 @@ export type EvidenceDecidedByInput =
 
 export interface EvidenceDecisionInput {
   status: EvidenceStatus;
-  /** The method the decision rests on. For a verification still in review: the method it is being evaluated under. */
-  method: EvidenceMethod;
+  /** The method the decision rests on. Null only while the verification needs review and no method has been settled. */
+  method: EvidenceMethod | null;
   reasons: EvidenceReason[];
   /** When the decision (or, for `needs_review`, the routing to review) was made. */
   decidedAt: TimestampInput;
@@ -312,7 +315,10 @@ export interface EvidenceConsentInput {
   grantedAt: TimestampInput;
   /** Name of the adult who gave the consent. */
   grantedBy: string;
-  /** Who receives what, for what purpose, for how long. Plain JSON without floats, at most four levels deep. */
+  /**
+   * Who receives what, for what purpose, for how long: plain JSON, at most four levels deep. A number that is
+   * not a whole number is stored as its decimal text, because the record holds no floats.
+   */
   scope: Record<string, unknown>;
 }
 
@@ -393,7 +399,10 @@ export type EvidenceMethodBasis =
   | "other_relevant_data_sources"
   | "written_documentation_and_other_relevant_data_sources"
   | "categorical_documentation"
-  | "none_recorded";
+  /** The method is settled but no document or data source is on record yet (only while in review). */
+  | "none_recorded"
+  /** No method has been settled yet (only while in review). */
+  | "not_determined";
 
 /** JSON value allowed inside a consent scope. */
 export type EvidenceScopeValue = string | number | boolean | null | EvidenceScopeValue[] | { [key: string]: EvidenceScopeValue };
@@ -476,10 +485,12 @@ export interface EvidenceRecord {
   sgo: { id: string; name: string; ein: string | null; external_ref: string | null };
   decision: {
     status: EvidenceStatus;
-    method: EvidenceMethod;
+    /** Null only while the verification needs review and no method has been settled. */
+    method: EvidenceMethod | null;
     method_label: string;
     method_basis: EvidenceMethodBasis;
-    method_citation: string;
+    /** The proposed-regulation paragraph for the method; null when no method has been settled. */
+    method_citation: string | null;
     /** The decision in words. The PDF prints this sentence unchanged. */
     summary: string;
     reasons: Array<{ code: string; message: string; member_ids: string[]; source_ids: string[] }>;

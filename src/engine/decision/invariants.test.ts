@@ -81,6 +81,7 @@ function randomInput(random: Random, capPct: number): DecisionInput {
     extractionConfidence: bad(0.4) ? pick([0.89, 0.4]) : pick([1, 0.95, 0.9]),
     extractedBy: bad(0.25) ? "model" : pick(["parser", "parser", "reviewer"] as const),
     benefitPeriodEnd: bad(0.2) ? "2027-02-01" : pick([undefined, null, "2027-12-31"]),
+    documentType: bad(0.1) ? "other" : pick([undefined, "award_letter"] as const),
   }));
 
   let direct: DecisionInput["direct"];
@@ -125,7 +126,8 @@ function randomInput(random: Random, capPct: number): DecisionInput {
     if (bad(0.05)) add(null, "made_up_category", int(8_000_000));
     if (!bad(0.15)) certify("no_other_income", null);
     const evidenceFlags = [...(bad(0.08) ? [BLOCKING_FLAG] : []), ...(bad(0.08) ? [BOUNDED_FLAG] : [])];
-    direct = { incomeYear: bad(0.05) ? 2025 : INCOME_YEAR, items, certifications, sources, evidenceFlags };
+    const unreadDocuments = bad(0.08) ? [{ documentId: "doc_unreadable", memberId: pick([MARIA.id, null]) }] : undefined;
+    direct = { incomeYear: bad(0.05) ? 2025 : INCOME_YEAR, items, certifications, sources, evidenceFlags, unreadDocuments };
   }
 
   return {
@@ -190,6 +192,7 @@ describe("decision engine invariants over generated inputs", () => {
       expect(decision.income!.upperBoundCents, `case ${index}`).toBeLessThanOrEqual(decision.threshold!.lowerBoundCents);
       expect(blockingFlags(decision), `case ${index}`).toEqual([]);
       expect(input.direct!.evidenceFlags?.filter((flag) => flag.severity === "blocking") ?? [], `case ${index}`).toEqual([]);
+      expect(input.direct!.unreadDocuments ?? [], `case ${index}`).toEqual([]);
       const sources = new Map((input.direct!.sources ?? []).map((source) => [source.documentId, source]));
       const reports = new Map((input.railReports ?? []).map((report) => [report.railConnectionId, report]));
       for (const item of input.direct!.items.filter((candidate) => candidate.incomeYear === decision.incomeYear)) {
@@ -221,6 +224,7 @@ describe("decision engine invariants over generated inputs", () => {
       expect(isWithinLetterWindow(letter.letterDate!, decision.applicationDate, 12), `case ${index}`).toBe(true);
       expect(isWithinLetterWindow(letter.letterDate!, decision.decidedOn, 12), `case ${index}`).toBe(true);
       if (letter.benefitPeriodEnd) expect(letter.benefitPeriodEnd >= decision.decidedOn, `case ${index}`).toBe(true);
+      expect(letter.documentType ?? "award_letter", `case ${index}`).toBe("award_letter");
       // Income documents on file never show income above the lowest reading next to a categorical yes.
       if (decision.income) expect(decision.income.upperBoundCents, `case ${index}`).toBeLessThanOrEqual(decision.threshold!.lowerBoundCents);
     }

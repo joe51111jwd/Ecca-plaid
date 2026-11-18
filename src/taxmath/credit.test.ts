@@ -642,11 +642,12 @@ describe("applyLiabilityLimit", () => {
   it("conserves every cent and keeps each new bucket within the cap, over generated years", () => {
     const random = prng(26);
     for (let i = 0; i < 3000; i++) {
-      const taxYear = 2027 + Math.floor(random() * 12);
+      const taxYear = 2027 + Math.floor(random() * 16);
       const joint = random() < 0.4;
       const currentYearCreditCents = Math.floor(random() * ((joint ? 2 : 1) * CAP + 1));
       const carryforwards: CarryforwardBucketInput[] = [];
-      for (let originYear = taxYear - 8; originYear < taxYear; originYear++) {
+      // Buckets start no earlier than 2027, the first year a section 25F credit can arise.
+      for (let originYear = Math.max(2027, taxYear - 8); originYear < taxYear; originYear++) {
         if (random() < 0.5) carryforwards.push({ originYear, amountCents: Math.floor(random() * (2 * CAP + 1)) });
       }
       const result = applyLiabilityLimit({
@@ -677,6 +678,10 @@ describe("applyLiabilityLimit", () => {
     const base = { taxYear: 2030, currentYearCreditCents: 0, estimatedTaxCents: 0 };
     expectValidationError(() => applyLiabilityLimit({ ...base, carryforwards: [{ originYear: 2030, amountCents: 1 }] }), "carryforwards");
     expectValidationError(() => applyLiabilityLimit({ ...base, carryforwards: [{ originYear: 2031, amountCents: 1 }] }), "carryforwards");
+    // No section 25F credit can arise before 2027, so a 2026 bucket (which would still be usable in 2030) is refused.
+    expectValidationError(() => applyLiabilityLimit({ ...base, carryforwards: [{ originYear: 2026, amountCents: 1 }] }), "carryforwards");
+    expectValidationError(() => applyLiabilityLimit({ ...base, carryforwards: [{ originYear: 2025, amountCents: CAP }] }), "carryforwards");
+    expect(applyLiabilityLimit({ ...base, estimatedTaxCents: CAP, carryforwards: [{ originYear: 2027, amountCents: CAP }] }).carryforwardUsedCents).toBe(CAP);
     expectValidationError(
       () =>
         applyLiabilityLimit({
@@ -767,7 +772,7 @@ describe("previewCredit: the panel's data", () => {
       liability: {
         estimatedTaxCents: usd(300),
         carryforwards: [
-          { originYear: 2026, amountCents: usd(10) },
+          { originYear: 2027, amountCents: usd(10) },
           { originYear: 2028, amountCents: usd(500) },
         ],
       },

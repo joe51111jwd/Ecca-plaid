@@ -158,7 +158,29 @@ describe("gate 1: the credit start, at a conservative instant", () => {
     }
     expect(isBeforeCreditStart(new Date("2026-07-01T09:59:59Z"), "2026-07-01")).toBe(true);
     expect(isBeforeCreditStart(new Date("2026-07-01T10:00:00Z"), "2026-07-01")).toBe(false);
-    expect(assess({ paidAt: new Date("2026-11-18T12:00:00Z"), creditStartDate: "2026-11-01" }).creditEligible).toBe(true);
+    // A moved date serves sandbox demos only: the sandbox is then the one thing blocking the gift.
+    const demo = assess({ paidAt: new Date("2026-11-18T12:00:00Z"), creditStartDate: "2026-11-01", liveMode: false });
+    expect(demo.blockers.map((blocker) => blocker.code)).toEqual(["sandbox_mode"]);
+    expect(demo.onlyBlockedBySandbox).toBe(true);
+    expect(demo.creditStartInstant).toBe("2026-11-01T10:00:00.000Z");
+  });
+
+  it("never labels a live payment credit-eligible before the first eligible date, even with an earlier configured start", () => {
+    const early = assess({ paidAt: new Date("2026-11-18T12:00:00Z"), creditStartDate: "2026-11-01" });
+    expect(early.creditEligible).toBe(false);
+    expect(early.beforeCreditStart).toBe(true);
+    expect(early.creditStartInstant).toBe("2027-01-01T10:00:00.000Z");
+    expect(early.blockers[0]).toMatchObject({
+      code: "before_credit_start",
+      message: renderCopy("eligibility.before_credit_start", { creditStartDate: "January 1, 2027" }),
+    });
+    expect(blockerCodes({ paidAt: new Date("2027-01-01T09:59:59.999Z"), creditStartDate: "2020-01-01" })).toEqual(["before_credit_start"]);
+    expect(blockerCodes({ paidAt: new Date("2027-01-01T10:00:00Z"), creditStartDate: "2020-01-01" })).toEqual([]);
+    expect(blockerCodes({ paidAt: new Date("2027-01-01T10:05:00Z"), initiatedAt: new Date("2026-12-31T12:00:00Z"), creditStartDate: "2026-06-01" })).toEqual([
+      "initiated_before_credit_start",
+    ]);
+    // A later configured date still wins.
+    expect(blockerCodes({ paidAt: new Date("2027-02-01T17:00:00Z"), creditStartDate: "2027-03-01" })).toEqual(["before_credit_start"]);
   });
 
   it("requires the payment to be started after the start instant too", () => {

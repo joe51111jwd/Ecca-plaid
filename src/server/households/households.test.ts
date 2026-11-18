@@ -269,6 +269,14 @@ describe("households", () => {
       expect(await codeOf(upsertOwnerMember(householdId, { ...OWNER_SELF, dob: "2010-01-01" }, ownerActor))).toBe("validation_failed");
     });
 
+    it("updating the owner's name without a date of birth keeps the stored one; null clears it", async () => {
+      const row = await upsertOwnerMember(householdId, { ...OWNER_SELF, dob: "1985-03-04" }, ownerActor);
+      expect((await upsertOwnerMember(householdId, { ...OWNER_SELF, firstName: "Ana Sofía" }, ownerActor)).hasDob).toBe(true);
+      expect(await readMemberDob(householdId, row.id, { ...ownerActor, purpose: "edit_form" })).toBe("1985-03-04");
+      expect((await upsertOwnerMember(householdId, { ...OWNER_SELF, dob: null }, ownerActor)).hasDob).toBe(false);
+      expect(await readMemberDob(householdId, row.id, { ...ownerActor, purpose: "edit_form" })).toBeNull();
+    });
+
     it("limits the number of people", async () => {
       for (let i = 0; i < MAX_HOUSEHOLD_MEMBERS; i++) await addMember(householdId, { kind: "child", firstName: "Niño", lastName: "Sintético", relationship: "sibling" }, ownerActor);
       expect(await codeOf(addMember(householdId, STUDENT, ownerActor))).toBe("conflict");
@@ -345,6 +353,21 @@ describe("households", () => {
       const db = await getDb();
       expect(await db.select().from(schema.users).where(eq(schema.users.email, "kid@example.com"))).toHaveLength(0);
     });
+  });
+
+  it("two owners inviting the same person at once: exactly one household gets them", async () => {
+    const secondOwner = await makeUser("second.owner@example.com");
+    const secondHousehold = (await getOrCreateHouseholdForUser(secondOwner.id)).household.id;
+    const m1 = await addMember(householdId, { kind: "adult", firstName: "Luis", lastName: "Peña", relationship: "parent" }, ownerActor);
+    const m2 = await addMember(secondHousehold, { kind: "adult", firstName: "Luis", lastName: "Peña", relationship: "parent" }, { userId: secondOwner.id });
+    const codes = await Promise.all([
+      codeOf(inviteAdult(householdId, { email: "shared.adult@example.com", memberId: m1.id }, ownerActor)),
+      codeOf(inviteAdult(secondHousehold, { email: "shared.adult@example.com", memberId: m2.id }, { userId: secondOwner.id })),
+    ]);
+    expect(codes.sort()).toEqual(["conflict", "ok"]);
+    const db = await getDb();
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.email, "shared.adult@example.com"));
+    expect(await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.userId, u!.id))).toHaveLength(1);
   });
 
   describe("rate limits", () => {

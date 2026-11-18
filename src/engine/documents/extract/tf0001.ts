@@ -195,7 +195,7 @@ function parseRow(table: Table, row: Row): ParsedRow {
     row,
     program: program?.program ?? null,
     lookAlike: program?.lookAlike ?? null,
-    oneTimeTanf: program?.oneTimeTanf ?? false,
+    oneTimeTanf: /One[- ]Time TANF/i.test(`${row.programText ?? ""} ${table.title} ${table.section ?? ""}`),
     start,
     end,
     dateProblem,

@@ -189,6 +189,19 @@ describe("decide: the direct method", () => {
     expect(codes(decision.reviewReasons)).toEqual(["no_documentary_evidence"]);
   });
 
+  it("decides when the only documented income belongs to a child and every adult signed a zero-income statement", () => {
+    const decision = run({
+      direct: {
+        incomeYear: INCOME_YEAR,
+        items: [extraItem({ id: "ssi", category: "ssi", annualAmountCents: 1_100_000, memberId: SOFIA.id })],
+        sources: [parserSource("doc_ssi", { kind: "other_income" })],
+        certifications: [NO_OTHER_INCOME, { ...NO_OTHER_INCOME, kind: "zero_income", memberId: MARIA.id }, { ...NO_OTHER_INCOME, kind: "zero_income", memberId: DANIEL.id }],
+      },
+    });
+    expect(decision).toMatchObject({ status: "eligible", householdIncomeCents: 1_100_000 });
+    expect(decision.coverage).toMatchObject({ documentedMemberCount: 0, certifiedZeroIncomeMemberCount: 2, evidencedItemCount: 1 });
+  });
+
   it("sends a zero-income statement that the documents contradict to a person", () => {
     const decision = run({ direct: directEvidence(6_000_000, 4_500_000, [], { certifications: [NO_OTHER_INCOME, { ...NO_OTHER_INCOME, kind: "zero_income", memberId: DANIEL.id }] }) });
     expect(decision.status).toBe("needs_review");
@@ -381,6 +394,7 @@ describe("decide: the categorical method", () => {
       [{ letterDate: "2027-06-01" }, "letter_dated_in_future"],
       [{ benefitPeriodEnd: "2027-02-28" }, "benefit_period_ended"],
       [{ program: "UNKNOWN" }, "program_not_recognized"],
+      [{ documentType: "other" }, "documentation_not_award_letter"],
     ] as const) {
       const decision = run({ categorical: { letters: [awardLetter(overrides)] } });
       expect(decision, code).toMatchObject({ status: "needs_review", method: null, missing: [], awardProgram: null });
@@ -553,6 +567,27 @@ describe("decide: evidence that cannot be relied on never produces a yes or a no
     expect(decision.status).toBe("needs_review");
     expect(codes(decision.reviewReasons)).toEqual(["document_low_confidence"]);
     expect(run({ direct: { ...good, sources: [parserSource("doc_w2_hm_maria", { extractionConfidence: 0.9 }), parserSource("doc_w2_hm_daniel")] } }).status).toBe("eligible");
+  });
+
+  it("sends an income document that could not be read to a person, and does not ask the household for it again", () => {
+    const unreadDocuments = [{ documentId: "doc_scan", memberId: DANIEL.id }];
+    // Nothing else on file: the scan may be the proof.
+    const scanOnly = run({ direct: { incomeYear: INCOME_YEAR, items: [], unreadDocuments } });
+    expect(scanOnly).toMatchObject({ status: "needs_review", missing: [], directOutcome: "needs_review" });
+    expect(codes(scanOnly.reviewReasons)).toEqual(["document_not_read"]);
+    expect(scanOnly.reviewReasons[0]).toMatchObject({ sourceIds: ["doc_scan"], memberIds: [DANIEL.id] });
+    expect(scanOnly.coverage!.missing.length).toBeGreaterThan(0);
+    // One adult documented, the other adult's document unreadable.
+    const partial = run({ direct: directEvidence(0, 0, [], { items: [wageItem(MARIA.id, 6_000_000)], unreadDocuments }) });
+    expect(partial).toMatchObject({ status: "needs_review", missing: [] });
+    // A complete, readable file with one more document nobody could read is still not decided automatically.
+    for (const evidence of [good, over]) {
+      const decision = run({ direct: { ...evidence, unreadDocuments } });
+      expect(decision.status).toBe("needs_review");
+      expect(codes(decision.reviewReasons)).toEqual(["document_not_read"]);
+    }
+    // A valid award letter does not need it.
+    expect(run({ categorical: { letters: [awardLetter()] }, direct: { incomeYear: INCOME_YEAR, items: [], unreadDocuments } })).toMatchObject({ status: "eligible", method: "categorical" });
   });
 
   it("does not trust an item whose document has no extraction record", () => {
@@ -918,7 +953,7 @@ describe("decide: input validation", () => {
     ["an SGO cap of zero", () => decide(decisionInput({ sgoPolicy: { capPct: 0, reviewBandBps: 500 }, amiTable: getActiveTable() }))],
     ["a fractional cap", () => decide(decisionInput({ sgoPolicy: { capPct: 185.5, reviewBandBps: 500 }, amiTable: getActiveTable() }))],
     ["a negative review band", () => decide(decisionInput({ sgoPolicy: { capPct: 300, reviewBandBps: -1 } }))],
-    ["a review band above the maximum", () => decide(decisionInput({ sgoPolicy: { capPct: 300, reviewBandBps: 5_001 } }))],
+    ["a review band above the maximum", () => decide(decisionInput({ sgoPolicy: { capPct: 300, reviewBandBps: 10_001 } }))],
     ["a date that does not exist", () => decide(decisionInput({ today: "2027-02-29" }))],
     ["an application dated after the decision", () => decide(decisionInput({ applicationDate: "2027-03-16" }))],
     ["a household size of zero", () => decide(decisionInput({ household: { size: 0, countyFips: HARRIS.fips, members: [], custody: null } }))],

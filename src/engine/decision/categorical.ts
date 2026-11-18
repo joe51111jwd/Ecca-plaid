@@ -108,6 +108,8 @@ const AMBIGUOUS_MESSAGES: Record<LetterAmbiguousCode, string> = {
   letter_window_depends_on_reference_date:
     "Whether the document is dated within the last 12 months depends on the date the 12 months are counted from, which the proposed rules do not state: it passes against one of the application date and the decision date and not the other.",
   benefit_period_ended: "The benefit or certification period printed on the document has ended, so it does not show that the person is currently approved.",
+  documentation_not_award_letter:
+    "The document is not an award or approval letter. The proposed rules accept written documentation \"such as an award letter\" and do not say what else qualifies, so a reviewer must decide whether it shows current approval.",
   recipient_not_matched: "The person named on the document was not matched to anyone on the household roster. The proposed rules require an individual in the student's household.",
   recipient_match_low_confidence: "The match between the person named on the document and the household roster is not confident enough to rely on without a reviewer.",
   letter_low_extraction_confidence: "The document was read with low confidence. A reviewer must confirm the fields.",
@@ -147,6 +149,7 @@ export function evaluateAwardLetter(letter: AwardLetterInput, context: EvaluateL
   if (letter.approvalStatus === "unclear") doubt("approval_status_unclear");
   const benefitPeriodEnd = letter.benefitPeriodEnd ?? null;
   if (benefitPeriodEnd !== null && benefitPeriodEnd < today) doubt("benefit_period_ended");
+  if (letter.documentType === "other") doubt("documentation_not_award_letter");
 
   /* Dated within the last 12 months, against both possible reference dates. */
   let windowEndsOn: IsoDate | null = null;

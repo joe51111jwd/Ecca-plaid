@@ -89,6 +89,19 @@ describe("the regulation's examples (F53)", () => {
     // A running figure never fixes the two-year status; that happens at the close of the SGO's taxable year.
     expect(asOfAward.treatedAsSubstantialContributorForYears).toBeNull();
   });
+
+  it("a running figure over both thresholds is worded as 'not excepted on these figures', never as the year-end determination", () => {
+    const running = assessSubstantialContributor({ basis: "running", donorContributionsCents: usd(6000), totalContributionsCents: usd(280_000), sgoTaxableYear: 2027 });
+    expect(running.isSubstantialContributor).toBe(true);
+    expect(running.treatedAsSubstantialContributorForYears).toBeNull();
+    expect(running.advisories).toHaveLength(1);
+    expect(running.advisories[0]).toMatchObject({ code: "substantial_contributor", copyId: "sgo.substantial_contributor.is_running" });
+    expect(running.advisories[0].message).toContain("determined at the close of the organization's taxable year");
+    expect(running.advisories[0].message).toContain("would not qualify as an excepted scholarship");
+    expect(running.advisories[0].message).not.toContain("that makes the donor a substantial contributor");
+    expect(running.advisories[0].message).toContain("$6,000");
+    expect(running.advisories[0].message).toContain("2.14 percent");
+  });
 });
 
 describe("the two-part test, at its edges", () => {
