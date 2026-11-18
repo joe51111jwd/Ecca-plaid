@@ -228,7 +228,7 @@ export function evaluateDirect(evidence: DirectEvidenceInput | null | undefined,
   }
   reasons.push({
     code: "direct_income_over_limit",
-    message: `Household income for ${incomeYear} of ${formatUsd(income.totalCountedCents)} is greater than the limit of ${limitsText} for a household of ${threshold.householdSize} in ${threshold.county.name}${threshold.readingsAgree ? "" : ", under every reading"}. Every adult's income is documented.`,
+    message: `Household income for ${incomeYear} of ${formatUsd(income.totalCountedCents)} is greater than the limit of ${limitsText} for a household of ${threshold.householdSize} in ${threshold.county.name}${threshold.readingsAgree ? "" : ", under every reading"}. Every adult in the household is covered by income documents or a signed statement of no income.`,
     memberIds: [],
     sourceIds: [],
   });

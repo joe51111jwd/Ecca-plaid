@@ -269,8 +269,8 @@ function sgoExplanation(decision: Decision, locale: ExplanationLocale, sourceLin
   } else if (status === "ineligible") {
     paragraphs.push(
       es
-        ? `Los ingresos registrados del hogar en ${incomeYear} superan el límite según todas las lecturas, y los ingresos de cada adulto están documentados (método directo, ${decision.methodCitation}).`
-        : `Recorded household income for ${incomeYear} is greater than the limit under every reading, and every adult's income is documented (direct method, ${decision.methodCitation}).`,
+        ? `Los ingresos registrados del hogar en ${incomeYear} superan el límite según todas las lecturas, y cada adulto está cubierto por documentos de ingresos o por una declaración firmada de no tener ingresos (método directo, ${decision.methodCitation}).`
+        : `Recorded household income for ${incomeYear} is greater than the limit under every reading, and every adult is covered by income documents or a signed statement of no income (direct method, ${decision.methodCitation}).`,
     );
   } else if (status === "needs_review") {
     const count = decision.reviewReasons.length;

@@ -117,7 +117,7 @@ describe("decide: the direct method", () => {
     const decision = run({ direct: directEvidence(20_000_000, 15_000_000) });
     expect(decision).toMatchObject({ status: "ineligible", method: "direct", directOutcome: "over_limit", householdIncomeCents: 35_000_000, validUntil: "2027-12-31", reviewReasons: [], missing: [] });
     expect(codes(decision.reasons)).toEqual(["direct_income_over_limit"]);
-    expect(decision.reasons[0].message).toContain("Every adult's income is documented");
+    expect(decision.reasons[0].message).toContain("Every adult in the household is covered by income documents or a signed statement of no income.");
     expect(decision.threshold).toMatchObject({ reliedOn: "single_limit", reliedOnLimitCents: 31_200_000 });
   });
 
