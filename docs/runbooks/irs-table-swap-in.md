@@ -160,8 +160,8 @@ Read it before going on. Things to look for:
 - **Large differences concentrated in low-median and high-median counties** point to the IRS having built
   its limits from HUD's adjusted income limits rather than from the raw area median. In the HUD FY 2026
   data that reading differs from the provisional table in 143 of 254 Texas counties, by up to $135,000 for
-  a family of four (Starr County). It would not be an error, but it changes many decisions: tell the founder
-  before activating.
+  a family of four (Starr County); see `docs/reference/hud-ami-and-annual-income.md`, fact F38 and open
+  question 1. It would not be an error, but it changes many decisions: tell the founder before activating.
 - **A handful of isolated differences** are more likely transcription errors. Go back to the PDF.
 - **Any decrease.** A household that was eligible under the provisional table may not be under the
   published one. Note the counties and sizes for whoever handles decisions already made (section 10).
@@ -295,6 +295,8 @@ keep the provisional table active, and bring the exact rows to the founder.
 
 ## Reference
 
+- Sources and citations behind the provisional table (HUD data and methodology, the proposed rule's formula
+  and multipliers, the open questions): `docs/reference/hud-ami-and-annual-income.md`.
 - Table registry and active pointer: `src/engine/ami/registry.ts`, `data/ami/active.json`.
 - Arithmetic and its documentation: `src/engine/ami/compute.ts`.
 - CSV contract and validation: `src/engine/ami/ingest/irs.ts`. Command: `scripts/ami-ingest.ts`

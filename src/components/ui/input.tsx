@@ -9,7 +9,8 @@ export const CONTROL_BOX =
   "rounded-control border border-line-control bg-surface text-fg shadow-xs transition-[border-color,box-shadow,background-color] " +
   "placeholder:text-fg-subtle hover:border-ink-600 focus-visible:border-focus " +
   "disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-sunken disabled:text-fg-disabled disabled:shadow-none " +
-  "read-only:bg-sunken " +
+  // Attribute selector, not :read-only — that pseudo-class also matches every <select>.
+  "[&[readonly]]:bg-sunken " +
   "aria-invalid:border-danger-600 aria-invalid:shadow-[inset_0_0_0_1px_var(--color-danger-600)]";
 
 export const CONTROL_SIZE: Record<ControlSize, string> = {

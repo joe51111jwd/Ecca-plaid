@@ -34,13 +34,16 @@ export interface DropdownMenuProps {
   header?: ReactNode;
   /** Which edge of the trigger the menu lines up with. */
   align?: "start" | "end";
-  /** `icon` = square ghost button (row actions); `button` = bordered; `plain` = no chrome (wraps an avatar and name). */
-  triggerStyle?: "icon" | "button" | "plain";
+  /**
+   * `icon` = square ghost button (row actions); `button` = bordered; `plain` = no chrome (wraps an avatar and name);
+   * `field` = full-width bordered row with the content spread apart (the organization switcher).
+   */
+  triggerStyle?: "icon" | "button" | "plain" | "field";
   className?: string;
 }
 
-const ITEM =
-  "flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm font-medium transition-colors hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:py-3";
+const ITEM_BASE = "flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm font-medium transition-colors pointer-coarse:py-3";
+const ITEM = `${ITEM_BASE} hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent`;
 
 /**
  * A small menu of links and actions behind one button: the account menu, the "…" on a table row.
@@ -77,10 +80,11 @@ export function DropdownMenu({ label, trigger, items, header, align = "end", tri
         aria-label={label}
         title={triggerStyle === "icon" ? label : undefined}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center gap-2 rounded-control text-sm font-medium text-fg transition-colors",
-          triggerStyle === "icon" && "size-control-sm hover:bg-sunken [&>svg]:size-4",
-          triggerStyle === "button" && "h-control-sm border border-line-strong bg-surface px-3 shadow-xs hover:bg-sunken",
-          triggerStyle === "plain" && "min-h-control-sm px-1.5 hover:bg-sunken",
+          "items-center gap-2 rounded-control text-sm font-medium text-fg transition-colors hover:bg-sunken",
+          triggerStyle === "icon" && "inline-flex size-control-sm shrink-0 justify-center [&>svg]:size-4",
+          triggerStyle === "button" && "inline-flex h-control-sm shrink-0 justify-center border border-line-strong bg-surface px-3 shadow-xs",
+          triggerStyle === "plain" && "inline-flex min-h-control-sm shrink-0 justify-center px-1.5",
+          triggerStyle === "field" && "flex w-full justify-between border border-line px-3 py-2",
           className,
         )}
       >
@@ -124,7 +128,7 @@ export function DropdownMenu({ label, trigger, items, header, align = "end", tri
                     </Link>
                   )
                 ) : (
-                  <span aria-disabled="true" className={cn(ITEM, tone, "cursor-not-allowed opacity-50 hover:bg-transparent")}>
+                  <span aria-disabled="true" className={cn(ITEM_BASE, tone, "cursor-not-allowed opacity-50")}>
                     {inner}
                   </span>
                 )}

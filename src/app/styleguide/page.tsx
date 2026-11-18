@@ -71,7 +71,7 @@ function Swatch({ color, label, sub, border }: { color: string; label: string; s
     <div className="min-w-0">
       <div className={border ? "h-12 rounded-control border border-line" : "h-12 rounded-control"} style={{ backgroundColor: color }} />
       <p className="mt-1.5 truncate font-mono text-xs text-fg">{label}</p>
-      {sub ? <p className="truncate text-xs text-fg-muted">{sub}</p> : null}
+      {sub ? <p className="text-xs text-fg-muted">{sub}</p> : null}
     </div>
   );
 }

@@ -43,7 +43,7 @@ export interface StatGridProps {
 /** The `<dl>` that lays out Stats. */
 export function StatGrid({ columns = 3, tiles, className, children }: StatGridProps) {
   return (
-    <dl className={cn("grid grid-cols-1 gap-x-8 gap-y-6", STAT_COLUMNS[columns], tiles && "gap-4 *:rounded-card *:border *:border-line *:bg-surface *:p-5", className)}>{children}</dl>
+    <dl className={cn("grid grid-cols-1", STAT_COLUMNS[columns], tiles ? "gap-4 *:rounded-card *:border *:border-line *:bg-surface *:p-5" : "gap-x-8 gap-y-6", className)}>{children}</dl>
   );
 }
 

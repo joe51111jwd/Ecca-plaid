@@ -46,7 +46,9 @@ import type {
  * limit proportionally (limit x cap / 300), floored to the cent as above.
  *
  * The points on which the sources are silent (flooring, the cap on a published table, the refusal above
- * eight) are listed as `AMI_POLICY` in `constants.ts`.
+ * eight) are listed as `AMI_POLICY` in `constants.ts`. The citations, and the open question whether the IRS
+ * will build its table from the raw median or from HUD's adjusted limits, are in
+ * `docs/reference/hud-ami-and-annual-income.md` (F29, F30, F38, open question 1).
  */
 
 function fail(field: "countyFips" | "householdSize" | "capPct", reason: ThresholdErrorReason, message: string): never {

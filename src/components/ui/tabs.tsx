@@ -25,6 +25,8 @@ export interface TabsProps {
   /** Names the navigation for screen readers ("Verification sections"). */
   label: string;
   variant?: "underline" | "pills";
+  /** Underline variant: draw the rule under the row. Turn off when the tabs sit on a bar that already has a bottom border. Default true. */
+  divider?: boolean;
   className?: string;
 }
 
@@ -47,11 +49,11 @@ function activeHref(items: TabItem[], pathname: string): string | null {
  * Tabs that are links: each tab is a URL, so the back button, sharing and server rendering all work.
  * Rendered as navigation (not an ARIA tablist) because each tab loads a page.
  */
-export function Tabs({ items, current, label, variant = "underline", className }: TabsProps) {
+export function Tabs({ items, current, label, variant = "underline", divider = true, className }: TabsProps) {
   const pathname = usePathname();
   const active = current ?? activeHref(items, pathname);
   return (
-    <nav aria-label={label} className={cn("max-w-full overflow-x-auto", variant === "underline" && "border-b border-line", className)}>
+    <nav aria-label={label} className={cn("max-w-full overflow-x-auto", variant === "underline" && divider && "border-b border-line", className)}>
       <ul className={cn("flex min-w-max items-stretch", variant === "underline" ? "gap-6" : "gap-1")}>
         {items.map((item) => {
           const isActive = item.href === active;
@@ -63,7 +65,7 @@ export function Tabs({ items, current, label, variant = "underline", className }
                 className={cn(
                   "inline-flex items-center gap-2 text-sm font-medium whitespace-nowrap transition-colors",
                   variant === "underline"
-                    ? cn("-mb-px min-h-11 border-b-2 px-0.5", isActive ? "border-action text-fg" : "border-transparent text-fg-muted hover:border-line-strong hover:text-fg")
+                    ? cn("min-h-11 border-b-2 px-0.5", divider && "-mb-px", isActive ? "border-action text-fg" : "border-transparent text-fg-muted hover:border-line-strong hover:text-fg")
                     : cn("h-control-sm rounded-control px-3", isActive ? "bg-brand-surface text-brand-fg" : "text-fg-muted hover:bg-sunken hover:text-fg"),
                 )}
               >

@@ -8,15 +8,15 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "link
 export type ButtonSize = "sm" | "md" | "lg";
 
 const BASE =
-  "inline-flex items-center justify-center gap-2 rounded-control font-medium whitespace-nowrap select-none transition-colors " +
+  "inline-flex items-center justify-center gap-2 font-medium whitespace-nowrap select-none transition-colors " +
   "disabled:cursor-not-allowed disabled:opacity-55 aria-disabled:cursor-not-allowed aria-disabled:opacity-55 " +
   "data-[loading=true]:disabled:opacity-100 data-[loading=true]:disabled:cursor-progress";
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: "bg-action text-action-fg shadow-xs hover:bg-action-hover active:bg-action-active",
-  secondary: "border border-line-strong bg-surface text-fg shadow-xs hover:bg-sunken active:bg-sunken",
-  ghost: "text-fg hover:bg-sunken active:bg-sunken",
-  danger: "bg-danger-solid text-danger-solid-fg shadow-xs hover:bg-danger-700 active:bg-danger-800",
+  primary: "rounded-control bg-action text-action-fg shadow-xs hover:bg-action-hover active:bg-action-active",
+  secondary: "rounded-control border border-line-strong bg-surface text-fg shadow-xs hover:bg-sunken active:bg-sunken",
+  ghost: "rounded-control text-fg hover:bg-sunken active:bg-sunken",
+  danger: "rounded-control bg-danger-solid text-danger-solid-fg shadow-xs hover:bg-danger-700 active:bg-danger-800",
   link: "min-h-6 rounded-sm text-link underline decoration-1 underline-offset-4 hover:text-link-hover hover:decoration-2",
 };
 

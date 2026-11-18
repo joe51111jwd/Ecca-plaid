@@ -31,7 +31,7 @@ export function GuideChrome({ title, lead, toc, children }: { title: string; lea
             </div>
             <code className="rounded bg-sunken px-2 py-1 font-mono text-xs text-fg-muted">import {"{ … }"} from &quot;@/components/ui&quot;</code>
           </div>
-          <Tabs items={GUIDE_TABS} label="Style guide sections" className="mt-4 border-b-0" />
+          <Tabs items={GUIDE_TABS} label="Style guide sections" divider={false} className="mt-4" />
         </div>
       </header>
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="flex-1 outline-none">
@@ -100,7 +100,7 @@ const EXAMPLE_SURFACE = {
 export function Example({ label, children, surface = "surface", className, bleed }: { label: ReactNode; children: ReactNode; surface?: keyof typeof EXAMPLE_SURFACE; className?: string; bleed?: boolean }) {
   return (
     <div data-surface={surface === "inverse" ? "inverse" : undefined} className={cn("last:rounded-b-card", EXAMPLE_SURFACE[surface])}>
-      <p className={cn("px-5 pt-4 text-xs font-semibold tracking-wide uppercase sm:px-6", surface === "inverse" ? "text-brand-200" : "text-fg-subtle")}>{label}</p>
+      <p className={cn("px-5 pt-4 text-xs font-semibold sm:px-6", surface === "inverse" ? "text-brand-200" : "text-fg-subtle")}>{label}</p>
       <div className={cn(bleed ? "pt-3" : "px-5 pt-3 pb-5 sm:px-6", className)}>{children}</div>
     </div>
   );

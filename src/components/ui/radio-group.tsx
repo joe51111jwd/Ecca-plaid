@@ -78,10 +78,10 @@ export function RadioGroup({ name, options, value, defaultValue, onChange, varia
             <label
               key={option.value}
               className={cn(
-                "relative flex items-start gap-3 rounded-card border border-line-strong bg-surface p-4 transition-colors",
+                "relative flex items-start gap-3 rounded-card border bg-surface p-4 transition-colors",
                 "hover:border-ink-500 has-checked:border-action has-checked:bg-brand-surface has-checked:shadow-[inset_0_0_0_1px_var(--action)]",
                 "has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus",
-                invalid && "border-danger-600",
+                invalid ? "border-danger-600" : "border-line-strong",
                 isDisabled && "cursor-not-allowed opacity-60",
               )}
             >

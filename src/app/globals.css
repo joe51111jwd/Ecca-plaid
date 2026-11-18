@@ -506,70 +506,8 @@
     pointer-events: none;
   }
 
-  /*
-   * Table → stacked cards when the table's own container is narrow (not the viewport), so a table in a
-   * drawer stacks while the same table full-width does not. Cells carry their column name in data-label.
-   */
   .ui-table-wrap {
     container: ui-table / inline-size;
-  }
-  @container ui-table (max-width: 40rem) {
-    .ui-table[data-stack="true"],
-    .ui-table[data-stack="true"] > tbody,
-    .ui-table[data-stack="true"] > tbody > tr,
-    .ui-table[data-stack="true"] > tbody > tr > td {
-      display: block;
-    }
-    .ui-table[data-stack="true"] > thead {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
-    .ui-table[data-stack="true"] > tbody > tr {
-      position: relative;
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--line);
-    }
-    .ui-table[data-stack="true"] > tbody > tr:last-child {
-      border-bottom: 0;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td {
-      display: grid;
-      grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
-      column-gap: 0.75rem;
-      align-items: baseline;
-      padding: 0.25rem 0;
-      border: 0;
-      text-align: left;
-      white-space: normal;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td::before {
-      content: attr(data-label);
-      color: var(--fg-muted);
-      font-size: 0.8125rem;
-      line-height: 1.25rem;
-      font-weight: 500;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"] {
-      display: block;
-      padding-bottom: 0.375rem;
-      font-size: 1rem;
-      line-height: 1.5rem;
-      font-weight: 600;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"]::before,
-    .ui-table[data-stack="true"] > tbody > tr > td[data-label=""]::before {
-      content: none;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td[data-label=""] {
-      display: block;
-    }
-    .ui-table[data-stack="true"] > tbody > tr > td[data-mobile="hidden"] {
-      display: none;
-    }
   }
 
   /* Long-form text: consent copy, legal notes, docs. */
@@ -662,5 +600,70 @@
   }
   .ui-prose th {
     font-weight: 600;
+  }
+}
+
+/*
+ * Table → stacked cards when the table's own container is narrow (not the viewport), so a table in a
+ * drawer stacks while the same table full-width does not. Cells carry their column name in data-label.
+ * Deliberately NOT in a cascade layer: these rules must override the alignment, padding and nowrap
+ * utilities the cells carry for the wide layout.
+ */
+@container ui-table (max-width: 40rem) {
+  .ui-table[data-stack="true"],
+  .ui-table[data-stack="true"] > tbody,
+  .ui-table[data-stack="true"] > tbody > tr,
+  .ui-table[data-stack="true"] > tbody > tr > td {
+    display: block;
+  }
+  .ui-table[data-stack="true"] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ui-table[data-stack="true"] > tbody > tr {
+    position: relative;
+    padding: 0.75rem 1rem;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
+    column-gap: 0.75rem;
+    align-items: baseline;
+    justify-items: start;
+    padding: 0.25rem 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td > * {
+    flex-wrap: wrap;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td::before {
+    content: attr(data-label);
+    color: var(--fg-muted);
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"] {
+    display: block;
+    padding-bottom: 0.375rem;
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"]::before,
+  .ui-table[data-stack="true"] > tbody > tr > td[data-label=""]::before {
+    content: none;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td[data-label=""] {
+    display: block;
+  }
+  .ui-table[data-stack="true"] > tbody > tr > td[data-mobile="hidden"] {
+    display: none;
   }
 }

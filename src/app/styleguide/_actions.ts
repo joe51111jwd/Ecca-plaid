@@ -37,6 +37,6 @@ export async function demoApplyAction(_previous: ActionResult<{ email: string }>
   return { ok: true, data: { email: parsed.data.email } };
 }
 
-export async function demoConfirmAction(_formData: FormData): Promise<void> {
+export async function demoConfirmAction(): Promise<void> {
   await pause(700);
 }

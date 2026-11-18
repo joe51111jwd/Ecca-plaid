@@ -39,8 +39,12 @@ export interface FocusShellProps {
   /** Where the logo links. null = not a link, for flows a person should not wander out of. Default "/". */
   homeHref?: string | null;
   locale?: UiLocale;
-  /** The reassurance line in the footer. Pass text to replace it, false to hide it. */
-  secureNote?: ReactNode | false;
+  /**
+   * The reassurance line in the footer. "family" = documents are stored encrypted and shared only with the
+   * approved organization; "donor" = card details go to the processor and are never stored. Omit for a
+   * general line, pass your own text, or false to hide it.
+   */
+  secureNote?: "family" | "donor" | false | Exclude<ReactNode, string> | (string & {});
   /** Small links under the reassurance line (privacy, help). */
   footer?: ReactNode;
 }
@@ -100,7 +104,7 @@ export function FocusShell({ children, partner, languageToggle, progress, back, 
           {secureNote === false ? null : (
             <p className="flex items-start justify-center gap-2">
               <LockKeyhole aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              <span>{secureNote ?? t.secureNote}</span>
+              <span>{secureNote === "family" ? t.secureNoteFamily : secureNote === "donor" ? t.secureNoteDonor : (secureNote ?? t.secureNote)}</span>
             </p>
           )}
           {footer ? <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">{footer}</div> : null}

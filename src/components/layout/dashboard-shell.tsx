@@ -150,8 +150,7 @@ export function OrgSwitcher({ current, orgs }: OrgSwitcherProps) {
     <DropdownMenu
       label={`Switch organization. Current: ${current.name}`}
       align="start"
-      triggerStyle="plain"
-      className="w-full justify-between border border-line px-3 py-2"
+      triggerStyle="field"
       trigger={
         <>
           {face}

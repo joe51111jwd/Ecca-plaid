@@ -144,22 +144,25 @@ export function FileDropzone({ files, onFilesAdded, onFilesRejected, onRemove, o
             />
           </label>
           {capture ? (
-            <label htmlFor={cameraId} className={cn(buttonClasses({ variant: "secondary", size: "md" }), "hidden pointer-coarse:inline-flex has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus", disabled && "pointer-events-none")}>
-              <Camera aria-hidden="true" className="size-4" />
-              {t.dropzoneTakePhoto}
-              <input
-                id={cameraId}
-                type="file"
-                className="sr-only"
-                accept="image/*"
-                capture="environment"
-                disabled={disabled}
-                onChange={(event) => {
-                  add(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-            </label>
+            // Touch devices only. The wrapper carries the show/hide so it never competes with the button's own display.
+            <span className="hidden pointer-coarse:flex">
+              <label htmlFor={cameraId} className={cn(buttonClasses({ variant: "secondary", size: "md", fullWidth: true }), "has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus", disabled && "pointer-events-none")}>
+                <Camera aria-hidden="true" className="size-4" />
+                {t.dropzoneTakePhoto}
+                <input
+                  id={cameraId}
+                  type="file"
+                  className="sr-only"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={disabled}
+                  onChange={(event) => {
+                    add(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </span>
           ) : null}
         </div>
       </div>

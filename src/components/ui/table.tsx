@@ -67,7 +67,8 @@ function columnLabel<T>(column: TableColumn<T>): string {
  * Put it in `<Card padding="none">`. Sorting and paging are URL-driven so the page stays a server component.
  */
 export function Table<T>({ columns, rows, rowKey, caption, showCaption, rowHref, sort, sortHref, onSort, empty, density = "comfortable", stack = true, selectedKey, className }: TableProps<T>) {
-  const pad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
+  // The first and last cells line up with CardHeader / CardFooter padding (px-5 sm:px-6).
+  const pad = cn(density === "compact" ? "px-3 py-2" : "px-4 py-3", "first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6");
   const hasRows = rows.length > 0;
   return (
     <div className={cn("ui-table-wrap", className)}>
@@ -123,7 +124,7 @@ export function Table<T>({ columns, rows, rowKey, caption, showCaption, rowHref,
                     key={key}
                     role="row"
                     aria-current={selectedKey === key ? "true" : undefined}
-                    className={cn("border-b border-line last:border-b-0", href && "relative hover:bg-canvas", selectedKey === key && "bg-brand-surface")}
+                    className={cn("border-b border-line last:border-b-0", href && "relative", selectedKey === key ? "bg-brand-surface" : href && "hover:bg-canvas")}
                   >
                     {columns.map((column) => {
                       const align = column.align ?? (column.numeric ? "right" : "left");
@@ -140,7 +141,7 @@ export function Table<T>({ columns, rows, rowKey, caption, showCaption, rowHref,
                             "align-middle text-fg",
                             ALIGN[align],
                             column.numeric && "nums",
-                            !column.wrap && "whitespace-nowrap",
+                            !column.wrap && "whitespace-nowrap *:flex-nowrap",
                             column.primary && "font-medium",
                             // Links and buttons in ordinary cells sit above the row-wide link.
                             href && !column.primary && "[&_a]:relative [&_a]:z-raised [&_button]:relative [&_button]:z-raised",

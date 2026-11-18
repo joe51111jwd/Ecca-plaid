@@ -52,6 +52,8 @@ export interface UiStrings {
   provisionalTitle: string;
   provisionalBody: string;
   secureNote: string;
+  secureNoteFamily: string;
+  secureNoteDonor: string;
   definitionOf: (term: string) => string;
   sortAscending: string;
   sortDescending: string;
@@ -108,7 +110,9 @@ const en: UiStrings = {
   provisionalTitle: "This income limit is provisional",
   provisionalBody:
     "It is calculated from HUD income-limit data because the IRS has not yet published its own limits for the federal scholarship tax credit. It may change when the IRS publishes them.",
-  secureNote: "Your documents are stored encrypted and shared only with the organization you approve.",
+  secureNote: "Your information is protected and shared only with the organization you choose.",
+  secureNoteFamily: "Your documents are stored encrypted and shared only with the organization you approve.",
+  secureNoteDonor: "Card details go straight to the payment processor and are never stored here.",
   definitionOf: (term) => `What does “${term}” mean?`,
   sortAscending: "sorted ascending",
   sortDescending: "sorted descending",
@@ -165,7 +169,9 @@ const es: UiStrings = {
   provisionalTitle: "Este límite de ingresos es provisional",
   provisionalBody:
     "Se calcula con datos de límites de ingresos de HUD porque el IRS aún no ha publicado sus propios límites para el crédito fiscal federal para becas. Puede cambiar cuando el IRS los publique.",
-  secureNote: "Sus documentos se guardan cifrados y solo se comparten con la organización que usted apruebe.",
+  secureNote: "Su información está protegida y solo se comparte con la organización que usted elija.",
+  secureNoteFamily: "Sus documentos se guardan cifrados y solo se comparten con la organización que usted apruebe.",
+  secureNoteDonor: "Los datos de la tarjeta van directamente al procesador de pagos y nunca se guardan aquí.",
   definitionOf: (term) => `¿Qué significa “${term}”?`,
   sortAscending: "orden ascendente",
   sortDescending: "orden descendente",

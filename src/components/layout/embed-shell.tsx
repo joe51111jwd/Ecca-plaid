@@ -20,8 +20,8 @@ export interface EmbedShellProps {
    */
   targetOrigin?: string;
   locale?: UiLocale;
-  /** The reassurance line under the content. Pass text to replace it, false to hide it. */
-  secureNote?: ReactNode | false;
+  /** The reassurance line under the content: "family", "donor", your own text, or false to hide it (see FocusShell). */
+  secureNote?: "family" | "donor" | false | Exclude<ReactNode, string> | (string & {});
 }
 
 /**
@@ -52,7 +52,7 @@ export function EmbedShell({ children, partner, languageToggle, autoHeight = tru
         <footer className="mt-4 flex items-start gap-2 text-xs leading-5 text-fg-muted">
           <LockKeyhole aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            {secureNote ?? t.secureNote} <span className="whitespace-nowrap">· {BRAND.name}</span>
+            {secureNote === "family" ? t.secureNoteFamily : secureNote === "donor" ? t.secureNoteDonor : (secureNote ?? t.secureNote)} <span className="whitespace-nowrap">· {BRAND.name}</span>
           </span>
         </footer>
       )}

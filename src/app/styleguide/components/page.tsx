@@ -750,7 +750,7 @@ export default async function StyleGuideComponents({ searchParams }: { searchPar
 
         <Specimen id="code" name="CodeBlock · CopyButton · CopyField" importLine='import { CodeBlock, CopyButton, CopyField } from "@/components/ui"' note={<p>For API keys, webhook secrets, family links and embed snippets. <C>CopyField secret</C> masks a value until the person reveals it. Copying is confirmed visibly and to screen readers.</p>}>
           <Example label="CodeBlock — dark (developer-facing) and light">
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid items-start gap-4 lg:grid-cols-2">
               <CodeBlock title="Embed snippet" language="html" code={SAMPLE_EMBED_SNIPPET} />
               <CodeBlock title="verification.decided" language="json" tone="light" code={SAMPLE_WEBHOOK_PAYLOAD} />
             </div>

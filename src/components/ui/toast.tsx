@@ -101,7 +101,7 @@ export function ToastProvider({ children, locale = "en" }: { children: ReactNode
 function ToastCard({ toast, onDismiss, dismissLabel }: { toast: ToastRecord; onDismiss: (id: number) => void; dismissLabel: string }) {
   const tone = toast.tone ?? "neutral";
   return (
-    <div className={cn("pointer-events-auto flex animate-rise-in items-start gap-3 rounded-card border border-line bg-surface p-3.5 shadow-lg", tone === "danger" && "border-danger-line")}>
+    <div className={cn("pointer-events-auto flex animate-rise-in items-start gap-3 rounded-card border bg-surface p-3.5 shadow-lg", tone === "danger" ? "border-danger-line" : "border-line")}>
       <span aria-hidden="true" className="mt-0.5 inline-flex shrink-0 [&>svg]:size-5">
         {TOAST_ICON[tone]}
       </span>
