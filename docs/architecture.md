@@ -24,7 +24,9 @@ src/server     Services: everything that touches the database, storage, email, p
                One folder per domain, each with an index.ts that is its public API.
 src/app        Next.js App Router: pages, server actions and route handlers. Thin: validate → call a
                service → render. No business rules here.
-src/components shared UI (src/components/ui is the design-system kit).
+src/components shared UI (src/components/ui is the design-system kit; src/components/layout the shells).
+src/features   feature-specific React components and client logic (e.g. src/features/payments,
+               src/features/intake). Pages compose these; the shared kit stays generic.
 src/i18n       English and Spanish dictionaries for family-facing screens.
 ```
 
@@ -176,7 +178,9 @@ backoff, and records every attempt. Event types: `verification.started`, `verifi
 ## Jobs
 
 `enqueue(type, payload, { runAt?, dedupeKey?, maxAttempts? })` writes to `jobs`; handlers are registered
-per domain in `src/server/<domain>/jobs.ts` and collected in `src/server/jobs/registry.ts`. Recurring
+per domain in `src/server/<domain>/jobs.ts` and collected in `src/server/jobs/registry.ts`. One job type has
+exactly one handler; cross-domain reactions use purpose-specific job types (for example the payments
+service enqueues `donation.payment_updated` or `invoice.payment_updated` depending on what was paid). Recurring
 work (`retention.purge`, `handoff.expire_holds`, `verification.expire`, `acknowledgment.annual`,
 `webhook.retry`) is scheduled by `scheduleRecurring()`.
 
