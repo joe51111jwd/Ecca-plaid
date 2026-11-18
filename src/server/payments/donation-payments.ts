@@ -350,8 +350,8 @@ async function clientPayment(row: PaymentRow, fresh?: ProcessorPayment): Promise
  * interrupted). A different key replaces any earlier unpaid payment of the checkout.
  *
  * The caller (the donations service) owns the checkout rules: designation, SGO list status, the fee
- * structure and the credit start date. This function still refuses live payments while live gifts are
- * switched off.
+ * structure and the credit start date. As a backstop this function still refuses live payments while live
+ * gifts are switched off, and while the credit start date has not begun anywhere on Earth.
  */
 export async function createDonationPayment(input: CreateDonationPaymentInput): Promise<DonationPayment> {
   const parsed = createInput.safeParse(input);
