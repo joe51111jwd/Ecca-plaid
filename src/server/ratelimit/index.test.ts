@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { schema } from "@/db/client";
@@ -112,6 +113,16 @@ describe("rate limiter", () => {
     expect(JSON.stringify(row)).not.toContain("parent@example.com");
     expect(JSON.stringify(row)).not.toContain("203.0.113.7");
     expect(rateLimitStorageKey("a")).not.toBe(rateLimitStorageKey("b"));
+  });
+
+  it("uses a keyed hash, so a stored key cannot be reversed by hashing candidate IPs or emails", async () => {
+    const key = "magic-link:ip:203.0.113.7";
+    const stored = rateLimitStorageKey(key);
+    // Unkeyed digests of the limiter key (with or without a fixed prefix) are what an attacker would try.
+    for (const guess of [key, `ecca-ratelimit-v1:${key}`, `ecca-ratelimit-v2:${key}`]) {
+      expect(stored).not.toBe(createHash("sha256").update(guess).digest("hex"));
+    }
+    expect(rateLimitStorageKey(key)).toBe(stored);
   });
 
   it("cannot overflow the counter", async () => {

@@ -62,7 +62,15 @@ const responseSchema = z.object({
  * orders them; `matchCount` lets callers see when there were several.
  */
 export function parseCensusGeocoderResponse(json: unknown): GeocoderResult {
-  const parsed = responseSchema.safeParse(json);
+  let body = json;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body) as unknown;
+    } catch {
+      return { matched: false };
+    }
+  }
+  const parsed = responseSchema.safeParse(body);
   if (!parsed.success) return { matched: false };
   const matches = parsed.data.result.addressMatches;
   if (matches.length === 0) return { matched: false, matchCount: 0 };
