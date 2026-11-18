@@ -138,6 +138,7 @@ export const REVIEW_REASON_CODES = [
   "partial_text_layer",
   "pages_truncated",
   "unreadable_file",
+  "file_truncated",
   "encrypted_pdf",
   "unsupported_file_type",
   "unknown_document",

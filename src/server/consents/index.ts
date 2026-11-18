@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema, type DbOrTx } from "@/db/client";
-import type { RailStatus } from "@/db/schema";
+import type { RailStatus, VerificationStatus } from "@/db/schema";
 import { centralDateString, now } from "@/lib/clock";
 import { AppError, conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
@@ -73,6 +73,8 @@ export const OPEN_RAIL_STATUSES: readonly RailStatus[] = ["created", "connecting
 
 const HOUSEHOLD_KINDS: ReadonlySet<ConsentCopyKind> = new Set(["verification_share", "passport_reuse", "rail_connect"]);
 const OWNER_ONLY_KINDS: ReadonlySet<ConsentCopyKind> = new Set(["verification_share", "passport_reuse"]);
+/** A passport source must hold a final decision; a canceled, expired or still-open verification is not a result. */
+const REUSABLE_RESULT_STATUSES: ReadonlySet<VerificationStatus> = new Set(["eligible", "ineligible"]);
 
 /* ---------------------------------------------------------------------------------------- helpers */
 
@@ -190,8 +192,11 @@ export async function grantConsent(input: GrantConsentInput, dbOrTx?: DbOrTx): P
       if (kind === "passport_reuse") {
         if (!ver.passportSourceId) throw conflict("This verification does not reuse an earlier result.");
         const [source] = await tx.select().from(schema.verifications).where(eq(schema.verifications.id, ver.passportSourceId)).limit(1);
-        if (!source || source.householdId !== householdId) throw notFound("Earlier result");
-        if (!source.decidedAt || !source.expiresAt || source.expiresAt.getTime() <= now().getTime()) throw conflict("The earlier result can no longer be reused.");
+        // Sandbox (test) results are never handed to a live organization, and vice versa.
+        if (!source || source.householdId !== householdId || source.mode !== ver.mode) throw notFound("Earlier result");
+        if (!REUSABLE_RESULT_STATUSES.has(source.status) || !source.decidedAt || !source.expiresAt || source.expiresAt.getTime() <= now().getTime()) {
+          throw conflict("The earlier result can no longer be reused.");
+        }
         vars.decidedDate = centralDateString(source.decidedAt);
         vars.resultValidUntil = centralDateString(source.expiresAt);
       }
@@ -383,10 +388,28 @@ export function consentState(consent: Pick<Consent, "revokedAt" | "expiresAt">, 
 export async function assertActiveConsent(verificationId: string, kind: ConsentCopyKind, dbOrTx?: DbOrTx): Promise<Consent> {
   const db = dbOrTx ?? (await getDb());
   const c = schema.consents;
-  const rows =
+  const [ver] =
     typeof verificationId === "string" && verificationId
-      ? await db.select().from(c).where(and(eq(c.verificationId, verificationId), eq(c.kind, kind))).orderBy(desc(c.grantedAt), desc(c.id))
+      ? await db.select({ householdId: schema.verifications.householdId, orgId: schema.verifications.orgId }).from(schema.verifications).where(eq(schema.verifications.id, verificationId)).limit(1)
       : [];
+  // A grant counts only if it came from the household the verification belongs to and names the organization
+  // that runs it. A verification can be consented to before it is linked to a household, so without this a
+  // grant made from some other household (by anyone who learned the id) would authorize collection for the
+  // family the verification is later linked to.
+  const rows = ver
+    ? await db
+        .select()
+        .from(c)
+        .where(
+          and(
+            eq(c.verificationId, verificationId),
+            eq(c.kind, kind),
+            ver.householdId ? eq(c.householdId, ver.householdId) : undefined,
+            eq(c.recipientOrgId, ver.orgId),
+          ),
+        )
+        .orderBy(desc(c.grantedAt), desc(c.id))
+    : [];
   const at = now();
   const active = rows.find((r) => consentState(r, at) === "active");
   if (active) return active;

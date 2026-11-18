@@ -12,6 +12,11 @@ import type { AwardLetterInput, DecisionInput, DirectEvidenceInput, InjectedThre
 
 const floorScale = (cents: number, capPct: number): number => Number((BigInt(cents) * BigInt(capPct)) / 300n);
 
+/** A copy of `value` without the named keys. */
+export function omit<T extends object, K extends string>(value: T, ...keys: K[]): Omit<T, K> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !(keys as string[]).includes(key))) as Omit<T, K>;
+}
+
 interface ThresholdFixtureOptions {
   capPct?: number;
   householdSize?: number;

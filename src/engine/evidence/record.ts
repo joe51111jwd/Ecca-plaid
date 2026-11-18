@@ -126,23 +126,20 @@ function isSafe(value: bigint): boolean {
 }
 
 /**
- * The largest reading at the statutory 300 percent. A reading that does not state its statutory figure is
- * scaled up from the capped one and rounded up, so the result is never below the true figure: this number
- * is a ceiling for what a reviewer may approve, and it must not refuse a decision the statute allows.
+ * The largest reading at the statutory 300 percent: the ceiling above which nobody can be found eligible.
+ * At a cap of 300 percent a reading is its own statutory figure. Under a stricter cap each reading has to
+ * state it (or the caller states the bound itself); it is never estimated.
  */
-function statutoryUpperBound(threshold: ParsedEvidenceInput["threshold"]): number {
+function statutoryUpperBound(threshold: ParsedEvidenceInput["threshold"], add: (path: string, code: EvidenceIssueCode, message: string) => void): number {
   if (threshold.statutoryUpperBoundCents !== null) return threshold.statutoryUpperBoundCents;
-  let highest = BigInt(threshold.statutoryThresholdCents);
-  for (const reading of threshold.readings) {
-    const statutory =
-      reading.statutoryThresholdCents !== null
-        ? BigInt(reading.statutoryThresholdCents)
-        : threshold.capPct === 300
-          ? BigInt(reading.thresholdCents)
-          : ((BigInt(reading.thresholdCents) + 1n) * 300n + BigInt(threshold.capPct) - 1n) / BigInt(threshold.capPct);
-    if (statutory > highest) highest = statutory;
-  }
-  return isSafe(highest) ? Number(highest) : Number.MAX_SAFE_INTEGER;
+  let highest = threshold.statutoryThresholdCents;
+  threshold.readings.forEach((reading, index) => {
+    if (reading.statutoryThresholdCents === null && threshold.capPct !== 300) {
+      add(`threshold.readings[${index}].statutoryThresholdCents`, "invalid", "is required when the cap is below 300 percent (or give threshold.statutoryUpperBoundCents)");
+    }
+    highest = Math.max(highest, reading.statutoryThresholdCents ?? reading.thresholdCents);
+  });
+  return highest;
 }
 
 /**
@@ -187,7 +184,7 @@ function resolveDetail(input: ParsedEvidenceInput, add: (path: string, code: Evi
     income,
     categorical: carryCategorical ? input.categorical : null,
     incomeDetailOmitted: !carryIncome && input.income !== null,
-    statutoryUpperBoundCents: statutoryUpperBound(input.threshold),
+    statutoryUpperBoundCents: statutoryUpperBound(input.threshold, add),
   };
 }
 

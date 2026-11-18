@@ -8,6 +8,7 @@
  */
 export { HOUSEHOLD_PERMISSIONS, householdCan, type HouseholdActor, type HouseholdPermission, type HouseholdRole } from "./access";
 export {
+  ADDRESS_UPDATE_LIMIT,
   getHousehold,
   getOrCreateHouseholdForUser,
   selectCounty,
@@ -33,7 +34,7 @@ export {
   type HouseholdMemberView,
   type OwnerMemberInput,
 } from "./members";
-export { FAMILY_HOME_PATH, inviteAdult, type InviteAdultInput, type InviteAdultResult } from "./invites";
+export { FAMILY_HOME_PATH, INVITE_LIMITS, inviteAdult, type InviteAdultInput, type InviteAdultResult } from "./invites";
 export { getHouseholdSnapshot, type HouseholdSnapshot, type SnapshotGap, type SnapshotMember, type SnapshotOptions } from "./snapshot";
 export { DELETION_REQUEST_PURGE_REASON, exportHouseholdData, HOUSEHOLD_EXPORT_FORMAT, processDeletionRequest, type DeletionReport, type HouseholdExport } from "./privacy";
 export {

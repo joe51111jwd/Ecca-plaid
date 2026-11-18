@@ -170,7 +170,7 @@ describe("POST /api/webhooks/stripe", () => {
   });
 
   it("fails (so Stripe retries) when the charge time cannot be read from Stripe", async () => {
-    // Stripe still reports the intent as unpaid when we look: the success event cannot be completed yet.
+    // The event names the charge but does not contain it; without Stripe's answer there is no charge time to record.
     stripe.paymentIntents.retrieve.mockRejectedValueOnce(new Error("socket hang up"));
     const body = succeeded();
     const res = await post(body, { "stripe-signature": signStripeBody(body) });

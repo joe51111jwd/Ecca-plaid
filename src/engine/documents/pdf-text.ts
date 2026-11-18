@@ -35,6 +35,8 @@ export interface PdfTextResult extends DocumentText {
   pagesRead: number;
   /** 1-based numbers of read pages whose text layer is missing or too thin. */
   pagesWithoutText: number[];
+  /** No end-of-file marker: the file was cut off, and pdfjs may have recovered only part of it. */
+  truncated: boolean;
 }
 
 export interface ExtractPdfTextOptions {
@@ -47,6 +49,12 @@ export interface ExtractPdfTextOptions {
 /** Baselines closer than this (points) belong to one line. */
 const LINE_TOLERANCE = 2.5;
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+/** A complete PDF ends with `%%EOF` (optionally followed by whitespace or a little trailing junk). */
+export function hasEofMarker(bytes: Uint8Array): boolean {
+  const tail = new TextDecoder("latin1").decode(bytes.subarray(Math.max(0, bytes.length - 1024)));
+  return tail.includes("%%EOF");
+}
 
 export function isPdfBytes(bytes: Uint8Array): boolean {
   // "%PDF-" may be preceded by a little junk (the spec tolerates up to 1024 bytes).
@@ -189,6 +197,7 @@ export async function extractPdfText(bytes: Uint8Array, opts: ExtractPdfTextOpti
           pagesRead,
           pagesWithoutText,
           hasTextLayer: textPages > 0,
+          truncated: !hasEofMarker(bytes),
         };
       })(),
       opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,

@@ -90,6 +90,7 @@ const REASON_MESSAGES: Partial<Record<ReviewReasonCode, string>> = {
   no_text_layer: "The file is a scan or photo with no readable text layer; a person must read it.",
   partial_text_layer: "Some pages have no readable text layer.",
   pages_truncated: "The file has more pages than the reader reads; the rest were not read.",
+  file_truncated: "The PDF file is cut off; only part of it could be read.",
   kind_mismatch: "The document is not the kind the family said it was.",
   synthetic_fixture: "The document is a synthetic test sample and cannot be used as real evidence.",
   suspicious_instructions: "The document contains text addressed to a computer system; a person must check it.",
@@ -169,6 +170,7 @@ export async function readDocument(input: ReadDocumentInput): Promise<DocumentRe
       return result;
     }
     const extra: ReviewReason[] = [];
+    if (pdf.truncated) extra.push(reason("file_truncated"));
     if (pdf.pagesRead < pdf.pageCount) extra.push(reason("pages_truncated"));
     if (pdf.pagesWithoutText.length > 0) extra.push(reason("partial_text_layer", `Pages without readable text: ${pdf.pagesWithoutText.join(", ")}.`));
     return finish(result, pdf, extra, policy, referenceDate ?? null, household ?? null);

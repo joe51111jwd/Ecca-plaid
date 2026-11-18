@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getThreshold } from "@/engine/ami";
 import { AppError } from "@/lib/errors";
-import { HARRIS, STARR, thresholdFixture } from "./test-fixtures";
+import { HARRIS, omit, STARR, thresholdFixture } from "./test-fixtures";
 import { toThresholdBounds, type ThresholdBoundsInput } from "./threshold-bounds";
 
 /** A result as an AMI engine without the readings extension would return it. */
 function withoutReadings(input: ThresholdBoundsInput): ThresholdBoundsInput {
-  const { readings: _readings, lowerBoundCents: _lower, upperBoundCents: _upper, ...rest } = input;
-  return rest;
+  return omit(input, "readings", "lowerBoundCents", "upperBoundCents");
 }
 
 describe("toThresholdBounds", () => {
@@ -49,7 +48,7 @@ describe("toThresholdBounds", () => {
 
   it("derives a reading's 300-percent figure when the AMI engine does not state it, never above the true figure", () => {
     const fixture = thresholdFixture(STARR, { capPct: 250 });
-    const readings = (fixture.readings as Array<Record<string, unknown>>).map(({ statutoryThresholdCents: _dropped, ...reading }) => reading);
+    const readings = (fixture.readings as Array<Record<string, unknown>>).map((reading) => omit(reading, "statutoryThresholdCents"));
     const bounds = toThresholdBounds({ ...fixture, readings });
     expect(bounds.readings.map((reading) => reading.statutoryThresholdCents)).toEqual([11_610_000, 25_110_000]);
     // A cap-level figure that was floored scales back to at most the true 300-percent figure.

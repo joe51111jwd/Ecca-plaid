@@ -1,18 +1,29 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/db/client";
-import { now } from "@/lib/clock";
+import { MS, now } from "@/lib/clock";
 import { appUrl } from "@/lib/env";
 import { conflict, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { audit } from "@/server/audit";
 import { normalizeEmail, type User } from "@/server/auth";
 import { renderEmail, sendEmail } from "@/server/email";
+import { enforceRateLimit } from "@/server/ratelimit";
 import { requirePermission, type HouseholdActor } from "./access";
 import { householdInvitationCopy } from "./copy";
 import { toMemberView, type HouseholdMemberView } from "./members";
 
 /** Where an invited adult lands after signing in. */
 export const FAMILY_HOME_PATH = "/family";
+
+/**
+ * Policy (sources are silent): invitations an owner may send per day, and invitations one address may receive
+ * per day. Each invitation emails an address the owner typed, and the answer says whether that address already
+ * belongs to a household here, so both are bounded against spam and against probing addresses in bulk.
+ */
+export const INVITE_LIMITS = {
+  perInviter: { limit: 10, windowMs: MS.day },
+  perAddress: { limit: 3, windowMs: MS.day },
+} as const;
 
 export interface InviteAdultInput {
   email: string;
@@ -40,6 +51,10 @@ export interface InviteAdultResult {
 export async function inviteAdult(householdId: string, input: InviteAdultInput, actor: HouseholdActor, dbOrTx?: DbOrTx): Promise<InviteAdultResult> {
   const email = normalizeEmail(input.email);
   const db = dbOrTx ?? (await getDb());
+  // Permission first, so a person without it cannot use up anyone's invitation allowance.
+  await requirePermission(db, householdId, actor, "invite_adult");
+  await enforceRateLimit(`household:invite:inviter:${actor.userId}`, { ...INVITE_LIMITS.perInviter, message: "Too many invitations were sent." }, db);
+  await enforceRateLimit(`household:invite:email:${email}`, { ...INVITE_LIMITS.perAddress, message: "Too many invitations were sent to this address." }, db);
 
   const result = await db.transaction(async (tx) => {
     const access = await requirePermission(tx, householdId, actor, "invite_adult");

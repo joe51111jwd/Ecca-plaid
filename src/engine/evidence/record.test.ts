@@ -776,6 +776,107 @@ describe("buildEvidenceRecord: the decision has to follow from the record", () =
     );
   });
 
+  it("a reviewer may find a household within the statutory limit although above the SGO's stricter cap", () => {
+    const capped = (status: "eligible" | "ineligible", income: number, by: "engine" | "reviewer" = "reviewer") =>
+      altered(direct(status, income, by, syntheticHarrisThreshold()), (copy) => {
+        copy.household.members.pop();
+        copy.household.size = 4;
+        Object.assign(copy.threshold, { capPct: 200, thresholdCents: 20_800_000, lowerBoundCents: 20_800_000, upperBoundCents: 20_800_000 });
+        copy.threshold.readings.forEach((reading) => void (reading.thresholdCents = 20_800_000));
+      });
+    const record = buildEvidenceRecord(capped("eligible", 25_000_000));
+    expect(record.threshold).toMatchObject({ cap_pct: 200, upper_bound_cents: 20_800_000, statutory_upper_bound_cents: 31_200_000, relied_on: "statutory_limit", relied_on_limit_cents: 31_200_000 });
+    expect(record.threshold.relied_on_statement).toBe(
+      "The decision relied on the limit at the statutory 300 percent, $312,000.00. Household income of $250,000.00 is not greater than it, and is greater than the limit at the SGO's stricter cap of 200 percent ($208,000.00).",
+    );
+    expect(record.decision.summary).toBe(
+      "Eligible: the household income requirement is met. Household cash income counted for calendar year 2026 is $250,000.00, which is not greater than the provisional income limit of $312,000.00 at the statutory 300 percent " +
+        "for a household of 4 in Starr County, TX. It is greater than the limit at the SGO's stricter cap of 200 percent ($208,000.00). A reviewer made the decision; see the review trail.",
+    );
+    // At the cap itself the capped limit is what was relied on; above the statutory limit nobody is eligible.
+    expect(buildEvidenceRecord(capped("eligible", 20_800_000)).threshold).toMatchObject({ relied_on: "single_limit", relied_on_limit_cents: 20_800_000 });
+    expect(buildEvidenceRecord(capped("eligible", 31_200_000)).threshold.relied_on).toBe("statutory_limit");
+    expectIssue(capped("eligible", 31_200_001), "decision.status", "decision_contradicts_record", /statutory limit under every reading \(\$312,000\.00\)/);
+    // Above the cap is over the SGO's limit, so "ineligible" stands on the capped figure.
+    expect(buildEvidenceRecord(capped("ineligible", 25_000_000, "engine")).threshold).toMatchObject({ relied_on: "single_limit", relied_on_limit_cents: 20_800_000 });
+
+    // The statutory figure of each reading is stated, never estimated.
+    const unstated = altered(capped("eligible", 25_000_000), (copy) => void copy.threshold.readings.forEach((reading) => delete loose(reading).statutoryThresholdCents));
+    expectIssue(unstated, "threshold.readings[0].statutoryThresholdCents", "invalid", /required when the cap is below 300 percent/);
+    const stated = buildEvidenceRecord(altered(unstated, (copy) => void (copy.threshold.statutoryUpperBoundCents = 31_200_000)));
+    expect(stated.threshold.statutory_upper_bound_cents).toBe(31_200_000);
+    expect(stated.threshold.readings[0].statutory_limit_cents).toBeNull();
+  });
+
+  it("carries the income range and says when a decision rests on lines whose treatment is open", () => {
+    const withOpenLine = (status: "eligible" | "ineligible", countedCents: number, openCents: number, by: "engine" | "reviewer" = "reviewer") =>
+      altered(direct(status, countedCents, by), (copy) => {
+        copy.income!.items.push({
+          id: "inc_SYNTHETICopen000000001",
+          category: "regular_contributions_from_outside",
+          categoryLabel: "Regular support from outside the household",
+          annualAmountCents: openCents,
+          treatment: "review",
+          basis: "The sources do not settle whether this counts",
+          source: "self_reported",
+        });
+      });
+
+    // Recorded income within the lower bound, but the open line could take it over: only a reviewer's call makes this ineligible.
+    const record = buildEvidenceRecord(withOpenLine("ineligible", 10_000_000, 5_000_000));
+    expect(record.income).toMatchObject({ total_counted_cents: 10_000_000, lower_bound_cents: 10_000_000, upper_bound_cents: 15_000_000 });
+    expect(record.income!.items.map((item) => item.treatment)).toEqual(["review", "counted"]);
+    expect(record.threshold).toMatchObject({ relied_on: "lower_bound", relied_on_limit_cents: 12_538_800 });
+    expect(record.threshold.relied_on_statement).toBe(
+      "The decision relied on the lower bound, $125,388.00 (Area median income x family-size multiplier (the worked example in the proposed rule's economic analysis)). " +
+        "Recorded household income of $100,000.00 is not greater than it; with the lines whose treatment is open, household income is as much as $150,000.00, which is greater. The decision rests on those lines.",
+    );
+    expect(record.decision.summary).toBe(
+      "Not eligible: the household income requirement is not met. Household cash income counted for calendar year 2026 is $100,000.00; with the lines whose treatment is open it is as much as $150,000.00, " +
+        "which is greater than the provisional income limit of $125,388.00 (the lower bound of the readings shown in the limit calculation) for a household of 5 in Starr County, TX. A reviewer made the decision; see the review trail.",
+    );
+    // If even the most the household can have is within the lowest reading, "ineligible" cannot stand.
+    expectIssue(withOpenLine("ineligible", 10_000_000, 2_538_800), "decision.status", "decision_contradicts_record", /at most \$125,388\.00 is not greater than the limit under any reading/);
+
+    // An eligible decision is described by the recorded figure, with the range beside it.
+    const eligible = buildEvidenceRecord(altered(withOpenLine("eligible", 5_000_000, 1_000_000, "engine"), (copy) => void (copy.income!.lowerBoundCents = 4_000_000)));
+    expect(eligible.income).toMatchObject({ total_counted_cents: 5_000_000, lower_bound_cents: 4_000_000, upper_bound_cents: 6_000_000 });
+    expect(eligible.threshold.relied_on_statement).toMatch(/not greater than the limit under any reading shown\. Lines that can be read more than one way put household income between \$40,000\.00 and \$60,000\.00\.$/);
+
+    // An explicit range from the income engine wins over the default.
+    const explicit = buildEvidenceRecord(altered(withOpenLine("eligible", 5_000_000, 1_000_000, "engine"), (copy) => void (copy.income!.upperBoundCents = 7_500_000)));
+    expect(explicit.income!.upper_bound_cents).toBe(7_500_000);
+  });
+
+  it("accepts counted: true or false where a treatment is not given", () => {
+    const record = buildEvidenceRecord(
+      altered(syntheticDirectReviewedInput(), (copy) => {
+        for (const item of copy.income!.items) {
+          item.counted = item.treatment === "counted";
+          delete loose(item).treatment;
+        }
+      }),
+    );
+    expect(record).toEqual(buildEvidenceRecord(syntheticDirectReviewedInput()));
+    expect(record.income!.items.map((item) => item.treatment).sort()).toEqual(["counted", "counted", "counted", "excluded"]);
+  });
+
+  it("carries the shared-custody facts and how they were resolved", () => {
+    const record = buildEvidenceRecord(
+      altered(syntheticDirectReviewedInput(), (copy) => {
+        copy.household.custody = { livesInMultipleHouseholds: true, monthsInThisHousehold: 8, equalTime: false, thisHouseholdHasHigherIncome: null, notes: "Weekdays here, weekends with the other parent.", outcome: "this_household_longest" };
+      }),
+    );
+    expect(record.household.custody).toEqual({
+      lives_in_multiple_households: true,
+      months_in_this_household: 8,
+      equal_time: false,
+      this_household_has_higher_income: null,
+      notes: "Weekdays here, weekends with the other parent.",
+      outcome: "this_household_longest",
+    });
+  });
+
   it("only calls a limit provisional when the table is, and never names the IRS on its own", () => {
     const published = altered(direct("eligible", 10_000_000, "engine", syntheticIrsPublishedThreshold()), (copy) => {
       copy.household.members.pop();

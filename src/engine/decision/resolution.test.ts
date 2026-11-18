@@ -3,7 +3,7 @@ import { AppError } from "@/lib/errors";
 import { decide } from "./decide";
 import { applyReviewerResolution, type ReviewerResolutionInput } from "./resolution";
 import { METHOD_CITATIONS } from "./policy";
-import { awardLetter, decisionInput, directEvidence, FAMILY_OF_FOUR, STARR, thresholdFixture, TODAY, wageItem, MARIA, DANIEL } from "./test-fixtures";
+import { awardLetter, DANIEL, decisionInput, directEvidence, FAMILY_OF_FOUR, MARIA, omit, STARR, thresholdFixture, TODAY, wageItem } from "./test-fixtures";
 import type { Decision, DecisionInput } from "./types";
 
 const resolution = (overrides: Partial<ReviewerResolutionInput> = {}): ReviewerResolutionInput => ({
@@ -113,8 +113,7 @@ describe("applyReviewerResolution", () => {
     });
 
     it("refuses missing notes and an anonymous reviewer", () => {
-      const { notes: _notes, ...withoutNotes } = resolution();
-      expect(refusal(() => applyReviewerResolution(betweenReadings(), withoutNotes as ReviewerResolutionInput)).code).toBe("validation_failed");
+      expect(refusal(() => applyReviewerResolution(betweenReadings(), omit(resolution(), "notes") as ReviewerResolutionInput)).code).toBe("validation_failed");
       expect(refusal(() => applyReviewerResolution(betweenReadings(), resolution({ reviewerId: "" }))).code).toBe("validation_failed");
     });
   });

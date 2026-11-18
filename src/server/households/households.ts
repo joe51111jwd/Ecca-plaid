@@ -3,11 +3,12 @@ import { getDb, schema, type DbOrTx } from "@/db/client";
 import type { CountyResolution } from "@/db/schema";
 import { getCounty } from "@/engine/ami";
 import { normalizeZip, type CountyCandidate } from "@/engine/geo";
-import { now } from "@/lib/clock";
+import { MS, now } from "@/lib/clock";
 import { conflict, invalid } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { audit } from "@/server/audit";
 import type { HouseholdAccess } from "@/server/auth";
+import { enforceRateLimit } from "@/server/ratelimit";
 import { confirmSelectedCounty, resolveHouseholdCounty, type GeoServiceOptions, type HouseholdAddressInput, type HudAreaRef, type SelectionReason } from "@/server/geo";
 import { loadActorUser, requirePermission, type HouseholdActor, type HouseholdRole } from "./access";
 import { listActiveMemberRows, toMemberView, type Household, type HouseholdMemberView } from "./members";
@@ -138,6 +139,12 @@ export async function updateHouseholdLocale(householdId: string, locale: Househo
 
 /* ------------------------------------------------------------------------------- address & county */
 
+/**
+ * Policy (sources are silent): address saves per household per hour. Each save calls the Census geocoder (up to
+ * GEOCODER_MAX_ATTEMPTS requests), so the bound keeps one account from using this service as a geocoding proxy.
+ */
+export const ADDRESS_UPDATE_LIMIT = { limit: 20, windowMs: MS.hour } as const;
+
 export type UpdateAddressResult =
   | { status: "resolved"; needsSelection: false; household: HouseholdView; county: HouseholdCountyView; matchedAddress?: string }
   | {
@@ -167,7 +174,8 @@ function normalizeAddressForStorage(address: HouseholdAddressInput): NormalizedA
  */
 export async function updateAddress(householdId: string, address: HouseholdAddressInput, actor: HouseholdActor, geo: GeoServiceOptions = {}, dbOrTx?: DbOrTx): Promise<UpdateAddressResult> {
   const db = dbOrTx ?? (await getDb());
-  await requirePermission(db, householdId, actor, "edit_household");
+  const checked = await requirePermission(db, householdId, actor, "edit_household");
+  await enforceRateLimit(`household:address:${checked.household.id}`, { ...ADDRESS_UPDATE_LIMIT, message: "Too many address changes." }, db);
   const resolution = await resolveHouseholdCounty(address, geo);
   const addr = normalizeAddressForStorage(address);
 

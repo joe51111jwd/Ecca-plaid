@@ -176,6 +176,23 @@ describe("consents", () => {
       setTestNow("2027-10-01T00:00:00Z");
       expect(await codeOf(grantConsent(input))).toBe("conflict");
     });
+
+    it("passport reuse needs a final result from the same mode", async () => {
+      const db = await getDb();
+      const secondSgo = await makeSgo("Second Synthetic Fund");
+      const attempt = async (sourceOpts: Parameters<typeof makeVerification>[2], sourceMode: "test" | "live" = "test") => {
+        const source = await makeVerification(sgo.id, householdId, { decidedAt: new Date("2026-10-01T18:00:00Z"), expiresAt: new Date("2027-09-30T05:00:00Z"), ...sourceOpts });
+        if (sourceMode !== "test") await db.update(schema.verifications).set({ mode: sourceMode }).where(eq(schema.verifications.id, source.id));
+        const reuse = await makeVerification(secondSgo.id, householdId, { passportSourceId: source.id });
+        return codeOf(grantConsent({ kind: "passport_reuse", userId: owner.id, householdId, verificationId: reuse.id, recipientOrgId: secondSgo.id, locale: "en", vars: { shareUntil: "2027-06-30" } }));
+      };
+      expect(await attempt({ status: "eligible" })).toBe("ok");
+      expect(await attempt({ status: "ineligible" })).toBe("ok");
+      expect(await attempt({ status: "canceled" })).toBe("conflict");
+      expect(await attempt({ status: "expired" })).toBe("conflict");
+      expect(await attempt({ status: "needs_review" })).toBe("conflict");
+      expect(await attempt({ status: "eligible" }, "live")).toBe("not_found"); // a live result is never reused in test mode
+    });
   });
 
   describe("revokeConsent", () => {
@@ -240,6 +257,29 @@ describe("consents", () => {
       expect(await detailsOf(assertActiveConsent(verificationId, "verification_share"))).toEqual({ code: "forbidden", reason: "consent_revoked" });
       const fresh = (await share(owner.id)).consent;
       expect((await assertActiveConsent(verificationId, "verification_share")).id).toBe(fresh.id);
+    });
+
+    it("ignores a grant made from another household before the verification was linked", async () => {
+      const intruder = await makeUser("intruder@example.com");
+      const intruderHousehold = (await getOrCreateHouseholdForUser(intruder.id)).household.id;
+      const unlinked = await makeVerification(sgo.id, null);
+      const foreign = await grantConsent({
+        kind: "verification_share",
+        userId: intruder.id,
+        householdId: intruderHousehold,
+        verificationId: unlinked.id,
+        recipientOrgId: sgo.id,
+        locale: "en",
+        vars: { shareUntil: "2027-12-31", uploadRetentionDays: 90 },
+      });
+      // The verification is then linked to the real family's household.
+      const db = await getDb();
+      await db.update(schema.verifications).set({ householdId }).where(eq(schema.verifications.id, unlinked.id));
+      expect(await detailsOf(assertActiveConsent(unlinked.id, "verification_share"))).toEqual({ code: "forbidden", reason: "consent_missing" });
+      const own = await share(owner.id, { verificationId: unlinked.id });
+      expect((await assertActiveConsent(unlinked.id, "verification_share")).id).toBe(own.consent.id);
+      expect(own.consent.id).not.toBe(foreign.consent.id);
+      expect(await detailsOf(assertActiveConsent("ver_missing", "verification_share"))).toEqual({ code: "forbidden", reason: "consent_missing" });
     });
 
     it("consentState", () => {

@@ -16,6 +16,7 @@ import {
   MARIA,
   MATEO,
   NO_OTHER_INCOME,
+  omit,
   parserSource,
   SOFIA,
   STARR,
@@ -254,8 +255,8 @@ describe("decide: two readings of the provisional limit", () => {
     const irs = starr({ threshold: thresholdFixture(STARR, { source: "irs_published" }), direct: incomeOf(116_100.01) });
     expect(irs.status).toBe("ineligible");
     expect(irs.threshold!.readings.map((reading) => reading.id)).toEqual(["irs_published"]);
-    const { readings: _r, lowerBoundCents: _l, upperBoundCents: _u, readingsAgree: _a, ...bare } = thresholdFixture(STARR) as Record<string, unknown>;
-    const fallback = starr({ sgoPolicy: noBand, threshold: bare as unknown as DecisionInput["threshold"], direct: incomeOf(116_100.01) });
+    const bare = omit(thresholdFixture(STARR), "readings", "lowerBoundCents", "upperBoundCents", "readingsAgree");
+    const fallback = starr({ sgoPolicy: noBand, threshold: bare, direct: incomeOf(116_100.01) });
     expect(fallback.status).toBe("ineligible");
     expect(fallback.threshold).toMatchObject({ boundsSource: "single_threshold", readingsAgree: true, lowerBoundCents: 11_610_000 });
   });

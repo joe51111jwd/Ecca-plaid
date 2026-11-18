@@ -308,7 +308,7 @@ export function validateCustodyInfo(input: unknown): CustodyValidation {
     // picking one answer: it goes to a reviewer like any other unclear custody answer.
     const partYear = rawMonths !== undefined && rawMonths !== null && rawMonths < MONTHS_IN_YEAR;
     if (partYear) flag("months_inconsistent", `The family said the student lived only in this household but gave ${rawMonths} months here.`);
-    if (data.equalTime === true) flag("months_inconsistent", "The family said the student lived only in this household but also that time was split equally between households.");
+    else if (data.equalTime === true) flag("months_inconsistent", "The family said the student lived only in this household but also that time was split equally between households.");
     const custody: CustodyInfo = {
       livesInMultipleHouseholds: false,
       ...(rawMonths !== undefined && rawMonths !== null ? { monthsInThisHousehold: rawMonths } : {}),

@@ -45,6 +45,10 @@ describe("checkPersonName", () => {
     ["Ann\u0000Marie"],
     ["Jr."],
     ["x".repeat(MAX_NAME_LENGTH + 1)],
+    ["́́́"], // combining marks with no letter
+    ["́Ana"],
+    ["Ana ́"],
+    ["Ana​Marie"], // zero-width space
   ])("rejects %j", (raw) => {
     expect(checkPersonName(raw).ok).toBe(false);
   });
@@ -147,6 +151,23 @@ describe("validateCustodyInfo", () => {
   it("a student who lives only here needs no review", () => {
     const r = validateCustodyInfo({ livesInMultipleHouseholds: false, notes: "  " });
     expect(r).toEqual({ custody: { livesInMultipleHouseholds: false }, flags: [], needsReview: false, suggestedRelevantHousehold: "this" });
+  });
+
+  it("a single-home answer that contradicts itself goes to review instead of being trusted", () => {
+    expect(validateCustodyInfo({ livesInMultipleHouseholds: false, monthsInThisHousehold: 12 })).toEqual({
+      custody: { livesInMultipleHouseholds: false, monthsInThisHousehold: 12 },
+      flags: [],
+      needsReview: false,
+      suggestedRelevantHousehold: "this",
+    });
+    const partYear = validateCustodyInfo({ livesInMultipleHouseholds: false, monthsInThisHousehold: 3 });
+    expect(partYear.flags.map((f) => f.code)).toEqual(["months_inconsistent"]);
+    expect(partYear).toMatchObject({ needsReview: true, suggestedRelevantHousehold: "undetermined", custody: { livesInMultipleHouseholds: false, monthsInThisHousehold: 3 } });
+    const equal = validateCustodyInfo({ livesInMultipleHouseholds: false, equalTime: true });
+    expect(equal.flags.map((f) => f.code)).toEqual(["months_inconsistent"]);
+    expect(equal.needsReview).toBe(true);
+    // Out-of-range months are rejected whatever the first answer is.
+    expect(fieldsOf(() => validateCustodyInfo({ livesInMultipleHouseholds: false, monthsInThisHousehold: 99 }))).toHaveProperty("monthsInThisHousehold");
   });
 
   type Row = [string, Record<string, unknown>, CustodyFlagCode[], "this" | "other" | "undetermined"];

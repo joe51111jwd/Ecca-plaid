@@ -9,12 +9,14 @@ import type { User } from "@/server/auth";
 import { listOutbox } from "@/server/email";
 import { useTestDb } from "../../../tests/helpers/db";
 import {
+  ADDRESS_UPDATE_LIMIT,
   addMember,
   getHousehold,
   getHouseholdSize,
   getHouseholdSnapshot,
   getOrCreateHouseholdForUser,
   householdCan,
+  INVITE_LIMITS,
   inviteAdult,
   MAX_HOUSEHOLD_MEMBERS,
   readMemberDob,
@@ -345,6 +347,49 @@ describe("households", () => {
     });
   });
 
+  describe("rate limits", () => {
+    it("bounds invitations per inviter and per address, after the permission check", async () => {
+      const db = await getDb();
+      const members = [];
+      for (let i = 0; i < 2; i++) members.push(await addMember(householdId, { kind: "adult", firstName: "Rosa", lastName: "Peña", relationship: "other_relative" }, ownerActor));
+      const [a] = members;
+      // Re-sending to the same person counts against the address.
+      for (let i = 0; i < INVITE_LIMITS.perAddress.limit; i++) await inviteAdult(householdId, { email: "limited@example.com", memberId: a!.id }, ownerActor);
+      expect(await codeOf(inviteAdult(householdId, { email: "limited@example.com", memberId: a!.id }, ownerActor))).toBe("rate_limited");
+      expect(await listOutbox({ to: "limited@example.com" })).toHaveLength(INVITE_LIMITS.perAddress.limit);
+
+      // A stranger is refused as not_found and does not use up the address's allowance.
+      setTestNow("2026-11-19T15:00:01Z");
+      for (let i = 0; i < 5; i++) expect(await codeOf(inviteAdult(householdId, { email: "limited@example.com", memberId: a!.id }, otherActor))).toBe("not_found");
+      await inviteAdult(householdId, { email: "limited@example.com", memberId: a!.id }, ownerActor);
+
+      // Per inviter: one inviter cannot email an unbounded list of addresses.
+      setTestNow("2026-11-21T15:00:00Z");
+      const [b] = members.slice(1);
+      let sent = 0;
+      let last = "ok";
+      for (let i = 0; i <= INVITE_LIMITS.perInviter.limit; i++) {
+        last = await codeOf(inviteAdult(householdId, { email: `probe${i}@example.com`, memberId: b!.id }, ownerActor));
+        if (last === "ok") sent++;
+      }
+      // The first succeeds; later ones to new addresses conflict (the row is linked), each still counted.
+      expect(sent).toBe(1);
+      expect(last).toBe("rate_limited");
+      expect(await db.select().from(schema.users).where(eq(schema.users.email, `probe${INVITE_LIMITS.perInviter.limit}@example.com`))).toHaveLength(0);
+    });
+
+    it("bounds address saves (each one calls the geocoder)", async () => {
+      const fetchImpl = fakeGeocoder(null);
+      for (let i = 0; i < ADDRESS_UPDATE_LIMIT.limit; i++) await updateAddress(householdId, ADDR, ownerActor, { fetchImpl });
+      const calls = (fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+      expect(await codeOf(updateAddress(householdId, ADDR, ownerActor, { fetchImpl }))).toBe("rate_limited");
+      expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(calls);
+      expect(await codeOf(updateAddress(householdId, ADDR, otherActor, { fetchImpl }))).toBe("not_found");
+      setTestNow("2026-11-18T16:00:01Z");
+      expect((await updateAddress(householdId, ADDR, ownerActor, { fetchImpl })).status).toBe("resolved");
+    });
+  });
+
   describe("getHouseholdSnapshot", () => {
     beforeEach(async () => {
       await upsertOwnerMember(householdId, { ...OWNER_SELF, dob: "1985-03-04" }, ownerActor);
@@ -379,11 +424,11 @@ describe("households", () => {
   });
 
   it("errors are AppErrors with safe messages", async () => {
-    try {
-      await getHousehold(householdId, otherActor);
-    } catch (e) {
-      expect(isAppError(e)).toBe(true);
-      expect((e as Error).message).toBe("Household not found");
-    }
+    const error = await getHousehold(householdId, otherActor).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(isAppError(error)).toBe(true);
+    expect((error as Error).message).toBe("Household not found");
   });
 });

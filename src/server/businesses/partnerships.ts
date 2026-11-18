@@ -5,6 +5,7 @@ import { getDb, schema, type DbOrTx } from "@/db/client";
 import type { VendorType } from "@/db/schema";
 import { conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
+import { now } from "@/lib/clock";
 import { audit } from "@/server/audit";
 import { auditContextOf, authorizeManage, type BusinessActor } from "./access";
 import { loadBusiness } from "./profiles";
@@ -119,7 +120,7 @@ export async function requestPartnership(input: { businessOrgId: string; sgoOrgI
     } else {
       const inserted = await tx
         .insert(p)
-        .values({ id: newPartnershipId(), businessOrgId, sgoOrgId, status: "pending" })
+        .values({ id: newPartnershipId(), businessOrgId, sgoOrgId, status: "pending", createdAt: now() })
         .onConflictDoNothing({ target: [p.businessOrgId, p.sgoOrgId] })
         .returning();
       // A concurrent request for the same pair won the insert.
