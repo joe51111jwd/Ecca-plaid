@@ -1,26 +1,666 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Passport design system — tokens and base styles.
+ *
+ * How this file is organised
+ *   1. Tokens          raw colour scales, type, radius, shadow, motion (@theme → Tailwind utilities)
+ *   2. Roles           what a colour is FOR (canvas, surface, fg, line, action, tone-*). Components use
+ *                      roles, never raw scale steps, so a dark theme only has to redefine section 2.
+ *   3. Base            element defaults: focus ring, selection, reduced motion
+ *   4. Utilities       z-index layers, hatch pattern, touch density
+ *   5. Component CSS   the few things utilities cannot express (dialog/popover top-layer transitions,
+ *                      the stacked-table container query, long-form prose)
+ *
+ * Light theme is the product. `dark:` utilities are deliberately inert until a full dark theme ships.
+ * The living reference for every token and component is /styleguide.
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* dark: only applies under an explicit attribute nobody sets yet, so a user's OS setting cannot
+   produce a half-dark page. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ------------------------------------------------------------------------------------------- 1. TOKENS */
+
+@theme {
+  /* The default Tailwind palette is removed: every colour utility resolves to this system. */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Tailwind's familiar colour names resolve to this palette, so off-kit classes still land on-system.
+     purple, violet, indigo, fuchsia, pink and lime are intentionally absent. */
+  --color-gray-50: var(--color-ink-50); --color-gray-100: var(--color-ink-100); --color-gray-200: var(--color-ink-200); --color-gray-300: var(--color-ink-300); --color-gray-400: var(--color-ink-400); --color-gray-500: var(--color-ink-500); --color-gray-600: var(--color-ink-600); --color-gray-700: var(--color-ink-700); --color-gray-800: var(--color-ink-800); --color-gray-900: var(--color-ink-900); --color-gray-950: var(--color-ink-950);
+  --color-slate-50: var(--color-ink-50); --color-slate-100: var(--color-ink-100); --color-slate-200: var(--color-ink-200); --color-slate-300: var(--color-ink-300); --color-slate-400: var(--color-ink-400); --color-slate-500: var(--color-ink-500); --color-slate-600: var(--color-ink-600); --color-slate-700: var(--color-ink-700); --color-slate-800: var(--color-ink-800); --color-slate-900: var(--color-ink-900); --color-slate-950: var(--color-ink-950);
+  --color-zinc-50: var(--color-ink-50); --color-zinc-100: var(--color-ink-100); --color-zinc-200: var(--color-ink-200); --color-zinc-300: var(--color-ink-300); --color-zinc-400: var(--color-ink-400); --color-zinc-500: var(--color-ink-500); --color-zinc-600: var(--color-ink-600); --color-zinc-700: var(--color-ink-700); --color-zinc-800: var(--color-ink-800); --color-zinc-900: var(--color-ink-900); --color-zinc-950: var(--color-ink-950);
+  --color-neutral-50: var(--color-ink-50); --color-neutral-100: var(--color-ink-100); --color-neutral-200: var(--color-ink-200); --color-neutral-300: var(--color-ink-300); --color-neutral-400: var(--color-ink-400); --color-neutral-500: var(--color-ink-500); --color-neutral-600: var(--color-ink-600); --color-neutral-700: var(--color-ink-700); --color-neutral-800: var(--color-ink-800); --color-neutral-900: var(--color-ink-900); --color-neutral-950: var(--color-ink-950);
+  --color-stone-50: var(--color-ink-50); --color-stone-100: var(--color-ink-100); --color-stone-200: var(--color-ink-200); --color-stone-300: var(--color-ink-300); --color-stone-400: var(--color-ink-400); --color-stone-500: var(--color-ink-500); --color-stone-600: var(--color-ink-600); --color-stone-700: var(--color-ink-700); --color-stone-800: var(--color-ink-800); --color-stone-900: var(--color-ink-900); --color-stone-950: var(--color-ink-950);
+  --color-red-50: var(--color-danger-50); --color-red-100: var(--color-danger-100); --color-red-200: var(--color-danger-200); --color-red-300: var(--color-danger-300); --color-red-400: var(--color-danger-400); --color-red-500: var(--color-danger-500); --color-red-600: var(--color-danger-600); --color-red-700: var(--color-danger-700); --color-red-800: var(--color-danger-800); --color-red-900: var(--color-danger-900); --color-red-950: var(--color-danger-950);
+  --color-rose-50: var(--color-danger-50); --color-rose-100: var(--color-danger-100); --color-rose-200: var(--color-danger-200); --color-rose-300: var(--color-danger-300); --color-rose-400: var(--color-danger-400); --color-rose-500: var(--color-danger-500); --color-rose-600: var(--color-danger-600); --color-rose-700: var(--color-danger-700); --color-rose-800: var(--color-danger-800); --color-rose-900: var(--color-danger-900); --color-rose-950: var(--color-danger-950);
+  --color-green-50: var(--color-success-50); --color-green-100: var(--color-success-100); --color-green-200: var(--color-success-200); --color-green-300: var(--color-success-300); --color-green-400: var(--color-success-400); --color-green-500: var(--color-success-500); --color-green-600: var(--color-success-600); --color-green-700: var(--color-success-700); --color-green-800: var(--color-success-800); --color-green-900: var(--color-success-900); --color-green-950: var(--color-success-950);
+  --color-emerald-50: var(--color-success-50); --color-emerald-100: var(--color-success-100); --color-emerald-200: var(--color-success-200); --color-emerald-300: var(--color-success-300); --color-emerald-400: var(--color-success-400); --color-emerald-500: var(--color-success-500); --color-emerald-600: var(--color-success-600); --color-emerald-700: var(--color-success-700); --color-emerald-800: var(--color-success-800); --color-emerald-900: var(--color-success-900); --color-emerald-950: var(--color-success-950);
+  --color-orange-50: var(--color-warning-50); --color-orange-100: var(--color-warning-100); --color-orange-200: var(--color-warning-200); --color-orange-300: var(--color-warning-300); --color-orange-400: var(--color-warning-400); --color-orange-500: var(--color-warning-500); --color-orange-600: var(--color-warning-600); --color-orange-700: var(--color-warning-700); --color-orange-800: var(--color-warning-800); --color-orange-900: var(--color-warning-900); --color-orange-950: var(--color-warning-950);
+  --color-amber-50: var(--color-warning-50); --color-amber-100: var(--color-warning-100); --color-amber-200: var(--color-warning-200); --color-amber-300: var(--color-warning-300); --color-amber-400: var(--color-warning-400); --color-amber-500: var(--color-warning-500); --color-amber-600: var(--color-warning-600); --color-amber-700: var(--color-warning-700); --color-amber-800: var(--color-warning-800); --color-amber-900: var(--color-warning-900); --color-amber-950: var(--color-warning-950);
+  --color-yellow-50: var(--color-warning-50); --color-yellow-100: var(--color-warning-100); --color-yellow-200: var(--color-warning-200); --color-yellow-300: var(--color-warning-300); --color-yellow-400: var(--color-warning-400); --color-yellow-500: var(--color-warning-500); --color-yellow-600: var(--color-warning-600); --color-yellow-700: var(--color-warning-700); --color-yellow-800: var(--color-warning-800); --color-yellow-900: var(--color-warning-900); --color-yellow-950: var(--color-warning-950);
+  --color-blue-50: var(--color-info-50); --color-blue-100: var(--color-info-100); --color-blue-200: var(--color-info-200); --color-blue-300: var(--color-info-300); --color-blue-400: var(--color-info-400); --color-blue-500: var(--color-info-500); --color-blue-600: var(--color-info-600); --color-blue-700: var(--color-info-700); --color-blue-800: var(--color-info-800); --color-blue-900: var(--color-info-900); --color-blue-950: var(--color-info-950);
+  --color-sky-50: var(--color-info-50); --color-sky-100: var(--color-info-100); --color-sky-200: var(--color-info-200); --color-sky-300: var(--color-info-300); --color-sky-400: var(--color-info-400); --color-sky-500: var(--color-info-500); --color-sky-600: var(--color-info-600); --color-sky-700: var(--color-info-700); --color-sky-800: var(--color-info-800); --color-sky-900: var(--color-info-900); --color-sky-950: var(--color-info-950);
+  --color-teal-50: var(--color-brand-50); --color-teal-100: var(--color-brand-100); --color-teal-200: var(--color-brand-200); --color-teal-300: var(--color-brand-300); --color-teal-400: var(--color-brand-400); --color-teal-500: var(--color-brand-500); --color-teal-600: var(--color-brand-600); --color-teal-700: var(--color-brand-700); --color-teal-800: var(--color-brand-800); --color-teal-900: var(--color-brand-900); --color-teal-950: var(--color-brand-950);
+  --color-cyan-50: var(--color-brand-50); --color-cyan-100: var(--color-brand-100); --color-cyan-200: var(--color-brand-200); --color-cyan-300: var(--color-brand-300); --color-cyan-400: var(--color-brand-400); --color-cyan-500: var(--color-brand-500); --color-cyan-600: var(--color-brand-600); --color-cyan-700: var(--color-brand-700); --color-cyan-800: var(--color-brand-800); --color-cyan-900: var(--color-brand-900); --color-cyan-950: var(--color-brand-950);
+
+  /* Typography: a system stack on purpose (no font files are shipped, nothing is fetched at build time). */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, "Bitstream Charter", Cambria, Georgia, "Noto Serif", serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", "Roboto Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Display sizes (serif headings and large dollar figures). Body sizes are Tailwind's xs–2xl. */
+  --text-display-sm: 1.75rem;
+  --text-display-sm--line-height: 2.125rem;
+  --text-display-sm--letter-spacing: -0.01em;
+  --text-display-md: 2.25rem;
+  --text-display-md--line-height: 2.625rem;
+  --text-display-md--letter-spacing: -0.015em;
+  --text-display-lg: 2.75rem;
+  --text-display-lg--line-height: 3.125rem;
+  --text-display-lg--letter-spacing: -0.02em;
+  --text-display-xl: 3.5rem;
+  --text-display-xl--line-height: 3.75rem;
+  --text-display-xl--letter-spacing: -0.02em;
+
+  /* Radius: controls 8px, cards 12px, dialogs and large panels 16px. */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-panel: 1rem;
+
+  /* Shadows: borders carry most of the structure; shadows only lift things that float. */
+  --shadow-xs: 0 1px 2px rgb(12 16 17 / 0.05);
+  --shadow-sm: 0 1px 2px rgb(12 16 17 / 0.06), 0 1px 3px rgb(12 16 17 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(12 16 17 / 0.1), 0 2px 4px -2px rgb(12 16 17 / 0.06);
+  --shadow-lg: 0 16px 40px -8px rgb(12 16 17 / 0.18), 0 4px 12px -4px rgb(12 16 17 / 0.08);
+
+  /* Layout widths. */
+  --container-focus: 34rem;
+  --container-reading: 44rem;
+  --container-page: 76rem;
+
+  /* Motion. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  --animate-fade-in: ui-fade-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-rise-in: ui-rise-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-shimmer: ui-shimmer 1.6s ease-in-out infinite;
+
+  @keyframes ui-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes ui-rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @keyframes ui-shimmer {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Raw scales. ink = neutral, brand = petrol blue-green, accent = marigold (use sparingly).
+   `static` keeps every step defined even when only the role tokens below reference it. */
+@theme static {
+  --color-ink-50: #F6F7F7; --color-ink-100: #EDEFEF; --color-ink-200: #DEE2E2; --color-ink-300: #C6CCCD; --color-ink-400: #9AA3A5; --color-ink-500: #626C6F; --color-ink-600: #4C5659; --color-ink-700: #394245; --color-ink-800: #252C2E; --color-ink-900: #161B1D; --color-ink-950: #0C1011;
+  --color-brand-50: #EEF6F8; --color-brand-100: #D9EBEF; --color-brand-200: #B5D6DE; --color-brand-300: #86BAC7; --color-brand-400: #5298AA; --color-brand-500: #307A8E; --color-brand-600: #206275; --color-brand-700: #174F60; --color-brand-800: #133F4D; --color-brand-900: #10333F; --color-brand-950: #08212A;
+  --color-accent-50: #FEF8E8; --color-accent-100: #FCEEC6; --color-accent-200: #F9DC8C; --color-accent-300: #F4C552; --color-accent-400: #EBAE2A; --color-accent-500: #D4921A; --color-accent-600: #B17413; --color-accent-700: #8C5912; --color-accent-800: #6F4614; --color-accent-900: #5B3A14; --color-accent-950: #331E07;
+  --color-success-50: #EEF8F1; --color-success-100: #D8EFDF; --color-success-200: #B2DFC1; --color-success-300: #80C799; --color-success-400: #4CA96F; --color-success-500: #2C8C52; --color-success-600: #1E7141; --color-success-700: #185A35; --color-success-800: #15482C; --color-success-900: #123B25; --color-success-950: #082113;
+  --color-warning-50: #FFF6EC; --color-warning-100: #FFE9D1; --color-warning-200: #FFD0A1; --color-warning-300: #FDB068; --color-warning-400: #F68B33; --color-warning-500: #E26D12; --color-warning-600: #BF540B; --color-warning-700: #9A410D; --color-warning-800: #7C3611; --color-warning-900: #662E12; --color-warning-950: #381506;
+  --color-danger-50: #FEF3F2; --color-danger-100: #FDE4E1; --color-danger-200: #FBCDC8; --color-danger-300: #F6A8A0; --color-danger-400: #EE766B; --color-danger-500: #DF4B3F; --color-danger-600: #C53227; --color-danger-700: #A3271E; --color-danger-800: #86241D; --color-danger-900: #6F231E; --color-danger-950: #3C0E0B;
+  --color-info-50: #EFF5FD; --color-info-100: #DCE9FA; --color-info-200: #BFD7F6; --color-info-300: #93BCEF; --color-info-400: #6199E5; --color-info-500: #3F79D8; --color-info-600: #2D5FC0; --color-info-700: #264D9C; --color-info-800: #24427F; --color-info-900: #223A69; --color-info-950: #162442;
+}
+
+/* -------------------------------------------------------------------------------------------- 2. ROLES */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces and text */
+  --canvas: var(--color-ink-50);
+  --surface: #ffffff;
+  --sunken: var(--color-ink-100);
+  --fg: var(--color-ink-900);
+  --fg-muted: var(--color-ink-600);
+  --fg-subtle: var(--color-ink-500);
+  --fg-disabled: var(--color-ink-400);
+
+  /* Lines. `line-control` is the boundary of form controls and meets 3:1 against white and canvas. */
+  --line: var(--color-ink-200);
+  --line-strong: var(--color-ink-300);
+  --line-control: #7f898c;
+
+  /* Interaction */
+  --focus: var(--color-brand-600);
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-900);
+  --action: var(--color-brand-700);
+  --action-hover: var(--color-brand-800);
+  --action-active: var(--color-brand-900);
+  --action-fg: #ffffff;
+  --overlay: rgb(12 16 17 / 0.55);
+
+  /* Control heights. Family flows set data-density="touch"; coarse pointers always get 44px. */
+  --control-h-sm: 2rem;
+  --control-h-md: 2.5rem;
+  --control-h-lg: 3rem;
+  /* Text size of sm/md controls. 16px on touch devices so iOS does not zoom the page on focus. */
+  --control-text: 0.875rem;
+
+  /* Stacking order (see the z-* utilities below). Dialogs and popovers use the browser top layer. */
+  --z-raised: 10;
+  --z-sticky: 100;
+  --z-nav: 200;
+  --z-overlay: 300;
+  --z-toast: 400;
+
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 250ms;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --control-h-sm: 2.75rem;
+    --control-h-md: 2.75rem;
+    --control-text: 1rem;
+  }
+}
+
+[data-density="touch"] {
+  --control-h-sm: 2.75rem;
+  --control-h-md: 3rem;
+  --control-h-lg: 3.25rem;
+  --control-text: 1rem;
+}
+
+/* Inverse surface (dark brand bands: footers, call-to-action strips). Supports text, links, Logo and Button only. */
+[data-surface="inverse"] {
+  --canvas: var(--color-brand-950);
+  --surface: rgb(255 255 255 / 0.06);
+  --sunken: rgb(255 255 255 / 0.12);
+  --fg: #ffffff;
+  --fg-muted: var(--color-brand-100);
+  --fg-subtle: var(--color-brand-200);
+  --fg-disabled: var(--color-brand-400);
+  --line: rgb(255 255 255 / 0.16);
+  --line-strong: rgb(255 255 255 / 0.32);
+  --line-control: rgb(255 255 255 / 0.6);
+  --focus: var(--color-accent-300);
+  --link: #ffffff;
+  --link-hover: var(--color-accent-200);
+  --action: #ffffff;
+  --action-hover: var(--color-brand-50);
+  --action-active: var(--color-brand-100);
+  --action-fg: var(--color-brand-900);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-control: var(--line-control);
+  --color-focus: var(--focus);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-action-active: var(--action-active);
+  --color-action-fg: var(--action-fg);
+  --color-overlay: var(--overlay);
+
+  /*
+   * Tones: one quartet per meaning. surface = tinted background, line = border on that background,
+   * fg = text on the tinted background or on white, solid = filled background that takes solid-fg text.
+   *   neutral  no judgement             brand    ours / selected
+   *   info     in progress, FYI         success  yes, done, paid
+   *   warning  a person must act        danger   no, failed, destructive
+   *   caution  NOT FINAL / NOT REAL: provisional thresholds, provisional lists, sandbox data
+   */
+  --color-neutral-surface: var(--color-ink-100);
+  --color-neutral-line: var(--color-ink-300);
+  --color-neutral-fg: var(--color-ink-700);
+  --color-neutral-solid: var(--color-ink-700);
+  --color-neutral-solid-fg: #ffffff;
+
+  --color-brand-surface: var(--color-brand-50);
+  --color-brand-line: var(--color-brand-200);
+  --color-brand-fg: var(--color-brand-800);
+  --color-brand-solid: var(--color-brand-700);
+  --color-brand-solid-fg: #ffffff;
+
+  --color-info-surface: var(--color-info-50);
+  --color-info-line: var(--color-info-200);
+  --color-info-fg: var(--color-info-800);
+  --color-info-solid: var(--color-info-600);
+  --color-info-solid-fg: #ffffff;
+
+  --color-success-surface: var(--color-success-50);
+  --color-success-line: var(--color-success-200);
+  --color-success-fg: var(--color-success-800);
+  --color-success-solid: var(--color-success-600);
+  --color-success-solid-fg: #ffffff;
+
+  --color-warning-surface: var(--color-warning-50);
+  --color-warning-line: var(--color-warning-300);
+  --color-warning-fg: var(--color-warning-800);
+  --color-warning-solid: var(--color-warning-600);
+  --color-warning-solid-fg: #ffffff;
+
+  --color-danger-surface: var(--color-danger-50);
+  --color-danger-line: var(--color-danger-200);
+  --color-danger-fg: var(--color-danger-800);
+  --color-danger-solid: var(--color-danger-600);
+  --color-danger-solid-fg: #ffffff;
+
+  --color-caution-surface: var(--color-accent-50);
+  --color-caution-line: var(--color-accent-600);
+  --color-caution-fg: var(--color-accent-900);
+  --color-caution-solid: var(--color-accent-400);
+  --color-caution-solid-fg: var(--color-ink-950);
+
+  /* Control heights as spacing tokens: h-control-md, min-h-control-lg, size-control-sm … */
+  --spacing-control-sm: var(--control-h-sm);
+  --spacing-control-md: var(--control-h-md);
+  --spacing-control-lg: var(--control-h-lg);
+  --text-control: var(--control-text);
+  --text-control--line-height: 1.5rem;
+}
+
+/* --------------------------------------------------------------------------------------------- 3. BASE */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Anchored headings clear the sticky headers. */
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* One focus ring for everything focusable. Components never remove it; they may only re-colour --focus. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* Embedded pages (/embed/…) let the host page show through around the content. */
+  body:has([data-shell="embed"]) {
+    background-color: transparent;
+  }
+
+  /* In the base layer so a text-colour utility on the same element still wins. */
+  [data-surface="inverse"] {
+    color: var(--fg);
+  }
+
+  ::selection {
+    background-color: var(--color-brand-200);
+    color: var(--color-ink-950);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary {
+    list-style: none;
+  }
+
+  /* Page scroll is locked while a modal dialog or drawer is open. */
+  html:has(dialog[open]:modal) {
+    overflow: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *:not(.ui-spinner),
+    *:not(.ui-spinner)::before,
+    *:not(.ui-spinner)::after,
+    ::backdrop {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    /* A frozen spinner reads as "stuck"; swap rotation for a slow fade instead. */
+    .ui-spinner {
+      animation: ui-shimmer 1.6s ease-in-out infinite !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------------------- 4. UTILITIES */
+
+@utility z-raised {
+  z-index: var(--z-raised);
+}
+@utility z-sticky {
+  z-index: var(--z-sticky);
+}
+@utility z-nav {
+  z-index: var(--z-nav);
+}
+@utility z-overlay {
+  z-index: var(--z-overlay);
+}
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+
+/* Diagonal hatch: the visual signature of "caution" (provisional numbers, sandbox mode). Add to a caution surface. */
+@utility hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0,
+    transparent 7px,
+    color-mix(in srgb, var(--color-accent-600) 13%, transparent) 7px,
+    color-mix(in srgb, var(--color-accent-600) 13%, transparent) 8px
+  );
+}
+
+/* Numbers that line up in columns: money, counts, dates in tables. */
+@utility nums {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* ------------------------------------------------------------------------------------ 5. COMPONENT CSS */
+
+@layer components {
+  /* Dialog and Drawer (native <dialog>, top layer). Tailwind's preflight zeroes the UA `margin: auto`. */
+  .ui-dialog {
+    margin: auto;
+    padding: 0;
+    width: min(calc(100vw - 2rem), var(--ui-dialog-width, 32rem));
+    max-width: none;
+    max-height: min(calc(100dvh - 2rem), 46rem);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    background-color: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+    transition:
+      opacity 180ms var(--ease-standard),
+      transform 180ms var(--ease-standard),
+      overlay 180ms allow-discrete,
+      display 180ms allow-discrete;
+  }
+  .ui-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    .ui-dialog[open] {
+      opacity: 0;
+      transform: translateY(8px) scale(0.985);
+    }
+  }
+  .ui-dialog::backdrop {
+    background-color: var(--overlay);
+    opacity: 0;
+    transition:
+      opacity 180ms var(--ease-standard),
+      overlay 180ms allow-discrete,
+      display 180ms allow-discrete;
+  }
+  .ui-dialog[open]::backdrop {
+    opacity: 1;
+  }
+  @starting-style {
+    .ui-dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+
+  .ui-dialog.ui-drawer {
+    margin: 0 0 0 auto;
+    width: min(100vw, var(--ui-dialog-width, 30rem));
+    height: 100dvh;
+    max-height: none;
+    border-width: 0 0 0 1px;
+    border-radius: 0;
+    transform: translateX(24px);
+  }
+  .ui-dialog.ui-drawer[open] {
+    transform: none;
+  }
+  @starting-style {
+    .ui-dialog.ui-drawer[open] {
+      transform: translateX(24px);
+    }
+  }
+  .ui-dialog.ui-drawer[data-side="left"] {
+    margin: 0 auto 0 0;
+    border-width: 0 1px 0 0;
+    transform: translateX(-24px);
+  }
+  .ui-dialog.ui-drawer[data-side="left"][open] {
+    transform: none;
+  }
+  @starting-style {
+    .ui-dialog.ui-drawer[data-side="left"][open] {
+      transform: translateX(-24px);
+    }
+  }
+
+  /* Popover surfaces (tooltips, definitions, menus). Positioned by script, so the UA centring is undone. */
+  .ui-popover {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background-color: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow-md);
+    overflow: visible;
+  }
+  .ui-popover:popover-open {
+    animation: ui-fade-in 120ms var(--ease-standard) both;
+  }
+  .ui-popover.ui-tooltip {
+    border-color: transparent;
+    background-color: var(--color-ink-900);
+    color: #ffffff;
+    pointer-events: none;
+  }
+
+  /*
+   * Table → stacked cards when the table's own container is narrow (not the viewport), so a table in a
+   * drawer stacks while the same table full-width does not. Cells carry their column name in data-label.
+   */
+  .ui-table-wrap {
+    container: ui-table / inline-size;
+  }
+  @container ui-table (max-width: 40rem) {
+    .ui-table[data-stack="true"],
+    .ui-table[data-stack="true"] > tbody,
+    .ui-table[data-stack="true"] > tbody > tr,
+    .ui-table[data-stack="true"] > tbody > tr > td {
+      display: block;
+    }
+    .ui-table[data-stack="true"] > thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .ui-table[data-stack="true"] > tbody > tr {
+      position: relative;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .ui-table[data-stack="true"] > tbody > tr:last-child {
+      border-bottom: 0;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td {
+      display: grid;
+      grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
+      column-gap: 0.75rem;
+      align-items: baseline;
+      padding: 0.25rem 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td::before {
+      content: attr(data-label);
+      color: var(--fg-muted);
+      font-size: 0.8125rem;
+      line-height: 1.25rem;
+      font-weight: 500;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"] {
+      display: block;
+      padding-bottom: 0.375rem;
+      font-size: 1rem;
+      line-height: 1.5rem;
+      font-weight: 600;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td[data-primary="true"]::before,
+    .ui-table[data-stack="true"] > tbody > tr > td[data-label=""]::before {
+      content: none;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td[data-label=""] {
+      display: block;
+    }
+    .ui-table[data-stack="true"] > tbody > tr > td[data-mobile="hidden"] {
+      display: none;
+    }
+  }
+
+  /* Long-form text: consent copy, legal notes, docs. */
+  .ui-prose {
+    color: var(--fg);
+    font-size: 1rem;
+    line-height: 1.75rem;
+    max-width: var(--container-reading);
+  }
+  .ui-prose > * + * {
+    margin-top: 1rem;
+  }
+  .ui-prose h2 {
+    margin-top: 2.5rem;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    line-height: 2.125rem;
+    letter-spacing: -0.01em;
+  }
+  .ui-prose h3 {
+    margin-top: 2rem;
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+  }
+  .ui-prose h4 {
+    margin-top: 1.5rem;
+    font-weight: 600;
+  }
+  .ui-prose a {
+    color: var(--link);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .ui-prose a:hover {
+    color: var(--link-hover);
+    text-decoration-thickness: 2px;
+  }
+  .ui-prose ul,
+  .ui-prose ol {
+    padding-left: 1.5rem;
+  }
+  .ui-prose ul {
+    list-style: disc;
+  }
+  .ui-prose ol {
+    list-style: decimal;
+  }
+  .ui-prose li + li {
+    margin-top: 0.375rem;
+  }
+  .ui-prose li::marker {
+    color: var(--fg-subtle);
+  }
+  .ui-prose strong {
+    font-weight: 600;
+  }
+  .ui-prose code {
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    background-color: var(--sunken);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  .ui-prose pre code {
+    padding: 0;
+    background: none;
+  }
+  .ui-prose hr {
+    margin-block: 2rem;
+    border-color: var(--line);
+  }
+  .ui-prose blockquote {
+    padding-left: 1rem;
+    border-left: 3px solid var(--line-strong);
+    color: var(--fg-muted);
+  }
+  .ui-prose table {
+    width: 100%;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  .ui-prose th,
+  .ui-prose td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+  .ui-prose th {
+    font-weight: 600;
+  }
 }
