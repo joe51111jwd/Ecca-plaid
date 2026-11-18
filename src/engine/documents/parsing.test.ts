@@ -116,6 +116,11 @@ describe("SSN redaction", () => {
     ["Claim Number: 999-99-9992 DI", "Claim Number: XXX-XX-9992 DI"],
     ["two 123-45-6789 and 987-65-4321", "two XXX-XX-6789 and XXX-XX-4321"],
     ["already XXX-XX-0001", "already XXX-XX-0001"],
+    // Regression: letters touching the number used to shield it from redaction and from the deep scan.
+    ["Claim Number: 900-12-3456A", "Claim Number: XXX-XX-3456A"],
+    ["Claim Number: 900-12-3456DI", "Claim Number: XXX-XX-3456DI"],
+    ["SSN900-12-3456", "SSNXXX-XX-3456"],
+    ["ID:900123456X", "ID:XXX-XX-3456X"],
   ])("%j → %j", (input, out) => {
     expect(redactSsns(input)).toBe(out);
   });
@@ -134,6 +139,8 @@ describe("SSN redaction", () => {
 
   it("detects full SSNs in nested output (deep scan)", () => {
     expect(containsFullSsn("x 000-00-0001 y")).toBe(true);
+    expect(containsFullSsn("claim 900-12-3456A")).toBe(true);
+    expect(containsFullSsn("SSN900123456")).toBe(true);
     expect(containsFullSsn("x XXX-XX-0001 y")).toBe(false);
     expect(containsFullSsn("x XXX-XX-0001 y")).toBe(false); // stateless across calls
     expect(findFullSsns({ a: ["ok", { b: "000000001" }], c: 123456789, "000-00-0002": 1 })).toEqual(["$.a[1].b", "$.<key>"]);

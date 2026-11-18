@@ -69,6 +69,13 @@ function optionalId() {
     });
 }
 
+/* setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  const check = new Date(0);
+  check.setUTCFullYear(year, month - 1, day);
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
+}
+
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const ISO_UTC_LENGTH = "2026-11-18T15:04:05.000Z".length;
 
@@ -84,6 +91,14 @@ function parseTimestamp(value: unknown, ctx: Ctx, what: string): string {
   if (typeof value !== "string" || !ISO_TIMESTAMP.test(value)) {
     return fail(ctx, "must be a Date or an ISO 8601 timestamp with an explicit offset, for example 2026-11-18T15:04:05Z");
   }
+  // `new Date` rolls impossible fields over ("2026-02-30" becomes March 2, "24:00" the next day), which would
+  // sign a different instant from the one written. Every field is checked against the calendar first.
+  const [year, month, day, hour, minute] = [0, 5, 8, 11, 14].map((at) => Number(value.slice(at, at === 0 ? 4 : at + 2)));
+  const second = value[16] === ":" ? Number(value.slice(17, 19)) : 0;
+  const offset = /([+-])(\d{2}):(\d{2})$/.exec(value);
+  if (!isRealCalendarDate(year, month, day)) return fail(ctx, "is not a real calendar date");
+  if (hour > 23 || minute > 59 || second > 59) return fail(ctx, "is not a real time of day");
+  if (offset !== null && (Number(offset[2]) > 23 || Number(offset[3]) > 59)) return fail(ctx, "has an impossible UTC offset");
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return fail(ctx, "is not a real point in time");
   const iso = parsed.toISOString();
@@ -110,8 +125,7 @@ function parseCalendarDate(value: unknown, ctx: Ctx, what: string): string {
   const match = typeof value === "string" ? CALENDAR_DATE.exec(value) : null;
   if (!match) return fail(ctx, "must be a calendar date written YYYY-MM-DD");
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return fail(ctx, "is not a real calendar date");
+  if (!isRealCalendarDate(year, month, day)) return fail(ctx, "is not a real calendar date");
   return value as string;
 }
 
@@ -399,7 +413,11 @@ type ScopeValue = string | number | boolean | null | ScopeValue[] | { [key: stri
 
 function parseScopeValue(value: unknown, ctx: Ctx, depth: number, path: string): ScopeValue {
   if (value === null || typeof value === "boolean") return value;
-  if (typeof value === "string") return normalizeText(value).slice(0, L.longText);
+  if (typeof value === "string") {
+    // Refused, not cut: a cut could change what the family agreed to, and could split a character in two.
+    const normalized = normalizeText(value);
+    return normalized.length > L.longText ? fail(ctx, `${path} is longer than ${L.longText} characters`) : normalized;
+  }
   if (typeof value === "number") {
     // The record holds no floats. A fraction in a scope (for example a number of years) is kept as its decimal text.
     return Number.isSafeInteger(value) ? value : String(value);

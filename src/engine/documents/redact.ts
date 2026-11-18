@@ -8,9 +8,11 @@
 
 /**
  * Nine digits in the SSN/ITIN shape: `123-45-6789`, `123 45 6789` or `123456789`, not inside a longer run of
- * digits. Deliberately broad: a nine-digit EDG number is masked too, which costs nothing.
+ * digits. Deliberately broad: a nine-digit EDG number is masked too, which costs nothing. Letters next to
+ * the number do not protect it: SSA prints claim numbers as the SSN plus a beneficiary code
+ * (`123-45-6789A`), and text layers often lose the space after a label (`SSN123-45-6789`).
  */
-const SSN_PATTERN = /(?<![\dA-Za-z])(\d{3})[-‐-― ]?(\d{2})[-‐-― ]?(\d{4})(?![\dA-Za-z])/g;
+const SSN_PATTERN = /(?<!\d)(\d{3})[-‐-― ]?(\d{2})[-‐-― ]?(\d{4})(?!\d)/g;
 
 /** Any run of seven or more digits (case numbers, account numbers, unhyphenated identifiers). */
 const LONG_DIGIT_RUN = /(?<![\d.,])\d{7,}(?![\d.,])/g;

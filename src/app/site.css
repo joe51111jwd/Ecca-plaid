@@ -341,14 +341,14 @@
 }
 /* A paper backing keeps the line at full contrast wherever glyphs drift behind it. */
 .site-hero__line span,
-.site-hero .site-h1 .site-line {
+.site-hero .site-label {
   background: var(--site-paper);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-.site-hero .site-h1 .site-line {
+.site-hero .site-label {
   width: fit-content;
-  padding-right: 0.08em;
+  padding: 4px 8px 4px 0;
 }
 
 /* ------------------------------------------------------------------------------------------ ticker */

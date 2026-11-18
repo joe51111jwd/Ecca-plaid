@@ -43,6 +43,7 @@ export const EXIT = Object.freeze({ pass: 0, fail: 1, notRun: 2 });
 const USAGE = "Usage: npm run evidence:verify -- <record.json> [--jwks <file-or-url>] [--json]";
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
 /* File name `getSigningKey()` in src/lib/crypto gives the development key. Only used to decide whether a local key exists. */
 const DEV_SIGNING_KEY_FILE = "dev-evidence-signing.pem";
 
@@ -87,13 +88,26 @@ async function loadKeySet(jwks: string | undefined, io: VerifyEvidenceIo): Promi
     return { keys: platformJwks(), description: "this deployment's evidence signing key" };
   }
   if (/^https?:\/\//i.test(jwks)) {
+    let url: URL;
+    try {
+      url = new URL(jwks);
+    } catch {
+      throw badRequest(`Not a valid key set URL: ${jwks}`);
+    }
+    // Over plain HTTP anyone on the path can swap in their own keys and make a forged record PASS. Only a
+    // server on this machine is exempt, for checking a development deployment.
+    if (url.protocol === "http:" && !LOOPBACK_HOSTS.has(url.hostname)) {
+      throw badRequest(`The key set must be fetched over HTTPS (or from a saved file): ${jwks}`);
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       // A redirect could hand the check to someone else's keys, so it is treated as a failure to fetch.
       const response = await io.fetch(jwks, { signal: controller.signal, redirect: "error" });
       if (!response.ok) throw badRequest(`Could not fetch the key set from ${jwks}: HTTP ${response.status}`);
-      return parseKeySet(await response.text(), jwks);
+      const body = await response.text();
+      if (body.length > MAX_FILE_BYTES) throw badRequest(`The key set from ${jwks} is larger than ${MAX_FILE_BYTES / (1024 * 1024)} MB`);
+      return parseKeySet(body, jwks);
     } catch (error) {
       if (isAppError(error)) throw error;
       throw badRequest(`Could not fetch the key set from ${jwks}: ${error instanceof Error ? error.message : "request failed"}`);

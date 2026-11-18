@@ -17,7 +17,7 @@ function Hero() {
   return (
     <section aria-labelledby="site-hero-title" className="site-hero">
       <div className="site-hero__field">
-        <AsciiField className="site-hero__canvas" />
+        <AsciiField className="site-hero__canvas" maxOpacity={0.46} options={{ fadeStart: 0.14, fadeEnd: 0.6 }} />
       </div>
       <div className="site-wrap site-hero__body">
         <p className="site-label">{HERO.label}</p>

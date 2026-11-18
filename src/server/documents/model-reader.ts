@@ -49,6 +49,8 @@ export const MODEL_READER_VERSION = "documents-model-reader.2026-11-18.v1";
 export type ModelReadableFileType = "pdf" | "jpeg" | "png" | "webp";
 
 const MAX_MODEL_BYTES = 20 * 1024 * 1024;
+/** Upper bound on fields kept from one model reading; a real document has a few dozen at most. */
+const MAX_MODEL_FIELDS = 200;
 
 type CreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type ModelMessage = Pick<Anthropic.Beta.Messages.BetaMessage, "content" | "stop_reason">;
@@ -223,9 +225,11 @@ function isoOrNull(raw: string | null): string | null {
 export function toExtraction(reading: ModelReading): { extraction: Extraction; reasons: ReviewReason[] } {
   const reasons: ReviewReason[] = [];
   const fields: ExtractedFields = {};
-  for (const f of reading.fields) {
+  for (const f of reading.fields.slice(0, MAX_MODEL_FIELDS)) {
     const key = f.name.toLowerCase().replace(/[^a-z0-9_.]+/g, "_").slice(0, 80);
-    if (!key || /risk/.test(key)) continue;
+    // Field names come from the document via the model: a name like `__proto__` would replace the object's
+    // prototype instead of adding a field, so names that are Object.prototype members are dropped.
+    if (!key || /risk/.test(key) || key in Object.prototype) continue;
     fields[key] = {
       value: f.value === null ? null : redactText(f.value).slice(0, 500),
       confidence: clamp01(f.confidence),

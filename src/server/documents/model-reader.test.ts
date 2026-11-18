@@ -180,6 +180,22 @@ describe("readWithModel", () => {
     expect(r!.reviewReasons.map((x) => x.code)).toContain("kind_mismatch");
   });
 
+  it("a field named after an Object.prototype member cannot replace the prototype of fields", async () => {
+    const { client } = fakeClient({
+      ...READING,
+      fields: [
+        { name: "__proto__", value: "injected", confidence: 1, page: 1, quote: null },
+        { name: "constructor", value: "injected", confidence: 1, page: 1, quote: null },
+        { name: "letter_date", value: "09/15/2026", confidence: 0.9, page: 1, quote: null },
+      ],
+    });
+    const r = await readWithModel({ bytes: fixture("SYNTHETIC_tf0001_snap_photo.png"), fileType: "png" }, { client });
+    const fields = r!.extraction!.fields;
+    expect(Object.getPrototypeOf(fields)).toBe(Object.prototype);
+    expect(Object.keys(fields)).toEqual(["letter_date"]);
+    expect((fields as Record<string, unknown>).value).toBeUndefined();
+  });
+
   it("the output schema rejects out-of-contract values", () => {
     expect(modelReadingSchema.safeParse({ ...READING, award: { ...READING.award, program: "MEDICAID" } }).success).toBe(false);
     expect(modelReadingSchema.safeParse({ ...READING, award: { ...READING.award, approvalStatus: "yes" } }).success).toBe(false);

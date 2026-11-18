@@ -1260,3 +1260,95 @@ describe("verifySignedEvidence", () => {
     expect(({} as Mutable).mode).toBeUndefined();
   });
 });
+
+/* ------------------------------------------------------------------------- review regressions */
+
+describe("buildEvidenceRecord: review regressions", () => {
+  it("refuses impossible timestamps instead of rolling them over to another instant", () => {
+    for (const value of ["2026-02-30T12:00:00Z", "2025-02-29T00:00:00Z", "2026-04-31T08:00:00Z", "2026-11-18T24:00:00Z", "2026-11-18T23:60:00Z", "2026-11-18T23:59:60Z", "2026-11-18T10:00:00+24:00", "2026-11-18T10:00:00-05:60"]) {
+      const input = altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.generatedAt = value));
+      const issues = issuesOf(input);
+      expect(
+        issues.some((issue) => issue.path === "generatedAt" && issue.code === "invalid"),
+        `${value}: ${JSON.stringify(issues)}`,
+      ).toBe(true);
+    }
+    // Real edge values still pass and normalize to UTC.
+    const leap = buildEvidenceRecord(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.generatedAt = "2028-02-29T23:59:59+00:00")));
+    expect(leap.generated_at).toBe("2028-02-29T23:59:59.000Z");
+    const offset = buildEvidenceRecord(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.generatedAt = "2028-02-29T18:59:59.5-05:00")));
+    expect(offset.generated_at).toBe("2028-02-29T23:59:59.500Z");
+  });
+
+  it("refuses impossible calendar dates", () => {
+    expectIssue(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.threshold.effectiveDate = "2026-02-29")), "threshold.effectiveDate", "missing_audit_field", /not a real calendar date/);
+  });
+
+  it("never scrubs identifier lists, so reason references stay intact", () => {
+    const input = syntheticDirectReviewedInput();
+    const memberId = input.household.members[0].id;
+    const record = buildEvidenceRecord(
+      altered(input, (copy) => {
+        copy.decision.reasons = [{ code: "synthetic", message: "Synthetic reason.", memberIds: [memberId], sourceIds: ["doc_SYNTHETIC123456789x", "src_1234567890"] }];
+      }),
+    );
+    expect(record.decision.reasons[0].member_ids).toEqual([memberId]);
+    expect(record.decision.reasons[0].source_ids).toEqual(["doc_SYNTHETIC123456789x", "src_1234567890"]);
+    expect(record.data_minimization.ssn_patterns_removed).toBe(buildEvidenceRecord(input).data_minimization.ssn_patterns_removed);
+  });
+
+  it("refuses a reason that names someone who is not on the household roster", () => {
+    const input = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.decision.reasons = [{ code: "synthetic", message: "Synthetic reason.", memberIds: ["hm_SYNTHETICnotOnRoster01"] }];
+    });
+    expectIssue(input, "decision.reasons[0].memberIds[0]", "inconsistent", /not on the household roster/);
+  });
+
+  it("refuses an overlong consent scope value instead of cutting it (and never splits a character)", () => {
+    const input = altered(syntheticCategoricalEligibleInput(), (copy) => {
+      copy.consent.scope = { note: `${"a".repeat(EVIDENCE_POLICY.limits.longText - 1)}\u{1F600}` };
+    });
+    expectIssue(input, "consent.scope", "invalid", /scope\.note is longer than 1000 characters/);
+    const fits = buildEvidenceRecord(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.consent.scope = { note: "a".repeat(EVIDENCE_POLICY.limits.longText) })));
+    expect((fits.consent.scope as Record<string, string>).note).toHaveLength(EVIDENCE_POLICY.limits.longText);
+  });
+
+  describe("an engine decision is made only where every reading agrees (docs/architecture.md, rule 3)", () => {
+    function engineDirect(status: "eligible" | "ineligible", countedCents: number, openCents = 0, by: "engine" | "reviewer" = "engine"): EvidenceInput {
+      return altered(syntheticDirectReviewedInput(), (copy) => {
+        copy.threshold = syntheticStarrThreshold();
+        copy.household.size = 5;
+        copy.decision.status = status;
+        if (by === "engine") copy.decision.decidedBy = { type: "engine" };
+        copy.decision.reasons = [{ code: "synthetic", message: "Synthetic reason." }];
+        copy.income = {
+          year: 2026,
+          totalCountedCents: countedCents,
+          items: [
+            { id: "inc_SYNTHETICsingle0000001", category: "wages", categoryLabel: "Wages and salaries", annualAmountCents: countedCents, counted: true, source: "document", documentId: "doc_SYNTHETICw200000000001" },
+            ...(openCents > 0 ? [{ id: "inc_SYNTHETICopen000000001", category: "other", categoryLabel: "Other", annualAmountCents: openCents, treatment: "review" as const, source: "self_reported" as const }] : []),
+          ],
+        };
+      });
+    }
+
+    it("refuses an engine 'eligible' when income reaches above the lower bound", () => {
+      expectIssue(engineDirect("eligible", 12_538_801), "decision.status", "decision_contradicts_record", /eligible by the engine.*only a reviewer can decide that/);
+      expectIssue(engineDirect("eligible", 20_000_000), "decision.status", "decision_contradicts_record", /eligible by the engine/);
+      // Counted income within the lower bound, but an open line could take it over.
+      expectIssue(engineDirect("eligible", 12_000_000, 600_000), "decision.status", "decision_contradicts_record", /as much as \$126,000\.00/);
+      // The boundary itself is within every reading.
+      expect(buildEvidenceRecord(engineDirect("eligible", 12_538_800)).threshold.relied_on).toBe("lower_bound");
+      expect(buildEvidenceRecord(engineDirect("eligible", 12_000_000, 538_800)).threshold.relied_on).toBe("lower_bound");
+      // A reviewer may decide in between.
+      expect(buildEvidenceRecord(engineDirect("eligible", 20_000_000, 0, "reviewer")).threshold.relied_on).toBe("upper_bound");
+    });
+
+    it("refuses an engine 'ineligible' when income is not above the upper bound", () => {
+      expectIssue(engineDirect("ineligible", 27_120_000), "decision.status", "decision_contradicts_record", /ineligible by the engine.*only a reviewer can decide that/);
+      expectIssue(engineDirect("ineligible", 20_000_000), "decision.status", "decision_contradicts_record", /ineligible by the engine/);
+      expect(buildEvidenceRecord(engineDirect("ineligible", 27_120_001)).threshold.relied_on).toBe("upper_bound");
+      expect(buildEvidenceRecord(engineDirect("ineligible", 20_000_000, 0, "reviewer")).threshold.relied_on).toBe("lower_bound");
+    });
+  });
+});

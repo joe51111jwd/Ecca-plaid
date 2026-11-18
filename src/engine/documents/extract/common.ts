@@ -78,12 +78,13 @@ export class ExtractionBuilder {
     return f ? (f.value as T) : null;
   }
 
+  /** Messages can quote document text (a heading, a raw date), so they are redacted like every other output. */
   review(code: ReviewReasonCode, message: string): void {
-    if (!this.reviews.has(code)) this.reviews.set(code, message);
+    if (!this.reviews.has(code)) this.reviews.set(code, safeMessage(message));
   }
 
   reject(code: NotAcceptableCode, message: string): void {
-    if (!this.rejections.has(code)) this.rejections.set(code, message);
+    if (!this.rejections.has(code)) this.rejections.set(code, safeMessage(message));
   }
 
   hasReview(code: ReviewReasonCode): boolean {
@@ -95,7 +96,8 @@ export class ExtractionBuilder {
   }
 
   warn(s: string): void {
-    if (!this.warnings.includes(s)) this.warnings.push(redactText(s));
+    const safe = safeMessage(s);
+    if (!this.warnings.includes(safe)) this.warnings.push(safe);
   }
 
   /** Lowest confidence among the given keys that are present (1 when none is). */
@@ -122,6 +124,14 @@ export class ExtractionBuilder {
       income,
     };
   }
+}
+
+/** Longest message kept; document text quoted in a message is cut, never the reader's own wording. */
+const MAX_MESSAGE_LENGTH = 300;
+
+function safeMessage(message: string): string {
+  const clean = redactText(message);
+  return clean.length > MAX_MESSAGE_LENGTH ? `${clean.slice(0, MAX_MESSAGE_LENGTH - 1)}…` : clean;
 }
 
 export function round(n: number): number {

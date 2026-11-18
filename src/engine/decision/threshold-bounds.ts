@@ -12,8 +12,9 @@
  * over the limit means above the HIGHEST, and anything between goes to a person with both figures shown.
  *
  * This module is the one place that turns a `getThreshold` result into that range. It reads the readings
- * the AMI engine returns and, for a result that carries none, falls back to a single reading equal to
- * `thresholdCents` (always the case for an IRS-published table, where lower = upper).
+ * the AMI engine returns. Only an IRS-published result may arrive without them: such a table has exactly one
+ * figure, so lower = upper = `thresholdCents`. A HUD-derived result without both readings is refused, because
+ * treating its one figure as the whole range would decide automatically where the readings disagree.
  */
 import { z } from "zod";
 import type { ThresholdResult } from "@/engine/ami";
@@ -44,7 +45,7 @@ export interface ThresholdBounds {
   readingsAgree: boolean;
   /** The highest reading at the statutory 300 percent: the ceiling no reviewer may approve above. */
   statutoryUpperBoundCents: number;
-  /** `ami_readings`: the AMI engine supplied the readings. `single_threshold`: it supplied one limit and nothing else. */
+  /** `ami_readings`: the AMI engine supplied the readings. `single_threshold`: an IRS-published result supplied one limit and nothing else. */
   boundsSource: "ami_readings" | "single_threshold";
 }
 
@@ -72,8 +73,7 @@ const readingsSchema = z
   .min(1)
   .max(8);
 
-const FALLBACK_LABEL: Record<"hud_provisional" | "irs_published", { id: ThresholdReadingId; label: string }> = {
-  hud_provisional: { id: "median_product", label: "Area median income x cap x family-size multiplier (economic analysis of the proposed regulations)" },
+const FALLBACK_LABEL: Record<"irs_published", { id: ThresholdReadingId; label: string }> = {
   irs_published: { id: "irs_published", label: "IRS-published limit" },
 };
 
@@ -90,21 +90,30 @@ function scaleToStatutory(thresholdCents: number, capPct: number): number {
 /**
  * The readings and bounds of a `getThreshold` result.
  *
- * Uses the result's `readings` when present; otherwise one reading equal to `thresholdCents`. The bounds are
+ * Uses the result's `readings` when present; an IRS-published result without them gets one reading equal to
+ * `thresholdCents`. The bounds are
  * the widest the result supports: every reading, `thresholdCents` itself and any `lowerBoundCents` /
  * `upperBoundCents` the result states are taken into account, so a disagreement between those fields can
  * only widen the range a person has to look at, never narrow it.
  *
- * Throws a `validation_failed` AppError when the result carries readings that are malformed: silently
- * falling back to one reading would hide the second one.
+ * Throws a `validation_failed` AppError when the readings are malformed, do not fit the result's source
+ * (HUD-derived: exactly `median_product` and `section8_vli`; IRS-published: exactly `irs_published`), or are
+ * missing from a HUD-derived result: silently falling back to one reading would hide the second one.
  */
 export function toThresholdBounds(result: ThresholdBoundsInput): ThresholdBounds {
   const base = z.object({ thresholdCents: cents, statutoryThresholdCents: cents, capPct: z.number().int().min(1).max(STATUTORY_CAP_PCT) }).safeParse(result);
   if (!base.success) throw invalid("Threshold result is malformed: thresholdCents, statutoryThresholdCents and capPct are required");
   const { thresholdCents, statutoryThresholdCents, capPct } = base.data;
 
+  if (result.source !== "hud_provisional" && result.source !== "irs_published") throw invalid("Threshold result is malformed: source must be hud_provisional or irs_published");
+
   if (result.readings === undefined || result.readings === null) {
-    const fallback = FALLBACK_LABEL[result.source];
+    if (result.source === "hud_provisional") {
+      throw invalid(
+        "Threshold result is incomplete: a HUD-derived limit must carry both readings (median_product and section8_vli). Deciding on one figure would hide the other reading.",
+      );
+    }
+    const fallback = FALLBACK_LABEL.irs_published;
     return {
       readings: [{ ...fallback, thresholdCents, statutoryThresholdCents, formula: result.formula }],
       lowerBoundCents: thresholdCents,
@@ -118,6 +127,12 @@ export function toThresholdBounds(result: ThresholdBoundsInput): ThresholdBounds
   const parsed = readingsSchema.safeParse(result.readings);
   if (!parsed.success) {
     throw invalid(`Threshold result carries malformed readings: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+  }
+  const ids = parsed.data.map((reading) => reading.id);
+  if (new Set(ids).size !== ids.length) throw invalid(`Threshold result carries the same reading twice: ${ids.join(", ")}`);
+  const expected: ThresholdReadingId[] = result.source === "irs_published" ? ["irs_published"] : ["median_product", "section8_vli"];
+  if (ids.length !== expected.length || !expected.every((id) => ids.includes(id))) {
+    throw invalid(`Threshold result readings do not fit its source (${result.source}): expected ${expected.join(" and ")}, got ${ids.join(", ")}`);
   }
   const stated = [result.lowerBoundCents, result.upperBoundCents].filter((value) => value !== undefined && value !== null);
   const statedBounds = z.array(cents).safeParse(stated);

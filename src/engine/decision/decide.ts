@@ -119,6 +119,27 @@ const policySchema = z.strictObject({
   certificationsAloneNeedReview: z.boolean(),
 });
 
+/**
+ * The fields of an injected `getThreshold` result that the engine reads before `toThresholdBounds` checks the
+ * rest. Loose: the remainder of the result is carried onto the decision as given.
+ */
+const injectedThresholdSchema = z.custom<InjectedThreshold>(
+  (value) =>
+    z
+      .looseObject({
+        source: z.enum(["hud_provisional", "irs_published"]),
+        tableVersion: z.string().min(1).max(200),
+        effectiveDate: isoDateSchema,
+        provisional: z.boolean(),
+        capPct: z.number().int().min(1).max(STATUTORY_CAP_PCT),
+        householdSize: z.number().int().min(1),
+        county: z.looseObject({ fips: z.string().min(1).max(20), name: z.string() }),
+        area: z.looseObject({ name: z.string() }),
+      })
+      .safeParse(value).success,
+  { message: "must be a getThreshold result (source, tableVersion, effectiveDate, provisional, capPct, householdSize, county, area)" },
+);
+
 const decisionInputSchema = z
   .strictObject({
     today: isoDateSchema,
@@ -137,7 +158,7 @@ const decisionInputSchema = z
     direct: directSchema.nullable().optional(),
     railReports: z.array(railReportSchema).max(50).optional(),
     amiTable: z.custom<AmiTable>().optional(),
-    threshold: z.custom<InjectedThreshold>().optional(),
+    threshold: injectedThresholdSchema.optional(),
     policy: policySchema.optional(),
   })
   .superRefine((input, ctx) => {

@@ -49,16 +49,16 @@ export interface MeltTimeline {
 
 export const MELT_TIMELINE: MeltTimeline = {
   scanStart: 0.04,
-  scanEnd: 0.42,
-  meltStart: 0.36,
-  meltSpread: 0.24,
+  scanEnd: 0.4,
+  meltStart: 0.3,
+  meltSpread: 0.34,
   fallDuration: 0.3,
-  chipStart: 0.74,
-  chipEnd: 0.9,
+  chipStart: 0.7,
+  chipEnd: 0.88,
 };
 
 /** The progress used for the single still image shown under prefers-reduced-motion. */
-export const MELT_STILL_PROGRESS = 0.58;
+export const MELT_STILL_PROGRESS = 0.52;
 
 /** Thickness of the "just scanned" band, as a fraction of sheet height. */
 const HOT_BAND = 0.035;
@@ -236,9 +236,22 @@ function columnNoise(seed: number, c: number, scale: number): number {
   return a + (b - a) * t;
 }
 
+/** Clear one cell of a frame. */
+function blank(frame: MeltFrame, k: number): void {
+  frame.glyph[k] = 0;
+  frame.level[k] = 0;
+  frame.tone[k] = TONE.INK;
+  frame.drop[k] = 0;
+}
+
 /**
  * Fill `frame` with the centerpiece at progress `p`. Deterministic for identical inputs.
  * `sample` and `frame` must have the same dimensions.
+ *
+ * The melt treats each glyph column as something viscous hanging from its top: once a column lets go it
+ * slides down and stretches (lower cells travel farther, so the gaps between glyphs grow), and it sheds
+ * whole runs of glyphs as it goes, which leaves streaks rather than an even dust. Neighbouring columns let
+ * go at similar moments, so the drips come in clumps.
  */
 export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, seed = 25, tl: MeltTimeline = MELT_TIMELINE): MeltFrame {
   validateTimeline(tl);
@@ -254,18 +267,18 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
   const scanSpan = tl.scanEnd - tl.scanStart;
 
   for (let c = 0; c < cols; c++) {
-    const lag = 0.62 * columnNoise(s, c, 4.5) + 0.38 * unit(s, c, 3, 0);
+    // Pushed toward the extremes so some stretches of the sheet hold while others have already run.
+    const lag = 0.8 * smoothstep(0.15, 0.85, columnNoise(s, c, 7)) + 0.2 * unit(s, c, 3, 0);
     const colStart = tl.meltStart + tl.meltSpread * lag;
-    // Columns slide at different speeds; a few run noticeably faster.
-    const speed = 0.6 + 0.9 * unit(s, c, 5, 0) + 0.5 * Math.pow(unit(s, c, 9, 0), 6);
+    // Columns slide at different speeds (clumped too); a few run noticeably faster.
+    const speed = 0.55 + 0.8 * columnNoise(s + 1, c, 3) + 0.6 * Math.pow(unit(s, c, 9, 0), 5);
+    // Length of the runs a column sheds as a unit: short runs read as dust, long ones as streaks.
+    const run = 3 + Math.floor(unit(s, c, 11, 0) * 10);
     for (let r = 0; r < rows; r++) {
       const k = r * cols + c;
       const y = rows === 1 ? 0 : r / (rows - 1);
       if (y >= scan) {
-        frame.glyph[k] = 0;
-        frame.level[k] = 0;
-        frame.tone[k] = TONE.INK;
-        frame.drop[k] = 0;
+        blank(frame, k);
         continue;
       }
       const ink = sample.ink[k];
@@ -274,43 +287,39 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
       let level: number;
       if (ink < PAPER_THRESHOLD) {
         if (unit(s, c, r, 13) >= PAPER_DOT_RATE) {
-          frame.glyph[k] = 0;
-          frame.level[k] = 0;
-          frame.tone[k] = TONE.INK;
-          frame.drop[k] = 0;
+          blank(frame, k);
           continue;
         }
         idx = RAMP_LAST;
         level = 1;
       } else {
-        const jitter = (unit(s, c, r, 17) - 0.5) * 2.2;
-        idx = Math.round((1 - ink) * RAMP_LAST + jitter);
-        level = Math.round(1 + ink * (MELT_LEVELS - 2));
+        const t = Math.pow(clamp01((ink - PAPER_THRESHOLD) / 0.72), 0.7);
+        const jitter = (unit(s, c, r, 17) - 0.5) * 2;
+        idx = Math.round((1 - t) * RAMP_LAST + jitter);
+        level = Math.round(1 + t * (MELT_LEVELS - 2));
       }
       let tone: number = sample.tone[k];
 
-      // Bottom rows let go a little before top rows (drips lead from the lower edge), but never before
-      // the scan line has passed them.
+      // A cell cannot start melting before the scan line has passed it.
       const scannedAt = tl.scanStart + scanSpan * y;
-      const start = Math.max(scannedAt + 0.03, colStart - 0.05 * y);
-      const age = Math.max(0, (q - start) / tl.fallDuration);
+      const start = Math.max(colStart, scannedAt + 0.02);
+      const m = clamp01((q - start) / tl.fallDuration);
 
       let drop = 0;
-      if (age > 0) {
-        const detach = Math.pow(unit(s, c, r, 29), 8);
-        // Accelerating fall; lower cells fall farther, so a column stretches as it slides.
-        drop = rows * 1.7 * speed * (0.3 * age + 0.7 * age * age) * (0.45 + 0.55 * y + 0.8 * detach);
-        // Thinning: cells drop out progressively, and the survivors shift to lighter glyphs and dim.
-        const thin = smoothstep(0.04, 0.95, age);
-        if (unit(s, c, r, 41) < thin) {
-          frame.glyph[k] = 0;
-          frame.level[k] = 0;
-          frame.tone[k] = TONE.INK;
-          frame.drop[k] = 0;
+      if (m > 0) {
+        // Gravity: slow to let go, then accelerating.
+        const e = 0.25 * m + 0.75 * m * m;
+        const stretch = 2.6 * speed * e;
+        const slide = rows * 0.9 * speed * e;
+        drop = stretch * r + slide;
+        // Shed whole runs first, then single glyphs; everything is gone shortly before m reaches 1.
+        const thin = smoothstep(0.06, 0.92, m);
+        if (unit(s, c, Math.floor(r / run), 41) < thin || unit(s, c, r, 43) < smoothstep(0.6, 0.98, m)) {
+          blank(frame, k);
           continue;
         }
-        idx += Math.floor(age * 9);
-        level = Math.max(1, Math.round(level * (1 - 0.55 * smoothstep(0, 1, age))));
+        idx += Math.floor(m * 8);
+        level = Math.max(1, Math.round(level * (1 - 0.45 * m)));
       }
 
       // Just-scanned cells glow in the scan colour and show scrambled glyphs, then settle.

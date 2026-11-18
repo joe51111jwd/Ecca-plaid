@@ -172,15 +172,33 @@ describe("evidence:verify (in process)", () => {
     expect(notFound.code).toBe(EXIT.notRun);
     expect(notFound.err).toContain("Could not fetch the key set from https://issuer.example.org/jwks.json: HTTP 404");
 
-    const offline = await run(["record.json", "--jwks", "http://issuer.example.org/jwks.json"], async () => {
+    const offline = await run(["record.json", "--jwks", "https://issuer.example.org/jwks.json"], async () => {
       throw new Error("getaddrinfo ENOTFOUND issuer.example.org");
     });
     expect(offline.code).toBe(EXIT.notRun);
-    expect(offline.err).toContain("Could not fetch the key set from http://issuer.example.org/jwks.json: getaddrinfo ENOTFOUND issuer.example.org");
+    expect(offline.err).toContain("Could not fetch the key set from https://issuer.example.org/jwks.json: getaddrinfo ENOTFOUND issuer.example.org");
 
     const html = await run(["record.json", "--jwks", "https://issuer.example.org/jwks.json"], async () => ({ ok: true, status: 200, text: async () => "<html>sign in</html>" }));
     expect(html.code).toBe(EXIT.notRun);
     expect(html.err).toContain("is not usable");
+  });
+
+  it("refuses to fetch a key set over plain HTTP except from this machine, and refuses an oversized one", async () => {
+    // A key set fetched over plain HTTP can be swapped in transit, which would let a forged record PASS.
+    const plain = await run(["record.json", "--jwks", "http://issuer.example.org/.well-known/jwks.json"], async () => ({ ok: true, status: 200, text: async () => JSON.stringify(jwksOf(key)) }));
+    expect(plain.code).toBe(EXIT.notRun);
+    expect(plain.fetched).toEqual([]);
+    expect(plain.err).toContain("must be fetched over HTTPS");
+
+    for (const local of ["http://localhost:3190/.well-known/jwks.json", "http://127.0.0.1:3190/.well-known/jwks.json", "http://[::1]:3190/.well-known/jwks.json"]) {
+      const result = await run(["record.json", "--jwks", local], async () => ({ ok: true, status: 200, text: async () => JSON.stringify(jwksOf(key)) }));
+      expect(result.code, local).toBe(EXIT.pass);
+      expect(result.fetched).toEqual([local]);
+    }
+
+    const huge = await run(["record.json", "--jwks", "https://issuer.example.org/jwks.json"], async () => ({ ok: true, status: 200, text: async () => " ".repeat(32 * 1024 * 1024 + 1) }));
+    expect(huge.code).toBe(EXIT.notRun);
+    expect(huge.err).toContain("larger than 32 MB");
   });
 
   it("never prints control characters from the file it is checking", async () => {

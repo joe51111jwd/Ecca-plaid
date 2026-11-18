@@ -31,13 +31,24 @@ describe("toThresholdBounds", () => {
     expect(bounds).toMatchObject({ lowerBoundCents: 11_610_000, upperBoundCents: 11_610_000, readingsAgree: true });
   });
 
-  it("falls back to a single reading when the result carries none", () => {
-    const hud = toThresholdBounds(withoutReadings(thresholdFixture(STARR)));
-    expect(hud).toMatchObject({ lowerBoundCents: 11_610_000, upperBoundCents: 11_610_000, readingsAgree: true, statutoryUpperBoundCents: 11_610_000, boundsSource: "single_threshold" });
-    expect(hud.readings).toEqual([expect.objectContaining({ id: "median_product", thresholdCents: 11_610_000, statutoryThresholdCents: 11_610_000 })]);
+  it("falls back to a single reading only for an IRS-published result that carries none", () => {
     const irs = toThresholdBounds(withoutReadings(thresholdFixture(HARRIS, { source: "irs_published" })));
-    expect(irs.readings[0]).toMatchObject({ id: "irs_published", label: "IRS-published limit" });
-    expect(toThresholdBounds({ ...thresholdFixture(HARRIS), readings: null }).boundsSource).toBe("single_threshold");
+    expect(irs).toMatchObject({ lowerBoundCents: 31_200_000, upperBoundCents: 31_200_000, readingsAgree: true, statutoryUpperBoundCents: 31_200_000, boundsSource: "single_threshold" });
+    expect(irs.readings).toEqual([expect.objectContaining({ id: "irs_published", label: "IRS-published limit", thresholdCents: 31_200_000 })]);
+    expect(toThresholdBounds({ ...thresholdFixture(HARRIS, { source: "irs_published" }), readings: null }).boundsSource).toBe("single_threshold");
+  });
+
+  it("refuses a HUD-derived result without both readings instead of treating its one figure as the whole range", () => {
+    // Regression: Starr County's $116,100 alone would make $116,100.01 "over the limit", while reading B is $251,100.
+    expect(() => toThresholdBounds(withoutReadings(thresholdFixture(STARR)))).toThrow(AppError);
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR), readings: null })).toThrow(/both readings/);
+    const [a, b] = thresholdFixture(STARR).readings as unknown[];
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR), readings: [a] })).toThrow(/do not fit its source/);
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR), readings: [a, a] })).toThrow(/same reading twice/);
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR), readings: [a, b, { id: "irs_published", label: "x", thresholdCents: 1, formula: "" }] })).toThrow(/do not fit its source/);
+    // An IRS-published table has exactly one reading, and it is the published one.
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR, { source: "irs_published" }), readings: [a, b] })).toThrow(/do not fit its source/);
+    expect(() => toThresholdBounds({ ...thresholdFixture(STARR), source: "made_up" } as unknown as ThresholdBoundsInput)).toThrow(AppError);
   });
 
   it("keeps the readings at the SGO's cap and the ceiling at the statutory 300 percent", () => {
@@ -52,7 +63,13 @@ describe("toThresholdBounds", () => {
     const bounds = toThresholdBounds({ ...fixture, readings });
     expect(bounds.readings.map((reading) => reading.statutoryThresholdCents)).toEqual([11_610_000, 25_110_000]);
     // A cap-level figure that was floored scales back to at most the true 300-percent figure.
-    const floored = toThresholdBounds({ ...fixture, capPct: 7, thresholdCents: 233, statutoryThresholdCents: 10_000, readings: [{ id: "median_product", label: "x", thresholdCents: 233, formula: "" }] });
+    const floored = toThresholdBounds({
+      ...thresholdFixture(STARR, { source: "irs_published" }),
+      capPct: 7,
+      thresholdCents: 233,
+      statutoryThresholdCents: 10_000,
+      readings: [{ id: "irs_published", label: "x", thresholdCents: 233, formula: "" }],
+    });
     expect(floored.readings[0].statutoryThresholdCents).toBe(9_986);
     expect(floored.statutoryUpperBoundCents).toBe(10_000);
   });

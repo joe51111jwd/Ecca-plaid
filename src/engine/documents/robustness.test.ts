@@ -83,6 +83,18 @@ describe("extractPdfText", () => {
     expect(lines.map((l) => l.text)).toEqual(["Name  SAMPLE"]);
   });
 
+  it("groups tens of thousands of one-word lines in linear time (no event-loop stall)", () => {
+    const raw = Array.from({ length: 60_000 }, (_, i) => ({ str: `w${i}`, transform: [1, 0, 0, 1, 10, 500_000 - i * 3], width: 5 }));
+    // Two runs per line, slightly offset baselines, out of order: grouping must still be by line.
+    raw.push(...Array.from({ length: 60_000 }, (_, i) => ({ str: `v${i}`, transform: [1, 0, 0, 1, 300, 500_000 - i * 3 + 1], width: 5 })));
+    const t0 = Date.now();
+    const lines = buildLines(raw.reverse());
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect(lines).toHaveLength(60_000);
+    expect(lines[0].text).toBe("w0  v0");
+    expect(lines[59_999].text).toBe("w59999  v59999");
+  });
+
   it("detects a missing end-of-file marker", () => {
     expect(hasEofMarker(new TextEncoder().encode("%PDF-1.7 ... %%EOF\n"))).toBe(true);
     expect(hasEofMarker(new TextEncoder().encode("%PDF-1.7 ... trailer"))).toBe(false);

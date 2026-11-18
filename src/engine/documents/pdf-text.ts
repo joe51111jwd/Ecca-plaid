@@ -119,7 +119,12 @@ export function buildLines(raw: readonly RawItem[]): TextLine[] {
   items.sort((p, q) => q.y - p.y || p.x - q.x);
   const lines: Array<{ y: number; items: TextItem[] }> = [];
   for (const it of items) {
-    const line = lines.find((l) => Math.abs(l.y - it.y) <= LINE_TOLERANCE);
+    // Items arrive in descending y, and a line's y is its first (highest) item's, so only the newest line
+    // can be within tolerance: every earlier line sits more than LINE_TOLERANCE above it. Checking only that
+    // line keeps grouping linear; a search over all lines was quadratic and let a PDF with tens of thousands
+    // of one-word lines block the event loop past the read timeout (which cannot interrupt synchronous work).
+    const last = lines[lines.length - 1];
+    const line = last && Math.abs(last.y - it.y) <= LINE_TOLERANCE ? last : undefined;
     if (line) line.items.push({ x: it.x, width: it.width, text: it.text });
     else lines.push({ y: it.y, items: [{ x: it.x, width: it.width, text: it.text }] });
   }

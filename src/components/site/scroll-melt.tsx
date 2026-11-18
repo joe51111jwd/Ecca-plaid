@@ -33,9 +33,9 @@ const COLORS = {
 } as const;
 
 /** Cell width in CSS px, and height-to-width ratio of a cell. */
-const CELL_WIDTH_DESKTOP = 6.4;
-const CELL_WIDTH_MOBILE = 5;
-const CELL_ASPECT = 1.62;
+const CELL_WIDTH_DESKTOP = 5.4;
+const CELL_WIDTH_MOBILE = 4.4;
+const CELL_ASPECT = 1.58;
 
 /** How quickly the drawn progress catches up with the scroll position (per second). Higher is stiffer. */
 const FOLLOW_RATE = 9;
@@ -111,7 +111,7 @@ function prepare(image: HTMLImageElement, width: number, height: number): Prepar
     glyphs: MELT_RAMP,
     levels: MELT_LEVELS,
     colors: [COLORS.ink, COLORS.brand, COLORS.red, COLORS.signal],
-    opacity: (level) => 0.18 + 0.82 * Math.pow(level / (MELT_LEVELS - 1), 1.1),
+    opacity: (level) => 0.22 + 0.78 * (level / (MELT_LEVELS - 1)),
     cellWidth: geometry.cellW,
     cellHeight: geometry.cellH,
     fontSize,

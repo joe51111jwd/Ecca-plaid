@@ -264,14 +264,20 @@ describe("decide: two readings of the provisional limit", () => {
     expect(decision.threshold!.readings).toHaveLength(2);
   });
 
-  it("carries one reading for an IRS-published table and for a result without readings", () => {
+  it("carries one reading for an IRS-published table, with or without a readings field", () => {
     const irs = starr({ threshold: thresholdFixture(STARR, { source: "irs_published" }), direct: incomeOf(116_100.01) });
     expect(irs.status).toBe("ineligible");
     expect(irs.threshold!.readings.map((reading) => reading.id)).toEqual(["irs_published"]);
-    const bare = omit(thresholdFixture(STARR), "readings", "lowerBoundCents", "upperBoundCents", "readingsAgree");
-    const fallback = starr({ sgoPolicy: noBand, threshold: bare, direct: incomeOf(116_100.01) });
+    const bareIrs = omit(thresholdFixture(STARR, { source: "irs_published" }), "readings", "lowerBoundCents", "upperBoundCents", "readingsAgree");
+    const fallback = starr({ threshold: bareIrs, direct: incomeOf(116_100.01) });
     expect(fallback.status).toBe("ineligible");
-    expect(fallback.threshold).toMatchObject({ boundsSource: "single_threshold", readingsAgree: true, lowerBoundCents: 11_610_000 });
+    expect(fallback.threshold).toMatchObject({ boundsSource: "single_threshold", readingsAgree: true, lowerBoundCents: 11_610_000, reliedOn: "single_limit" });
+  });
+
+  it("refuses a HUD-derived threshold without its readings rather than deciding on one of them", () => {
+    // Regression: the old fallback made $116,100.01 in Starr County "ineligible" although reading B is $251,100.
+    const bare = omit(thresholdFixture(STARR), "readings", "lowerBoundCents", "upperBoundCents", "readingsAgree");
+    expect(() => starr({ sgoPolicy: noBand, threshold: bare, direct: incomeOf(116_100.01) })).toThrow(/both readings/);
   });
 });
 
@@ -967,6 +973,11 @@ describe("decide: input validation", () => {
     ["an injected threshold for another county", () => decide(decisionInput({ threshold: thresholdFixture(STARR) }))],
     ["an injected threshold whose provisional flag contradicts its source", () => decide(decisionInput({ threshold: { ...thresholdFixture(HARRIS), provisional: false } as DecisionInput["threshold"] }))],
     ["a negative wage", () => decide(decisionInput({ direct: directEvidence(-1, 0) }))],
+    // Regression: these reached property reads on the injected object and crashed with a TypeError.
+    ["an injected threshold that is an empty object", () => decide(decisionInput({ threshold: {} as DecisionInput["threshold"] }))],
+    ["an injected threshold without a county", () => decide(decisionInput({ threshold: omit(thresholdFixture(HARRIS), "county") as DecisionInput["threshold"] }))],
+    ["an injected threshold that is a string", () => decide(decisionInput({ threshold: "312000" as unknown as DecisionInput["threshold"] }))],
+    ["an injected threshold with an unknown source", () => decide(decisionInput({ threshold: { ...thresholdFixture(HARRIS), source: "guess" } as unknown as DecisionInput["threshold"] }))],
   ];
   it.each(invalidInputs)("rejects %s", (_name, attempt) => {
     let thrown: unknown;

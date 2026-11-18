@@ -119,6 +119,17 @@ describe("SSA", () => {
     expect(codes(readDocumentText(notice("Notice of Something New", "Text.")))).toContain("approval_unclear");
   });
 
+  it("never leaks an SSA claim number (SSN plus beneficiary code) into snippets, values or messages", () => {
+    const r = readDocumentText(
+      "Social Security Administration\nSupplemental Security Income\nNotice of Award 900-12-3456A\n                              Date: February 10, 2026\n                              Claim Number: 900-12-3456A\nRILEY SAMPLE\n100 FIXTURE LANE\nHOUSTON TX 77002\nText.",
+    );
+    expect(findFullSsns(r)).toEqual([]);
+    expect(JSON.stringify(r)).not.toMatch(/900-?12-?3456/);
+    // The subject is quoted in the review message: redacted there too.
+    expect(r.reviewReasons.find((x) => x.code === "approval_unclear")?.message).toContain("XXX-XX-3456A");
+    expect(r.extraction?.award?.caseNumberMasked).toBe("*****3456");
+  });
+
   it("a Benefit Verification Letter with an SSI section but no amount goes to review", () => {
     const r = readDocumentText(
       "Social Security Administration\nBenefit Verification Letter\n                    Date: October 2, 2026\nRILEY SAMPLE\n100 FIXTURE LANE\nHOUSTON TX 77002\nYou asked us for information from your record.\nInformation About Supplemental Security Income Payments\nType of Supplemental Security Income Payment Information\nYou are entitled to monthly payments as a disabled individual.",

@@ -215,6 +215,11 @@ function crossFieldIssues(input: ParsedEvidenceInput, detail: Detail, add: (path
   /* Decision. */
   const applicationYear = Number(decision.applicationDate.slice(0, 4));
   if (decision.incomeYear !== applicationYear - 1) add("decision.incomeYear", "inconsistent", `must be the calendar year before the application date (${applicationYear - 1})`);
+  decision.reasons.forEach((reason, index) => {
+    reason.memberIds.forEach((memberId, memberIndex) => {
+      if (!memberIds.has(memberId)) add(`decision.reasons[${index}].memberIds[${memberIndex}]`, "inconsistent", "is not on the household roster");
+    });
+  });
   if (decision.status === "needs_review" && decision.reasons.length === 0) add("decision.reasons", "invalid", "must say why the verification needs review");
   if (decided && decision.method === null) add("decision.method", "invalid", "is required for a decided verification: direct or categorical");
   if (decision.decidedAt > input.generatedAt) add("decision.decidedAt", "inconsistent", "is later than generatedAt");
@@ -307,6 +312,22 @@ function crossFieldIssues(input: ParsedEvidenceInput, detail: Detail, add: (path
           `is eligible, but counted income of ${formatMoney(income.totalCountedCents)} is greater than the statutory limit under every reading (${formatMoney(detail.statutoryUpperBoundCents)})`,
         );
       }
+      // docs/architecture.md, rule 3: the engine decides on its own only where every reading agrees, so an
+      // engine decision whose income range reaches between (or across) the readings is not one it can make.
+      if (decision.decidedBy.type === "engine" && decision.status === "eligible" && income.upperBoundCents > threshold.lowerBoundCents) {
+        add(
+          "decision.status",
+          "decision_contradicts_record",
+          `is eligible by the engine, but household income of as much as ${formatMoney(income.upperBoundCents)} is greater than the limit under at least one reading (${formatMoney(threshold.lowerBoundCents)}): only a reviewer can decide that`,
+        );
+      }
+      if (decision.decidedBy.type === "engine" && decision.status === "ineligible" && income.lowerBoundCents <= threshold.upperBoundCents) {
+        add(
+          "decision.status",
+          "decision_contradicts_record",
+          `is ineligible by the engine, but household income of as little as ${formatMoney(income.lowerBoundCents)} is not greater than the limit under at least one reading (${formatMoney(threshold.upperBoundCents)}): only a reviewer can decide that`,
+        );
+      }
       if (decision.status === "ineligible" && income.upperBoundCents <= threshold.lowerBoundCents) {
         add(
           "decision.status",
@@ -349,9 +370,10 @@ function sortedBy<T>(items: readonly T[], key: (item: T) => string): T[] {
     .map((entry) => entry.item);
 }
 
-/* Leaves that hold an identifier or a hash are left as they are: identifiers are refused at validation when
-   they are shaped like a Social Security number, and a hash is hexadecimal. Everything else is free text. */
-const IDENTIFIER_OR_HASH_KEY = /(^|_)(id|kid|sha256)$/;
+/* Leaves that hold an identifier, a list of identifiers or a hash are left as they are: identifiers are
+   refused at validation when they are shaped like a Social Security number, and a hash is hexadecimal.
+   Scrubbing an identifier would break the reference it makes. Everything else is free text. */
+const IDENTIFIER_OR_HASH_KEY = /(^|_)(id|ids|kid|sha256)$/;
 
 /**
  * Last step of the build: removes anything shaped like a Social Security number from every text leaf of the
