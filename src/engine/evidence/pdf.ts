@@ -8,6 +8,7 @@ import {
   DOCUMENT_TITLE,
   EXTRACTOR_LABEL,
   INCOME_SOURCE_LABEL,
+  INCOME_TREATMENT_LABEL,
   MEMBER_ROLE_LABEL,
   METHOD_BASIS_LABEL,
   PDF_COPY,
@@ -15,6 +16,7 @@ import {
   STATUS_DETAIL,
   STATUS_LABEL,
   consentKindLabel,
+  custodyOutcomeLabel,
 } from "./copy";
 import { formatBytes, formatCalendarDate, formatMoney, formatUtcClock, formatUtcTimestamp, groupHash, humanizeKey, utcDateOf } from "./format";
 import { COLOR, CONTENT_WIDTH, PdfWriter, STYLE, type Cell, type CellPart, type Column, type TextStyle } from "./pdf-layout";
@@ -122,6 +124,8 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     throw invalid("verifyUrl must be an absolute URL of the public key set");
   }
   if (verifyUrl.protocol !== "https:" && verifyUrl.protocol !== "http:") throw invalid("verifyUrl must be an http(s) URL");
+  // The URL is printed. A public key set needs no credentials, so one that carries any is a mistake.
+  if (verifyUrl.username !== "" || verifyUrl.password !== "") throw invalid("verifyUrl must not contain a user name or password");
   const brandName = options.brand.name.trim();
   if (brandName === "") throw invalid("brand.name is required");
 
@@ -176,22 +180,39 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     limitFact.push(part(`The decision relied on the ${threshold.relied_on === "lower_bound" ? "lower" : "upper"} bound: ${formatMoney(threshold.relied_on_limit_cents ?? 0)}`, STYLE.small));
   }
   if (threshold.cap_pct !== 300) limitFact.push(part(`Set at ${threshold.cap_pct}% of area median income, the SGO's stricter cap`, STYLE.small));
+  if (threshold.relied_on === "statutory_limit") {
+    limitFact.push(part(`The decision relied on the limit at the statutory 300%: ${formatMoney(threshold.relied_on_limit_cents ?? 0)}`, STYLE.small));
+  }
   // With a provisional table the block above already carries the source line; otherwise it is shown here.
   if (!threshold.provisional) limitFact.push(part(threshold.label.source_line, MUTED));
   limitFact.push(part(`Table ${threshold.table_version}, effective ${formatCalendarDate(threshold.effective_date)}`, MUTED));
 
-  const basisFact: Fact =
-    income !== null
-      ? [`Household income counted (${income.year})`, [part(formatMoney(income.total_counted_cents), STYLE.bodyBold)]]
+  const incomeHasRange = income !== null && (income.lower_bound_cents !== income.total_counted_cents || income.upper_bound_cents !== income.total_counted_cents);
+  const incomeFact: Fact | null =
+    income === null
+      ? null
       : [
-          "Categorical basis",
-          categorical !== null && categorical.program_label !== null
+          `Household income counted (${income.year})`,
+          [
+            part(formatMoney(income.total_counted_cents), STYLE.bodyBold),
+            ...(incomeHasRange ? [part(`Between ${formatMoney(income.lower_bound_cents)} and ${formatMoney(income.upper_bound_cents)} when lines that can be read more than one way are taken into account`, STYLE.small)] : []),
+          ],
+        ];
+  const categoricalFact: Fact | null =
+    categorical === null
+      ? null
+      : [
+          decision.method === "categorical" ? "Categorical basis" : "Categorical documentation on file",
+          categorical.program_label !== null
             ? [
                 part(categorical.program_label, STYLE.bodyBold),
                 part(`${categorical.letter_date ? `Documentation dated ${formatCalendarDate(categorical.letter_date)}. ` : ""}Approval status read from the document: ${APPROVAL_LABEL[categorical.approval_status].toLowerCase()}.`, STYLE.small),
               ]
             : [part("Program not yet determined")],
         ];
+  // A decided verification carries one of the two; one still in review may carry both, or neither.
+  const basisFacts: Fact[] = [incomeFact, categoricalFact].filter((fact): fact is Fact => fact !== null);
+  if (basisFacts.length === 0) basisFacts.push(["Income or categorical basis", [part("Nothing recorded yet")]]);
 
   const sgoDetail = [record.sgo.ein ? `EIN ${record.sgo.ein}` : "", record.sgo.external_ref ? `SGO reference: ${record.sgo.external_ref}` : ""].filter((text) => text !== "").join("  |  ");
   const facts: Fact[] = [
@@ -202,7 +223,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     ["Method", [part(decision.method_label), part(`${METHOD_BASIS_LABEL[decision.method_basis]}. ${decision.method_citation}`, MUTED)]],
     ["County and area", [part(`${county} (FIPS ${geography.county_fips})`), part(`${geography.area_name} (area code ${geography.area_code})`, MUTED)]],
     [threshold.label.limit_label, limitFact],
-    basisFact,
+    ...basisFacts,
     ["Income year", [part(`${decision.income_year} (application dated ${formatCalendarDate(decision.application_date)})`)]],
     [decided, [part(formatUtcTimestamp(decision.decided_at)), part(decidedBy, MUTED)]],
     ["Result valid until", [part(decision.expires_at ? formatUtcTimestamp(decision.expires_at) : "No expiry recorded")]],
@@ -245,7 +266,10 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         "Percent of area median",
         threshold.cap_pct === 300
           ? "300% (the statutory limit)"
-          : `${threshold.cap_pct}% (the SGO's stricter cap; the limit at the statutory 300% is ${formatMoney(threshold.statutory_limit_cents)})`,
+          : [
+              part(`${threshold.cap_pct}% (the SGO's stricter cap)`),
+              part(`At the statutory 300% the limit is ${formatMoney(threshold.statutory_limit_cents)}; the largest reading at 300% is ${formatMoney(threshold.statutory_upper_bound_cents)}`, STYLE.small),
+            ],
       ],
       ["County and area", `${county} (FIPS ${geography.county_fips}); ${geography.area_name} (area code ${geography.area_code})`],
       ["Source of the table", [part(`${threshold.label.badge} (${threshold.source})`)]],
@@ -285,16 +309,18 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   /* -------------------------------------------------------------------------------- 2. household */
 
   const custody = household.custody;
+  const custodyOutcome = custody?.outcome ? [part(`Determination: ${custodyOutcomeLabel(custody.outcome) ?? humanizeKey(custody.outcome)}`, STYLE.small)] : [];
   const custodyCell: Cell =
     custody === null
       ? "No shared-custody information was recorded."
       : !custody.lives_in_multiple_households
-        ? "The student does not live in more than one household."
+        ? [part("The student does not live in more than one household."), ...custodyOutcome]
         : [
             part("The student lives in more than one household."),
             ...(custody.months_in_this_household !== null ? [part(`Months in this household during the income year: ${custody.months_in_this_household}`, STYLE.small)] : []),
             ...(custody.equal_time !== null ? [part(`Equal time in both households: ${yesNo(custody.equal_time).toLowerCase()}`, STYLE.small)] : []),
             ...(custody.this_household_has_higher_income !== null ? [part(`This household has the higher income: ${custody.this_household_has_higher_income}`, STYLE.small)] : []),
+            ...custodyOutcome,
             ...(custody.notes ? [part(`Notes: ${custody.notes}`, STYLE.small)] : []),
           ];
   const householdRows: KeyValueRow[] = [
@@ -388,6 +414,21 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
 
   /* ------------------------------------------------------------- 4. income or categorical detail */
 
+  const categoricalRows: KeyValueRow[] =
+    categorical === null
+      ? []
+      : [
+          ["Program", categorical.program_label ?? "Not yet determined"],
+          ["Documentation dated", categorical.letter_date ? `${formatCalendarDate(categorical.letter_date)} (${categorical.letter_date})` : "Not yet determined"],
+          ["Approval status read from the document", APPROVAL_LABEL[categorical.approval_status]],
+          ...(categorical.benefit_period_end ? [["Benefit or certification period ends", `${formatCalendarDate(categorical.benefit_period_end)} (${categorical.benefit_period_end})`] as const] : []),
+          ...(categorical.issuing_agency ? [["Issuing agency", categorical.issuing_agency] as const] : []),
+          ...(categorical.named_member_id ? [["Household member named", [part(memberLabel(categorical.named_member_id)), part(categorical.named_member_id, MONO)]] as const] : []),
+          ...(categorical.document_id ? [["Document", [part(categorical.document_id, MONO)]] as const] : []),
+          ["Application date", `${formatCalendarDate(decision.application_date)} (${decision.application_date})`],
+          [decided, formatUtcTimestamp(decision.decided_at)],
+        ];
+
   if (income !== null) {
     pdf.heading(`4. Household income for ${income.year}`);
     if (income.items.length === 0) {
@@ -397,14 +438,14 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         [
           { header: "Category", width: 172 },
           { header: "Source", width: 136 },
-          { header: "Counted", width: 116 },
+          { header: "Treatment", width: 116 },
           { header: "Annual amount", width: 80, align: "right" },
         ],
         income.items.map((item) => [
           [part(item.category_label, STYLE.smallBold), ...(item.description ? [part(item.description)] : []), ...(item.member_id ? [part(`Member ${memberLabel(item.member_id)}`, MUTED)] : [])],
           [part(INCOME_SOURCE_LABEL[item.source]), ...(item.document_id ? [part(item.document_id, MONO_SMALL)] : []), ...(item.rail_id ? [part(item.rail_id, MONO_SMALL)] : [])],
-          [part(item.counted ? "Counted" : "Not counted", item.counted ? STYLE.small : STYLE.smallBold), ...(item.basis ? [part(item.basis, MUTED)] : [])],
-          [part(formatMoney(item.annual_amount_cents), item.counted ? STYLE.small : MUTED)],
+          [part(INCOME_TREATMENT_LABEL[item.treatment], item.treatment === "counted" ? STYLE.small : STYLE.smallBold), ...(item.basis ? [part(item.basis, MUTED)] : [])],
+          [part(formatMoney(item.annual_amount_cents), item.treatment === "counted" ? STYLE.small : MUTED)],
         ]),
       );
     }
@@ -413,23 +454,29 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         { header: "", width: CONTENT_WIDTH - 130, style: STYLE.bodyBold },
         { header: "", width: 130, align: "right", style: STYLE.bodyBold },
       ],
-      [[`Total household cash income counted for ${income.year}`, formatMoney(income.total_counted_cents)]],
+      [
+        [`Total household cash income counted for ${income.year}`, formatMoney(income.total_counted_cents)],
+        ...(incomeHasRange
+          ? [
+              [[part("Least it can be, where a line can be read more than one way", STYLE.small)], [part(formatMoney(income.lower_bound_cents), STYLE.small)]],
+              [[part("Most it can be, with the lines whose treatment is open", STYLE.small)], [part(formatMoney(income.upper_bound_cents), STYLE.small)]],
+            ]
+          : []),
+      ],
       { header: false },
     );
+    if (categorical !== null) {
+      // Only a verification still in review carries both.
+      pdf.subheading("Categorical documentation on file", Math.min(pdf.keyValuesHeight(categoricalRows, 190), KEEP_TOGETHER_LIMIT));
+      pdf.keyValues(categoricalRows, 190);
+    }
   } else if (categorical !== null) {
-    const categoricalRows: KeyValueRow[] = [
-        ["Program", categorical.program_label ?? "Not yet determined"],
-        ["Documentation dated", categorical.letter_date ? `${formatCalendarDate(categorical.letter_date)} (${categorical.letter_date})` : "Not yet determined"],
-        ["Approval status read from the document", APPROVAL_LABEL[categorical.approval_status]],
-        ...(categorical.benefit_period_end ? [["Benefit or certification period ends", `${formatCalendarDate(categorical.benefit_period_end)} (${categorical.benefit_period_end})`] as const] : []),
-        ...(categorical.issuing_agency ? [["Issuing agency", categorical.issuing_agency] as const] : []),
-        ...(categorical.named_member_id ? [["Household member named", [part(memberLabel(categorical.named_member_id)), part(categorical.named_member_id, MONO)]] as const] : []),
-        ...(categorical.document_id ? [["Document", [part(categorical.document_id, MONO)]] as const] : []),
-        ["Application date", `${formatCalendarDate(decision.application_date)} (${decision.application_date})`],
-        [decided, formatUtcTimestamp(decision.decided_at)],
-    ];
     pdf.heading("4. Categorical eligibility detail", Math.min(pdf.keyValuesHeight(categoricalRows, 190), KEEP_TOGETHER_LIMIT));
     pdf.keyValues(categoricalRows, 190);
+    if (record.data_minimization.income_detail_omitted) pdf.paragraph(PDF_COPY.incomeOmitted, STYLE.note);
+  } else {
+    pdf.heading("4. Income or categorical detail");
+    pdf.paragraph(PDF_COPY.noBasis, STYLE.body);
   }
 
   /* ---------------------------------------------------------------------------------- 5. consent */
@@ -459,7 +506,10 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         { header: "Reason code", width: 150, style: MONO },
         { header: "Reason", width: CONTENT_WIDTH - 150 },
       ],
-      decision.reasons.map((reason) => [reason.code, reason.message]),
+      decision.reasons.map((reason) => {
+        const about = [...reason.member_ids.map((memberId) => memberLabel(memberId)), ...reason.source_ids];
+        return [reason.code, [part(reason.message), ...(about.length > 0 ? [part(`About: ${about.join(", ")}`, MUTED)] : [])]];
+      }),
     );
   }
   if (record.review_trail.length === 0) {

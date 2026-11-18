@@ -179,7 +179,7 @@ export function evaluateDirect(evidence: DirectEvidenceInput | null | undefined,
       code: "between_provisional_readings",
       message:
         `The limit is provisional and the proposed rules can be read two ways, which give different limits for this county and household size (${readingsText}). ` +
-        "Household income is at or below one and above the other. Which reading the IRS will publish is not known, so a reviewer must decide.",
+        "Household income is at or below one and above the other. It is not known which reading, if either, the IRS-published limits will follow, so a reviewer must decide.",
       memberIds: [],
       sourceIds: [],
     });

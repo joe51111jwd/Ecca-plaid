@@ -144,7 +144,11 @@ function familyExplanation(decision: Decision, locale: ExplanationLocale, provis
       : "";
   // A single figure only. When the readings differ, a dollar amount would promise more than is known.
   const singleLimit = threshold && threshold.readingsAgree ? formatUsd(threshold.lowerBoundCents) : null;
-  const limitSentence = singleLimit ? (es ? `El límite${where} es de ${singleLimit}.` : `The limit${where} is ${singleLimit}.`) : null;
+  const limitSentence = !singleLimit
+    ? null
+    : es
+      ? `El límite${decision.provisional ? " provisional" : ""}${where} es de ${singleLimit}.`
+      : `The ${decision.provisional ? "provisional limit" : "limit"}${where} is ${singleLimit}.`;
   const unusableLetters = decision.letters
     .filter((letter) => letter.outcome === "fail")
     .map((letter) => letter.defects.find((defect) => defect.kind === "disqualifying"))
@@ -299,8 +303,8 @@ function sgoExplanation(decision: Decision, locale: ExplanationLocale, sourceLin
       const readings = threshold.readings.map((reading) => `${reading.label}: ${formatUsd(reading.thresholdCents)}`).join("; ");
       paragraphs.push(
         es
-          ? `Las reglas propuestas pueden leerse de dos maneras, que dan límites distintos para este condado y tamaño de hogar con el tope de ${cap}: ${readings}. No se sabe cuál publicará el IRS, así que solo se decide automáticamente cuando ambas lecturas coinciden.`
-          : `The proposed rules can be read two ways, which give different limits for this county and household size at the SGO's cap of ${cap}: ${readings}. Which one the IRS will publish is not known, so automatic decisions are made only where both readings agree.`,
+          ? `Las reglas propuestas pueden leerse de dos maneras, que dan límites distintos para este condado y tamaño de hogar con el tope de ${cap}: ${readings}. No se sabe cuál de las dos lecturas seguirán los límites que publique el IRS, si es que siguen alguna, así que solo se decide automáticamente cuando ambas lecturas coinciden.`
+          : `The proposed rules can be read two ways, which give different limits for this county and household size at the SGO's cap of ${cap}: ${readings}. It is not known which reading, if either, the IRS-published limits will follow, so automatic decisions are made only where both readings agree.`,
       );
     }
     if (threshold.reviewBand.applied) {

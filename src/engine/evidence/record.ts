@@ -2,7 +2,7 @@ import { KeyObject } from "node:crypto";
 import type { z } from "zod";
 import { canonicalJson, ed25519Sign, ed25519Verify, publicKeyFromJwk, sha256Hex } from "@/lib/crypto";
 import { invalid } from "@/lib/errors";
-import { EVIDENCE_COPY_VERSION, METHOD_LABEL, PROGRAM_LABEL, decisionSummary, methodCitation, reliedOnStatement } from "./copy";
+import { EVIDENCE_COPY_VERSION, METHOD_LABEL, PROGRAM_LABEL, decisionSummary, methodCitation, reliedOnStatement, type LimitFacts } from "./copy";
 import { formatMoney } from "./format";
 import { EVIDENCE_POLICY } from "./policy";
 import { evidenceInputSchema, type ParsedEvidenceInput } from "./schema";
@@ -12,6 +12,7 @@ import {
   EVIDENCE_RECORD_TYPE,
   EVIDENCE_SCHEMA_VERSION,
   EVIDENCE_SIGNATURE_ALG,
+  type EvidenceIncomeTreatment,
   type EvidenceInput,
   type EvidenceJwk,
   type EvidenceJwks,
@@ -21,7 +22,6 @@ import {
   type EvidenceRecord,
   type EvidenceRecordActor,
   type EvidenceRecordConsent,
-  type EvidenceReliedOn,
   type EvidenceSigningKey,
   type EvidenceVerification,
   type EvidenceVerifyFailure,
@@ -101,11 +101,99 @@ function duplicates(ids: readonly string[]): string[] {
   return [...repeated];
 }
 
-function crossFieldIssues(input: ParsedEvidenceInput): EvidenceIssue[] {
-  const issues: EvidenceIssue[] = [];
-  const add = (path: string, code: EvidenceIssueCode, message: string) => issues.push({ path, code, message });
-  const { decision, household, threshold, income, categorical, documents, rails, consent, additionalConsents } = input;
+type ParsedIncome = NonNullable<ParsedEvidenceInput["income"]>;
+
+/** Income as the record carries it: every line with a treatment, and the range resolved. */
+interface CarriedIncome {
+  year: number;
+  totalCountedCents: number;
+  lowerBoundCents: number;
+  upperBoundCents: number;
+  lines: Array<Omit<ParsedIncome["items"][number], "treatment" | "counted"> & { treatment: EvidenceIncomeTreatment }>;
+}
+
+/** The method-specific detail the record will carry, and the figures derived from the input. */
+interface Detail {
+  decided: boolean;
+  income: CarriedIncome | null;
+  categorical: ParsedEvidenceInput["categorical"];
+  incomeDetailOmitted: boolean;
+  statutoryUpperBoundCents: number;
+}
+
+function isSafe(value: bigint): boolean {
+  return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * The largest reading at the statutory 300 percent. A reading that does not state its statutory figure is
+ * scaled up from the capped one and rounded up, so the result is never below the true figure: this number
+ * is a ceiling for what a reviewer may approve, and it must not refuse a decision the statute allows.
+ */
+function statutoryUpperBound(threshold: ParsedEvidenceInput["threshold"]): number {
+  if (threshold.statutoryUpperBoundCents !== null) return threshold.statutoryUpperBoundCents;
+  let highest = BigInt(threshold.statutoryThresholdCents);
+  for (const reading of threshold.readings) {
+    const statutory =
+      reading.statutoryThresholdCents !== null
+        ? BigInt(reading.statutoryThresholdCents)
+        : threshold.capPct === 300
+          ? BigInt(reading.thresholdCents)
+          : ((BigInt(reading.thresholdCents) + 1n) * 300n + BigInt(threshold.capPct) - 1n) / BigInt(threshold.capPct);
+    if (statutory > highest) highest = statutory;
+  }
+  return isSafe(highest) ? Number(highest) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Decides what method-specific detail the record carries (the data-minimization rule: a decided verification
+ * carries only the detail its method rests on) and resolves the income lines and range.
+ */
+function resolveDetail(input: ParsedEvidenceInput, add: (path: string, code: EvidenceIssueCode, message: string) => void): Detail {
+  const { decision } = input;
   const decided = decision.status === "eligible" || decision.status === "ineligible";
+  const carryIncome = !(decided && decision.method === "categorical");
+  const carryCategorical = !(decided && decision.method === "direct");
+
+  let income: CarriedIncome | null = null;
+  if (carryIncome && input.income !== null) {
+    let counted = 0n;
+    let open = 0n;
+    const lines = input.income.items.map((item, index) => {
+      const { treatment: stated, counted: flag, ...rest } = item;
+      const fromFlag = flag === null ? null : flag ? ("counted" as const) : ("excluded" as const);
+      if (stated === null && fromFlag === null) add(`income.items[${index}].treatment`, "invalid", "is required: counted, excluded or review (or counted: true or false)");
+      if (stated !== null && flag !== null && (stated === "counted") !== flag) add(`income.items[${index}].counted`, "inconsistent", `contradicts treatment "${stated}"`);
+      const treatment = stated ?? fromFlag ?? "excluded";
+      if (treatment === "counted") counted += BigInt(item.annualAmountCents);
+      if (treatment === "review") open += BigInt(item.annualAmountCents);
+      return { ...rest, treatment };
+    });
+    const total = BigInt(input.income.totalCountedCents);
+    if (counted !== total) {
+      add("income.totalCountedCents", "inconsistent", `is ${formatMoney(input.income.totalCountedCents)} but the counted lines add up to ${counted.toString()} cents`);
+    }
+    const lower = input.income.lowerBoundCents ?? input.income.totalCountedCents;
+    const defaultUpper = total + (open > 0n ? open : 0n);
+    if (input.income.upperBoundCents === null && !isSafe(defaultUpper)) add("income.upperBoundCents", "invalid", "is required: the counted and open lines together are too large to add up");
+    const upper = input.income.upperBoundCents ?? (isSafe(defaultUpper) ? Number(defaultUpper) : input.income.totalCountedCents);
+    if (lower > input.income.totalCountedCents) add("income.lowerBoundCents", "inconsistent", "is greater than totalCountedCents");
+    if (upper < input.income.totalCountedCents) add("income.upperBoundCents", "inconsistent", "is less than totalCountedCents");
+    income = { year: input.income.year, totalCountedCents: input.income.totalCountedCents, lowerBoundCents: lower, upperBoundCents: upper, lines };
+  }
+
+  return {
+    decided,
+    income,
+    categorical: carryCategorical ? input.categorical : null,
+    incomeDetailOmitted: !carryIncome && input.income !== null,
+    statutoryUpperBoundCents: statutoryUpperBound(input.threshold),
+  };
+}
+
+function crossFieldIssues(input: ParsedEvidenceInput, detail: Detail, add: (path: string, code: EvidenceIssueCode, message: string) => void): void {
+  const { decision, household, threshold, documents, rails, consent, additionalConsents } = input;
+  const { decided, income, categorical } = detail;
 
   /* Identity of things that are referenced elsewhere. */
   const memberIds = new Set(household.members.map((member) => member.id));
@@ -151,6 +239,7 @@ function crossFieldIssues(input: ParsedEvidenceInput): EvidenceIssue[] {
     if (threshold.upperBoundCents !== highest) add("threshold.upperBoundCents", "inconsistent", `must equal the largest reading (${formatMoney(highest)})`);
     if (threshold.readingsAgree !== (lowest === highest)) add("threshold.readingsAgree", "inconsistent", lowest === highest ? "must be true: every reading gives the same limit" : "must be false: the readings give different limits");
     if (!limits.includes(threshold.thresholdCents)) add("threshold.thresholdCents", "inconsistent", "must equal the limit of one of the readings");
+    if (detail.statutoryUpperBoundCents < highest) add("threshold.statutoryUpperBoundCents", "inconsistent", "is lower than the largest reading; a cap can only lower the statutory limit");
   }
 
   /* Evidence items. */
@@ -187,60 +276,65 @@ function crossFieldIssues(input: ParsedEvidenceInput): EvidenceIssue[] {
     if (entry.at > input.generatedAt) add(`timeline[${index}].at`, "inconsistent", "is later than generatedAt");
   });
 
-  /* Method-specific detail. */
-  if (decision.method === "direct") {
-    if (categorical !== null) add("categorical", "inconsistent", "must be null for the direct method");
+  /* Income detail, whenever it is carried. */
+  if (income !== null) {
+    if (income.year !== decision.incomeYear) add("income.year", "inconsistent", `must equal decision.incomeYear (${decision.incomeYear})`);
+    income.lines.forEach((line, index) => {
+      const at = `income.items[${index}]`;
+      if (line.memberId !== null && !memberIds.has(line.memberId)) add(`${at}.memberId`, "inconsistent", "is not on the household roster");
+      if (line.source === "document" && line.documentId === null) add(`${at}.documentId`, "missing_audit_field", "is required when the income figure comes from a document");
+      if (line.source === "rail" && line.railId === null) add(`${at}.railId`, "missing_audit_field", "is required when the income figure comes from a data connection");
+      if (line.documentId !== null && !documentIds.has(line.documentId)) add(`${at}.documentId`, "inconsistent", "is not one of the documents in this input");
+      if (line.railId !== null && !railIds.has(line.railId)) add(`${at}.railId`, "inconsistent", "is not one of the data connections in this input");
+    });
+  }
+
+  /* Categorical detail, whenever it is carried. */
+  if (categorical !== null) {
+    if (categorical.namedMemberId !== null && !memberIds.has(categorical.namedMemberId)) add("categorical.namedMemberId", "inconsistent", "is not on the household roster");
+    if (categorical.documentId !== null && !documentIds.has(categorical.documentId)) add("categorical.documentId", "inconsistent", "is not one of the documents in this input");
+  }
+
+  /* A decided verification: the detail its method rests on must be there, and the decision must follow from it. */
+  if (decided && decision.method === "direct") {
     if (income === null) {
-      add("income", "invalid", "is required for the direct method");
+      add("income", "invalid", "is required for a decided direct verification");
     } else {
-      if (income.year !== decision.incomeYear) add("income.year", "inconsistent", `must equal decision.incomeYear (${decision.incomeYear})`);
-      for (const repeated of duplicates(income.items.map((item) => item.id))) add("income.items", "inconsistent", `lists income item ${repeated} more than once`);
-      let counted = 0n;
-      income.items.forEach((item, index) => {
-        const at = `income.items[${index}]`;
-        if (item.counted) counted += BigInt(item.annualAmountCents);
-        if (item.memberId !== null && !memberIds.has(item.memberId)) add(`${at}.memberId`, "inconsistent", "is not on the household roster");
-        if (item.source === "document" && item.documentId === null) add(`${at}.documentId`, "missing_audit_field", "is required when the income figure comes from a document");
-        if (item.source === "rail" && item.railId === null) add(`${at}.railId`, "missing_audit_field", "is required when the income figure comes from a data connection");
-        if (item.documentId !== null && !documentIds.has(item.documentId)) add(`${at}.documentId`, "inconsistent", "is not one of the documents in this input");
-        if (item.railId !== null && !railIds.has(item.railId)) add(`${at}.railId`, "inconsistent", "is not one of the data connections in this input");
-      });
-      if (counted !== BigInt(income.totalCountedCents)) {
-        add("income.totalCountedCents", "inconsistent", `is ${formatMoney(income.totalCountedCents)} but the counted items add up to ${counted.toString()} cents`);
+      // The two tests below are the ones the decision engine applies to a reviewer's resolution, so nothing it
+      // allows is refused here. A decision the record's own numbers rule out under every reading is never signed.
+      if (decision.status === "eligible" && income.totalCountedCents > detail.statutoryUpperBoundCents) {
+        add(
+          "decision.status",
+          "decision_contradicts_record",
+          `is eligible, but counted income of ${formatMoney(income.totalCountedCents)} is greater than the statutory limit under every reading (${formatMoney(detail.statutoryUpperBoundCents)})`,
+        );
       }
-      // A decision that the record's own numbers rule out under every reading is never signed.
-      if (decision.status === "eligible" && income.totalCountedCents > threshold.upperBoundCents) {
-        add("decision.status", "decision_contradicts_record", `is eligible, but counted income of ${formatMoney(income.totalCountedCents)} is greater than the limit under every reading (${formatMoney(threshold.upperBoundCents)})`);
-      }
-      if (decision.status === "ineligible" && income.totalCountedCents <= threshold.lowerBoundCents) {
-        add("decision.status", "decision_contradicts_record", `is ineligible, but counted income of ${formatMoney(income.totalCountedCents)} is not greater than the limit under any reading (${formatMoney(threshold.lowerBoundCents)})`);
-      }
-    }
-  } else {
-    // Data minimization: the categorical method exists so that income detail need not be collected.
-    if (income !== null) add("income", "inconsistent", "must be null for the categorical method: income detail is not carried when it is not the basis of the decision");
-    if (categorical === null) {
-      add("categorical", "invalid", "is required for the categorical method");
-    } else {
-      if (categorical.namedMemberId !== null && !memberIds.has(categorical.namedMemberId)) add("categorical.namedMemberId", "inconsistent", "is not on the household roster");
-      if (categorical.documentId !== null && !documentIds.has(categorical.documentId)) add("categorical.documentId", "inconsistent", "is not one of the documents in this input");
-      if (decision.status === "ineligible") {
-        // docs/architecture.md, rule 2: ineligible means the evidence affirmatively shows income over the limit.
-        add("decision.status", "decision_contradicts_record", "cannot be ineligible under the categorical method: missing or unusable documentation is not evidence of income over the limit");
-      }
-      if (decision.status === "eligible") {
-        if (categorical.program === null) add("categorical.program", "missing_audit_field", "is required for an eligible categorical decision");
-        if (categorical.letterDate === null) add("categorical.letterDate", "missing_audit_field", "is required for an eligible categorical decision");
-        if (categorical.documentId === null) add("categorical.documentId", "missing_audit_field", "is required for an eligible categorical decision: the document that shows the approval");
-        if (categorical.approvalStatus === "not_current") add("decision.status", "decision_contradicts_record", "is eligible, but the documentation shows the approval is not current");
-        if (categorical.approvalStatus === "unclear" && decision.decidedBy.type === "engine") {
-          add("decision.status", "decision_contradicts_record", "is eligible by the engine, but the approval status is unclear: an unclear document goes to a reviewer");
-        }
+      if (decision.status === "ineligible" && income.upperBoundCents <= threshold.lowerBoundCents) {
+        add(
+          "decision.status",
+          "decision_contradicts_record",
+          `is ineligible, but household income of at most ${formatMoney(income.upperBoundCents)} is not greater than the limit under any reading (${formatMoney(threshold.lowerBoundCents)})`,
+        );
       }
     }
   }
-
-  return issues;
+  if (decided && decision.method === "categorical") {
+    if (decision.status === "ineligible") {
+      // docs/architecture.md, rule 2: ineligible means the evidence affirmatively shows income over the limit.
+      add("decision.status", "decision_contradicts_record", "cannot be ineligible under the categorical method: missing or unusable documentation is not evidence of income over the limit");
+    }
+    if (categorical === null) {
+      add("categorical", "invalid", "is required for a decided categorical verification");
+    } else if (decision.status === "eligible") {
+      if (categorical.program === null) add("categorical.program", "missing_audit_field", "is required for an eligible categorical decision");
+      if (categorical.letterDate === null) add("categorical.letterDate", "missing_audit_field", "is required for an eligible categorical decision");
+      if (categorical.documentId === null) add("categorical.documentId", "missing_audit_field", "is required for an eligible categorical decision: the document that shows the approval");
+      if (categorical.approvalStatus === "not_current") add("decision.status", "decision_contradicts_record", "is eligible, but the documentation shows the approval is not current");
+      if (categorical.approvalStatus === "unclear" && decision.decidedBy.type === "engine") {
+        add("decision.status", "decision_contradicts_record", "is eligible by the engine, but the approval status is unclear: an unclear document goes to a reviewer");
+      }
+    }
+  }
 }
 
 /* ------------------------------------------------------------------------------------ record build */
@@ -295,19 +389,41 @@ function methodBasis(input: ParsedEvidenceInput): EvidenceMethodBasis {
   return "none_recorded";
 }
 
-/** Which figure a decided direct verification compared income with. */
-function reliedOn(input: ParsedEvidenceInput): { reliedOn: EvidenceReliedOn; limitCents: number | null } {
-  const { decision, threshold, income } = input;
-  if (decision.method !== "direct" || income === null || decision.status === "needs_review") return { reliedOn: "none", limitCents: null };
-  if (threshold.readingsAgree) return { reliedOn: "single_limit", limitCents: threshold.upperBoundCents };
-  const withinLower = income.totalCountedCents <= threshold.lowerBoundCents;
-  const withinUpper = income.totalCountedCents <= threshold.upperBoundCents;
+/** Which figure a decided direct verification compared income with, and everything the sentences say about the limit. */
+function limitFacts(input: ParsedEvidenceInput, detail: Detail): LimitFacts {
+  const { decision, threshold } = input;
+  const { income } = detail;
+  const lowest = threshold.readings.reduce((low, reading) => (reading.thresholdCents < low.thresholdCents ? reading : low));
+  const highest = threshold.readings.reduce((high, reading) => (reading.thresholdCents > high.thresholdCents ? reading : high));
+  const facts: LimitFacts = {
+    provisional: threshold.provisional,
+    capPct: threshold.capPct,
+    lowerBoundCents: threshold.lowerBoundCents,
+    upperBoundCents: threshold.upperBoundCents,
+    readingsAgree: threshold.readingsAgree,
+    statutoryUpperBoundCents: detail.statutoryUpperBoundCents,
+    lowerLabel: lowest.label,
+    upperLabel: highest.label,
+    reliedOn: "none",
+    reliedOnLimitCents: null,
+    restsOnOpenLines: false,
+  };
+  if (!detail.decided || decision.method !== "direct" || income === null) return facts;
+
+  const lower = { reliedOn: threshold.readingsAgree ? ("single_limit" as const) : ("lower_bound" as const), reliedOnLimitCents: threshold.lowerBoundCents };
+  const upper = { reliedOn: threshold.readingsAgree ? ("single_limit" as const) : ("upper_bound" as const), reliedOnLimitCents: threshold.upperBoundCents };
+  const recorded = income.totalCountedCents;
   if (decision.status === "eligible") {
-    // Within the lowest reading means within every reading; otherwise only the highest reading supports "eligible".
-    return withinLower ? { reliedOn: "lower_bound", limitCents: threshold.lowerBoundCents } : { reliedOn: "upper_bound", limitCents: threshold.upperBoundCents };
+    // Within the lowest reading means within every reading; above it, only a higher figure supports "eligible".
+    if (recorded <= threshold.lowerBoundCents) return { ...facts, ...lower };
+    if (recorded <= threshold.upperBoundCents) return { ...facts, ...upper };
+    return { ...facts, reliedOn: "statutory_limit", reliedOnLimitCents: detail.statutoryUpperBoundCents };
   }
-  // Above the highest reading means above every reading; otherwise only the lowest reading supports "ineligible".
-  return withinUpper ? { reliedOn: "lower_bound", limitCents: threshold.lowerBoundCents } : { reliedOn: "upper_bound", limitCents: threshold.upperBoundCents };
+  // Above the highest reading means above every reading; below it, only a lower figure supports "ineligible".
+  if (recorded > threshold.upperBoundCents) return { ...facts, ...upper };
+  if (recorded > threshold.lowerBoundCents) return { ...facts, ...lower };
+  // The recorded figure is within every reading: the decision can only rest on lines whose treatment is open.
+  return { ...facts, ...lower, restsOnOpenLines: true };
 }
 
 function actorRecord(actor: ParsedEvidenceInput["reviewTrail"][number]["actor"]): EvidenceRecordActor {
@@ -340,14 +456,16 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
   const parsed = evidenceInputSchema.safeParse(input);
   if (!parsed.success) refuse(issuesFromZod(parsed.error));
   const data = parsed.data;
-  const problems = crossFieldIssues(data);
+  const problems: EvidenceIssue[] = [];
+  const add = (path: string, code: EvidenceIssueCode, message: string) => void problems.push({ path, code, message });
+  const detail = resolveDetail(data, add);
+  crossFieldIssues(data, detail, add);
   if (problems.length > 0) refuse(problems);
 
-  const { decision, household, geography, threshold, income, categorical } = data;
-
-  const relied = reliedOn(data);
-  const lowestReading = threshold.readings.reduce((lowest, reading) => (reading.thresholdCents < lowest.thresholdCents ? reading : lowest));
-  const highestReading = threshold.readings.reduce((highest, reading) => (reading.thresholdCents > highest.thresholdCents ? reading : highest));
+  const { decision, household, geography, threshold } = data;
+  const { income, categorical } = detail;
+  const limit = limitFacts(data, detail);
+  const incomeFacts = income === null ? null : { countedCents: income.totalCountedCents, lowerBoundCents: income.lowerBoundCents, upperBoundCents: income.upperBoundCents };
   const members = sortedBy(household.members, (member) => String(ROLE_ORDER[member.role]));
 
   const summary = decisionSummary({
@@ -358,29 +476,13 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
     householdSize: household.size,
     countyName: geography.countyName,
     state: geography.state,
-    provisional: threshold.provisional,
-    incomeCents: income?.totalCountedCents ?? null,
-    reliedOn: relied.reliedOn,
-    reliedOnLimitCents: relied.limitCents,
-    lowerBoundCents: threshold.lowerBoundCents,
-    upperBoundCents: threshold.upperBoundCents,
-    readingsAgree: threshold.readingsAgree,
+    limit,
+    income: incomeFacts,
     program: categorical?.program ?? null,
     letterDate: categorical?.letterDate ?? null,
     approvalStatus: categorical?.approvalStatus ?? null,
   });
-
-  const statement = reliedOnStatement({
-    status: decision.status,
-    method: decision.method,
-    incomeCents: income?.totalCountedCents ?? null,
-    reliedOn: relied.reliedOn,
-    lowerBoundCents: threshold.lowerBoundCents,
-    upperBoundCents: threshold.upperBoundCents,
-    readingsAgree: threshold.readingsAgree,
-    lowerLabel: lowestReading.label,
-    upperLabel: highestReading.label,
-  });
+  const statement = reliedOnStatement({ status: decision.status, method: decision.method, limit, income: incomeFacts });
 
   let extractedFieldsRemoved = 0;
   const documents = sortedBy(data.documents, (document) => `${document.uploadedAt} ${document.id}`).map((document) => {
@@ -424,7 +526,7 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
       method_basis: methodBasis(data),
       method_citation: methodCitation(decision.method),
       summary,
-      reasons: decision.reasons.map((reason) => ({ code: reason.code, message: reason.message })),
+      reasons: decision.reasons.map((reason) => ({ code: reason.code, message: reason.message, member_ids: reason.memberIds, source_ids: reason.sourceIds })),
       application_date: decision.applicationDate,
       income_year: decision.incomeYear,
       decided_at: decision.decidedAt,
@@ -458,6 +560,7 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
               equal_time: household.custody.equalTime,
               this_household_has_higher_income: household.custody.thisHouseholdHasHigherIncome,
               notes: household.custody.notes,
+              outcome: household.custody.outcome,
             },
     },
     geography: {
@@ -499,8 +602,9 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
       lower_bound_cents: threshold.lowerBoundCents,
       upper_bound_cents: threshold.upperBoundCents,
       readings_agree: threshold.readingsAgree,
-      relied_on: relied.reliedOn,
-      relied_on_limit_cents: relied.limitCents,
+      statutory_upper_bound_cents: detail.statutoryUpperBoundCents,
+      relied_on: limit.reliedOn,
+      relied_on_limit_cents: limit.reliedOnLimitCents,
       relied_on_statement: statement,
     },
     income:
@@ -509,18 +613,20 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
         : {
             year: income.year,
             total_counted_cents: income.totalCountedCents,
-            items: sortedBy(income.items, (item) => `${item.categoryLabel} ${item.id}`).map((item) => ({
-              id: item.id,
-              category: item.category,
-              category_label: item.categoryLabel,
-              description: item.description,
-              member_id: item.memberId,
-              annual_amount_cents: item.annualAmountCents,
-              counted: item.counted,
-              basis: item.basis,
-              source: item.source,
-              document_id: item.documentId,
-              rail_id: item.railId,
+            lower_bound_cents: income.lowerBoundCents,
+            upper_bound_cents: income.upperBoundCents,
+            items: sortedBy(income.lines, (line) => `${line.categoryLabel} ${line.id} ${line.treatment}`).map((line) => ({
+              id: line.id,
+              category: line.category,
+              category_label: line.categoryLabel,
+              description: line.description,
+              member_id: line.memberId,
+              annual_amount_cents: line.annualAmountCents,
+              treatment: line.treatment,
+              basis: line.basis,
+              source: line.source,
+              document_id: line.documentId,
+              rail_id: line.railId,
             })),
           },
     categorical:
@@ -561,7 +667,7 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
       actor: entry.actor === null ? null : actorRecord(entry.actor),
       detail: entry.detail,
     })),
-    data_minimization: { rule_version: EVIDENCE_POLICY.dataMinimizationRuleVersion, ssn_patterns_removed: 0, extracted_fields_removed: 0 },
+    data_minimization: { rule_version: EVIDENCE_POLICY.dataMinimizationRuleVersion, ssn_patterns_removed: 0, extracted_fields_removed: 0, income_detail_omitted: detail.incomeDetailOmitted },
     versions: { engine: data.versions.engine, taxonomy: data.versions.taxonomy, rule_set: data.versions.ruleSet },
   };
 
@@ -570,6 +676,7 @@ export function buildEvidenceRecord(input: EvidenceInput): EvidenceRecord {
     rule_version: EVIDENCE_POLICY.dataMinimizationRuleVersion,
     ssn_patterns_removed: scrubbed.removed,
     extracted_fields_removed: extractedFieldsRemoved,
+    income_detail_omitted: detail.incomeDetailOmitted,
   };
   return scrubbed.record;
 }

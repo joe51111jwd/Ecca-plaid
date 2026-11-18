@@ -375,6 +375,8 @@ export const PDF_COPY = Object.freeze({
   noReviewEntries: "No separate review entries were recorded.",
   noTimeline: "No timeline events were recorded.",
   noIncomeItems: "No income items were recorded.",
+  noBasis: "No household income and no categorical documentation have been recorded yet.",
+  incomeOmitted: "Income documents were also on file. Their income detail is not part of this pack, because the decision rests on the categorical method.",
   purged: (date: string) => `Raw file deleted on ${date}; hash retained`,
   retained: "Raw file retained",
   governs: "This PDF is a rendering of the signed JSON record. If the two differ, the signed JSON record governs.",
