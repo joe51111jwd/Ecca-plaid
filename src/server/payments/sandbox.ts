@@ -129,6 +129,10 @@ export class SandboxProcessor implements PaymentProcessor {
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents < MIN_CHARGE_CENTS || input.amountCents > MAX_CHARGE_CENTS) {
       throw invalid("The amount is outside what can be charged");
     }
+    // Same rule as the Stripe adapter: a fee exists only on top of a positive designated amount.
+    if (!Number.isSafeInteger(input.designatedAmountCents) || !Number.isSafeInteger(input.serviceFeeOnTopCents) || input.designatedAmountCents <= 0 || input.serviceFeeOnTopCents < 0) {
+      throw invalid("Payment amounts must be whole cents");
+    }
     if (input.designatedAmountCents + input.serviceFeeOnTopCents !== input.amountCents) {
       throw new AppError("internal", "Sandbox processor: the designated amount and the service fee must add up to the amount charged");
     }

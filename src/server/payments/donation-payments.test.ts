@@ -8,7 +8,7 @@ import { listAuditLogs } from "@/server/audit";
 import { listJobs } from "@/server/jobs";
 import { setSetting } from "@/server/settings";
 import { useTestDb } from "../../../tests/helpers/db";
-import { cancelPayment, createDonationPayment, getPayment, getPaymentForClient, refundPayment, syncPaymentWithProcessor, type CreateDonationPaymentInput } from "./donation-payments";
+import { cancelPayment, cancelRow, createDonationPayment, getPayment, getPaymentForClient, refundPayment, syncPaymentWithProcessor, type CreateDonationPaymentInput } from "./donation-payments";
 import { applyProcessorEvent } from "./events";
 import { META } from "./metadata";
 import { setProcessorForTests } from "./processor";
@@ -436,6 +436,55 @@ describe("donation payments", () => {
       stripe.paymentIntents.retrieve.mockClear();
       expect(await getPaymentForClient(payment.id)).toMatchObject({ status: "succeeded", clientSecret: null });
       expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
+    });
+
+    it("cancels at Stripe a payment that was superseded while its creation was in flight", async () => {
+      // Regression: the superseded row was canceled locally, then its Stripe intent was attached and left
+      // open, and the caller got back a "created" payment that was already canceled.
+      const gated = createFakeStripeProcessor();
+      stripe = gated.stripe;
+      setProcessorForTests("stripe", gated.processor);
+      const create = gated.processor.createPayment.bind(gated.processor);
+      let entered!: () => void;
+      let release!: () => void;
+      const inFlight = new Promise<void>((resolve) => (entered = resolve));
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      vi.spyOn(gated.processor, "createPayment")
+        .mockImplementationOnce(async (args) => {
+          entered();
+          await gate;
+          return create(args);
+        })
+        .mockImplementation(create);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const first = createDonationPayment(input({ idempotencyKey: "attempt-a" }));
+      const firstOutcome = first.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      await inFlight;
+      const second = await createDonationPayment(input({ idempotencyKey: "attempt-b" }));
+      release();
+
+      expect(await firstOutcome).toMatchObject({ code: "conflict" });
+      const all = await rows();
+      const superseded = all.find((r) => r.id !== second.id);
+      expect(superseded).toMatchObject({ status: "canceled" });
+      expect(superseded?.processorPaymentId).toBeTruthy();
+      expect(stripe.paymentIntents.cancel).toHaveBeenCalledWith(superseded?.processorPaymentId, { cancellation_reason: "abandoned" }, { stripeAccount: ACCOUNT });
+      expect(stripe.intents.get(superseded?.processorPaymentId as string)?.status).toBe("canceled");
+      expect(all.find((r) => r.id === second.id)).toMatchObject({ status: "requires_payment" });
+    });
+
+    it("cancels at the processor a payment whose creation finished after it was read", async () => {
+      // Regression: a stale snapshot without a processor id made the cancel a local no-op, and the newer
+      // request was refused with "This checkout has already been paid." although nothing was paid.
+      const created = await createDonationPayment(input());
+      const stale = { ...(await rows())[0], processorPaymentId: null };
+      expect(await cancelRow(stale, "superseded")).toBe("canceled");
+      expect(stripe.paymentIntents.cancel).toHaveBeenCalledWith(created.processorPaymentId, { cancellation_reason: "abandoned" }, { stripeAccount: ACCOUNT });
+      expect((await getPayment(created.id)).status).toBe("canceled");
     });
 
     it("syncs a bank debit that failed after the processing webhook was recorded", async () => {

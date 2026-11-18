@@ -46,8 +46,6 @@ import {
 
 export const PLAID_API_VERSION = "2020-09-14";
 export const PLAID_BASE_URLS = { sandbox: "https://sandbox.plaid.com", production: "https://production.plaid.com" } as const;
-/** Plaid Link's web script (Plaid "Add Income to your app"). Loaded by the browser only when Plaid is the rail. */
-export const PLAID_LINK_SCRIPT_URL = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
 /** Policy: how long one Plaid API call may take before it counts as an outage (retried by the sync job). */
 export const PLAID_REQUEST_TIMEOUT_MS = 20_000;
 

@@ -285,6 +285,21 @@ describe("sandbox processor, end to end", () => {
       await expect(processor.createPayment({ ...input, metadata: {} })).rejects.toMatchObject({ code: "internal" });
     });
 
+    it("refuses the shapes that would express a fee taken out of the gift, as Stripe does", async () => {
+      // Regression: the sandbox only checked the sum, so designated 6000 + fee -1000 = 5000 was accepted.
+      const input = {
+        purpose: "donation" as const,
+        mode: "test" as const,
+        amountCents: 5_000,
+        description: "Synthetic",
+        idempotencyKey: "payment_pay_synthetic_create_v1",
+        metadata: { payment_id: "pay_synthetic" },
+      };
+      await expect(processor.createPayment({ ...input, designatedAmountCents: 6_000, serviceFeeOnTopCents: -1_000 })).rejects.toMatchObject({ code: "validation_failed" });
+      await expect(processor.createPayment({ ...input, designatedAmountCents: 0, serviceFeeOnTopCents: 5_000 })).rejects.toMatchObject({ code: "validation_failed" });
+      await expect(processor.createPayment({ ...input, designatedAmountCents: 4_999.5, serviceFeeOnTopCents: 0.5 })).rejects.toMatchObject({ code: "validation_failed" });
+    });
+
     it("reads its payments from the database and has no webhooks", async () => {
       const payment = await newPayment();
       expect(await processor.retrievePayment(payment.processorPaymentId as string)).toMatchObject({ status: "requires_payment", amountCents: 170_000, livemode: false });

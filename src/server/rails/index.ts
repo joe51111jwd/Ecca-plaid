@@ -68,5 +68,5 @@ export { RAIL_DECLINED_COPY, RAIL_FAILURE_COPY, RAIL_REVOKED_COPY, RAIL_STATUS_L
 export { RAIL_POLICY, SIMULATED_SLOW_READY_AFTER_MS } from "./policy";
 export { configuredRailProviderId, getRailProvider, RAIL_PROVIDER_INFO, railModeMismatch, railProviderForMode, setRailProviderForTests } from "./providers";
 export { SIMULATED_PERSONA_IDS, SIMULATED_PERSONAS, simulatedPersonasFor, simulatedRail, type SimulatedPersonaId } from "./simulated";
-export { createPlaidRail, PLAID_LINK_SCRIPT_URL, type PlaidConfig, type PlaidRail } from "./plaid";
+export { createPlaidRail, type PlaidConfig, type PlaidRail } from "./plaid";
 export { customerFileNumberFor, getTranscriptGuide, TRANSCRIPT_GUIDE_SOURCES, TRANSCRIPT_GUIDE_VERSION, type TranscriptGuide, type TranscriptGuideStep } from "./transcript";

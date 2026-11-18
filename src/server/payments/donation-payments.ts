@@ -392,6 +392,17 @@ export async function createDonationPayment(input: CreateDonationPaymentInput): 
       settlement: prepared.settlement,
     });
     row = await attachProcessorPayment(row.id, row.processor, fresh.processorPaymentId);
+    const processorPaymentId = fresh.processorPaymentId;
+    const superseded = row;
+    if (superseded.status === "canceled") {
+      // A newer payment for the checkout superseded this one while the processor call was in flight. The
+      // processor's payment must not stay open: nobody will get its client secret, but nothing should be
+      // left confirmable.
+      await processor
+        .cancelPayment(processorPaymentId, lookupFor(superseded))
+        .catch((e) => console.error(`[payments] could not cancel processor payment ${processorPaymentId} of superseded payment ${superseded.id}`, e));
+      throw conflict("This payment was replaced by a newer one for the same checkout.", { paymentId: superseded.id });
+    }
   }
   if (!row.processorPaymentId) throw conflict("This payment was canceled before it could be created. Start a new payment.", { paymentId: row.id });
 
@@ -490,12 +501,16 @@ async function cancelLocally(paymentId: string, reason: string): Promise<void> {
   });
 }
 
-/** Cancels an unpaid payment at the processor and here. Returns the status the payment ended up in. */
-async function cancelRow(row: PaymentRow, reason: string): Promise<PaymentStatus> {
+/** Cancels an unpaid payment at the processor and here. Returns the status the payment ended up in. Exported for tests. */
+export async function cancelRow(row: PaymentRow, reason: string): Promise<PaymentStatus> {
   if (!isPayable(row.status)) return row.status;
   if (!row.processorPaymentId) {
     await cancelLocally(row.id, reason);
-    return (await loadPayment(row.id)).status;
+    const current = await loadPayment(row.id);
+    // `row` was a snapshot: its creation at the processor may have finished since. Then it can only be
+    // canceled at the processor, and reporting it as "already paid" would be wrong.
+    if (isPayable(current.status) && current.processorPaymentId) return cancelRow(current, reason);
+    return current.status;
   }
   try {
     const canceled = await processorFor(row.processor).cancelPayment(row.processorPaymentId, lookupFor(row));
