@@ -37,16 +37,28 @@ function identityKey(d: Omit<DonorIdentity, "email"> | DonorRow): string {
   return [d.firstName, d.middleName, d.lastName, d.suffix, d.addressLine1, d.addressLine2, d.city, d.state, d.zip].map(norm).join("|");
 }
 
-/** The donor row for this person, created when none matches. Links the signed-in user when the row has none yet. */
-export async function findOrCreateDonor(identity: DonorIdentity, userId: string | null, tx: DbOrTx): Promise<DonorRow> {
+/** The signed-in person placing the order: their id and their verified sign-in email address. */
+export interface SignedInDonor {
+  userId: string;
+  email: string;
+}
+
+/**
+ * The donor row for this person, created when none matches. A new row is linked to the signed-in user who created
+ * it. An EXISTING row is linked only when the user's verified sign-in email is the row's email: a linked row's
+ * gifts, donor numbers and acknowledgments appear on that user's page, so typing someone else's email, name and
+ * address must never attach their records to your account.
+ */
+export async function findOrCreateDonor(identity: DonorIdentity, signedIn: SignedInDonor | null, tx: DbOrTx): Promise<DonorRow> {
   const email = identity.email.trim().toLowerCase();
   const key = identityKey(identity);
   const candidates = await tx.select().from(schema.donors).where(eq(schema.donors.email, email));
   const match = candidates.find((row) => identityKey(row) === key);
   const at = now();
+  const userId = signedIn?.userId ?? null;
   if (match) {
-    if (userId && !match.userId) {
-      const [updated] = await tx.update(schema.donors).set({ userId, updatedAt: at }).where(and(eq(schema.donors.id, match.id), isNull(schema.donors.userId))).returning();
+    if (signedIn && !match.userId && signedIn.email.trim().toLowerCase() === email) {
+      const [updated] = await tx.update(schema.donors).set({ userId: signedIn.userId, updatedAt: at }).where(and(eq(schema.donors.id, match.id), isNull(schema.donors.userId))).returning();
       return updated ?? match;
     }
     return match;

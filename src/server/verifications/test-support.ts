@@ -2,8 +2,12 @@
  * Test-only fixtures for the verifications module. Every organization, person, email, address and document here
  * is SYNTHETIC.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db/client";
+import type { MemberRole } from "@/db/schema";
+import { generateSyntheticDocument } from "@/engine/documents/synthetic";
 import { setTestNow } from "@/lib/clock";
 import { newId } from "@/lib/ids";
 import { addMember, getOrCreateHouseholdForUser, upsertOwnerMember } from "@/server/households";
@@ -11,7 +15,7 @@ import { runDueJobs } from "@/server/jobs";
 import { createSgo, systemActor } from "@/server/sgos";
 import { createVerification, type CreateVerificationInput } from "./create";
 import { completeHousehold, recordSharingConsent, startVerification } from "./family";
-import type { FamilyActor } from "./internal";
+import type { FamilyActor, OrgActor } from "./internal";
 
 export const TEST_NOW = "2026-11-18T16:00:00.000Z";
 
@@ -129,4 +133,85 @@ export async function errorOf(p: Promise<unknown> | (() => unknown)): Promise<{ 
     if (typeof err.code === "string") return { code: err.code, details: err.details, message: err.message };
     throw e;
   }
+}
+
+/** A signed-in staff member of the SGO with the given role, as the dashboard would pass it. */
+export async function makeStaff(orgId: string, role: MemberRole, email: string, mode: "test" | "live" = "test"): Promise<OrgActor & { type: "user" }> {
+  const user = await userByEmail(email);
+  const db = await getDb();
+  await db.insert(schema.memberships).values({ id: newId("membership"), orgId, userId: user.id, role });
+  return { type: "user", id: user.id, mode, request: { ip: "198.51.100.9", userAgent: "vitest-staff" } };
+}
+
+/** The reviewer makeTestSgo created, as an OrgActor. */
+export async function reviewerOf(sgo: TestSgo, mode: "test" | "live" = "test"): Promise<OrgActor & { type: "user" }> {
+  const user = await userByEmail(sgo.reviewerEmail);
+  return { type: "user", id: user.id, mode, request: { ip: "198.51.100.10", userAgent: "vitest-reviewer" } };
+}
+
+/** SYNTHETIC: a Form W-2 for a synthetic person (default the owner "Dana Sample"). */
+export async function syntheticW2(opts: { box1Cents?: number; taxYear?: number; first?: string; last?: string; control?: string } = {}): Promise<Uint8Array> {
+  const box1Cents = opts.box1Cents ?? 4_125_000;
+  return generateSyntheticDocument("w2", {
+    statements: [
+      {
+        taxYear: opts.taxYear ?? 2025,
+        copy: "B",
+        employeeSsn: "000-00-0001",
+        employerEin: "00-0000001",
+        employerName: "FIXTURE FOODS LLC",
+        employerAddress: { street: "500 SAMPLE PARKWAY", cityStateZip: "HOUSTON TX 77002" },
+        controlNumber: opts.control ?? "SYN-W2-0001",
+        employeeFirst: opts.first ?? "DANA",
+        employeeLast: opts.last ?? "SAMPLE",
+        box1Cents,
+        box2Cents: 210_000,
+        box3Cents: Math.min(box1Cents, 17_610_000),
+        box4Cents: Math.round(Math.min(box1Cents, 17_610_000) * 0.062),
+        box5Cents: box1Cents,
+        box6Cents: Math.round(box1Cents * 0.0145),
+      },
+    ],
+  });
+}
+
+/** SYNTHETIC: a Texas HHSC SNAP approval notice naming the synthetic owner (its layout is unverified, so it goes to review). */
+export async function syntheticSnapLetter(noticeDate = "2026-10-20"): Promise<Uint8Array> {
+  return generateSyntheticDocument("tf0001", {
+    noticeDate,
+    caseNumber: "9990000001",
+    addressee: "DANA SAMPLE",
+    sections: [{ heading: "SNAP Food Benefits", tables: [{ status: "gets", subject: "SNAP food benefits", rows: [{ name: "DANA SAMPLE", edg: "990000011", program: "SNAP", start: noticeDate, end: "2027-03-31" }] }] }],
+  });
+}
+
+/** A file from tests/fixtures/synthetic (every one is SYNTHETIC and labeled so). */
+export function syntheticFixture(file: string): Uint8Array {
+  return new Uint8Array(readFileSync(join(process.cwd(), "tests", "fixtures", "synthetic", file)));
+}
+
+/** Every job type of this module and its services, minus the one another module handles. */
+export async function deadJobs() {
+  const db = await getDb();
+  return (await db.select().from(schema.jobs).where(eq(schema.jobs.status, "dead"))).filter((j) => j.type !== "handoff.verification_updated");
+}
+
+/**
+ * Audit metadata and timeline data must never carry extracted values, amounts or names. Returns the offending
+ * rows (empty when clean). `needles` are the synthetic values used in the test.
+ */
+export async function leakedValues(needles: readonly string[]): Promise<string[]> {
+  const db = await getDb();
+  const audits = await db.select({ action: schema.auditLogs.action, metadata: schema.auditLogs.metadata }).from(schema.auditLogs);
+  const events = await db.select({ type: schema.verificationEvents.type, data: schema.verificationEvents.data }).from(schema.verificationEvents);
+  const out: string[] = [];
+  for (const a of audits) {
+    const text = JSON.stringify(a.metadata ?? {});
+    for (const n of needles) if (text.toLowerCase().includes(n.toLowerCase())) out.push(`audit ${a.action}: ${n}`);
+  }
+  for (const e of events) {
+    const text = JSON.stringify(e.data ?? {});
+    for (const n of needles) if (text.toLowerCase().includes(n.toLowerCase())) out.push(`event ${e.type}: ${n}`);
+  }
+  return out;
 }

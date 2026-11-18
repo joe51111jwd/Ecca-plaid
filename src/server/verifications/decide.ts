@@ -32,12 +32,13 @@ import { enqueue } from "@/server/jobs";
 import { getRailSummaryForDecision, type RailDecisionSummary } from "@/server/rails";
 import { getSgoPolicy } from "@/server/sgos";
 import { activeCertificationRows } from "./certifications";
-import { familyDecisionEmailFrame, reviewerEmailCopy } from "./copy";
+import { familyDecisionEmailFrame } from "./copy";
 import { readStoredExtraction } from "./documents";
 import { mapDocument, toHouseholdMembers, type MappedDocument, type RosterMember } from "./evidence-mapping";
 import { loadVerificationRow, recordVerificationEvent, type DocumentRow, type VerificationRow } from "./internal";
 import { queueAndSend } from "./mail";
-import { DECIDE_WAIT, FAMILY_VERIFICATION_PATH, REVIEWER_ROLES, SGO_VERIFICATION_PATH } from "./policy";
+import { notifySgo } from "./notifications";
+import { DECIDE_WAIT, FAMILY_VERIFICATION_PATH } from "./policy";
 import { toApiVerification } from "./serialize";
 import { decideDedupeKey, VERIFICATION_DECIDE_JOB } from "./submit";
 
@@ -150,7 +151,7 @@ function outcomeOf(decision: Decision): { status: VerificationStatus; stage: Ver
   }
 }
 
-async function householdOwnerContact(db: DbOrTx, householdId: string): Promise<{ email: string; locale: "en" | "es" } | null> {
+export async function householdOwnerContact(db: DbOrTx, householdId: string): Promise<{ email: string; locale: "en" | "es" } | null> {
   const [row] = await db
     .select({ email: schema.users.email, locale: schema.households.locale })
     .from(schema.households)
@@ -173,31 +174,82 @@ export async function emailFamily(db: DbOrTx, v: VerificationRow, decision: Deci
   await queueAndSend({ to: contact.email, subject: frame.subject, template: kind === "outcome" ? "verification_outcome" : "verification_more_information", html: rendered.html, text: rendered.text, related: { type: "verification", id: v.id } }, db);
 }
 
-async function emailReviewers(db: DbOrTx, v: VerificationRow, reasonCount: number): Promise<number> {
-  const rows = await db
-    .select({ email: schema.users.email })
-    .from(schema.memberships)
-    .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
-    .where(and(eq(schema.memberships.orgId, v.orgId), inArray(schema.memberships.role, [...REVIEWER_ROLES])))
-    .orderBy(asc(schema.users.email));
-  const copy = reviewerEmailCopy({ verificationId: v.id, externalRef: v.externalRef, reasonCount, mode: v.mode });
-  const rendered = renderEmail({ heading: copy.heading, paragraphs: copy.paragraphs, cta: { label: copy.cta, url: appUrl(SGO_VERIFICATION_PATH(v.id)) } });
-  for (const r of rows) {
-    await queueAndSend({ to: r.email, subject: copy.subject, template: "verification_needs_review", html: rendered.html, text: rendered.text, related: { type: "verification", id: v.id } }, db);
-  }
-  return rows.length;
-}
+/** Timeline event of a re-evaluation asked for by a reviewer (rerunDecision). */
+export const RERUN_REQUESTED_EVENT = "review.rerun_requested";
 
-async function openOrUpdateReviewTask(db: DbOrTx, v: VerificationRow, reasons: Array<{ code: string; message: string }>): Promise<string> {
+/** Who caused this decision run: the family (a submission or a finished extraction) or a reviewer's re-run. */
+export type DecideTrigger = "family" | "reviewer";
+
+/**
+ * Opens the review task, or updates the open one (a verification never has two). Returns whether the SGO should
+ * be told again: always for a new task, and for an existing one unless a reviewer's own re-evaluation sent it
+ * back to review (that reviewer is already on it). A family resubmission is announced again.
+ */
+async function openOrUpdateReviewTask(db: DbOrTx, v: VerificationRow, reasons: Array<{ code: string; message: string }>, trigger: DecideTrigger): Promise<{ taskId: string; created: boolean; announce: boolean }> {
   const rt = schema.reviewTasks;
   const [open] = await db.select().from(rt).where(and(eq(rt.verificationId, v.id), eq(rt.status, "open"))).limit(1);
   if (open) {
-    await db.update(rt).set({ reasons }).where(eq(rt.id, open.id));
-    return open.id;
+    await db.update(rt).set({ reasons, moreInfoRequestedAt: null }).where(eq(rt.id, open.id));
+    return { taskId: open.id, created: false, announce: trigger !== "reviewer" };
   }
   const id = newId("reviewTask");
   await db.insert(rt).values({ id, verificationId: v.id, orgId: v.orgId, status: "open", reasons, createdAt: now() });
-  return id;
+  return { taskId: id, created: true, announce: true };
+}
+
+/** Closes the open review task once the verification is decided (by the engine after a re-evaluation, or canceled). */
+export async function closeOpenReviewTask(
+  db: DbOrTx,
+  verificationId: string,
+  close: { resolution: "eligible" | "ineligible" | "canceled"; notes: string | null; resolvedBy: string | null },
+): Promise<string | null> {
+  const rt = schema.reviewTasks;
+  const [task] = await db
+    .update(rt)
+    .set({ status: "resolved", resolution: close.resolution, resolutionNotes: close.notes, resolvedBy: close.resolvedBy, resolvedAt: now(), moreInfoRequestedAt: null })
+    .where(and(eq(rt.verificationId, verificationId), eq(rt.status, "open")))
+    .returning({ id: rt.id });
+  return task?.id ?? null;
+}
+
+/** The columns of `verifications` that mirror a decision (status and stage are the caller's). */
+export function decisionColumns(v: VerificationRow, decision: Decision, county: { fips: string | null; name: string | null; hudAreaCode: string | null; hudAreaName: string | null } | null) {
+  const threshold = decision.threshold;
+  return {
+    method: decision.method,
+    incomeYear: decision.incomeYear,
+    householdSize: decision.householdSize,
+    countyFips: county?.fips ?? v.countyFips,
+    countyName: threshold?.county.name ?? county?.name ?? v.countyName,
+    hudAreaCode: threshold?.area.code ?? county?.hudAreaCode ?? v.hudAreaCode,
+    areaName: threshold?.area.name ?? county?.hudAreaName ?? v.areaName,
+    medianIncomeCents: threshold?.medianIncomeCents ?? null,
+    thresholdCents: threshold ? (threshold.reliedOnLimitCents ?? threshold.thresholdCents) : null,
+    thresholdSource: decision.thresholdTable.source,
+    thresholdTableVersion: decision.thresholdTable.tableVersion,
+    thresholdEffectiveDate: decision.thresholdTable.effectiveDate,
+    incomeCapPct: decision.sgoPolicy.capPct,
+    householdIncomeCents: decision.householdIncomeCents,
+    awardProgram: decision.awardProgram,
+    awardLetterDate: decision.awardLetterDate,
+    provisional: decision.provisional,
+    decision: decision as unknown as Record<string, unknown>,
+    decisionReasons: uniqueReasons(decision),
+  };
+}
+
+/**
+ * Follow-up work of a final decision, in the decision's transaction: the raw-upload purge date from the SGO's
+ * retention window (only for files this verification owns: a document carried over by a passport reuse shares
+ * the earlier verification's file, whose own retention governs it) and the evidence job.
+ */
+export async function scheduleDecidedFollowUps(db: DbOrTx, v: VerificationRow, decidedAt: Date): Promise<void> {
+  const policy = await getSgoPolicy(v.orgId, db);
+  await db
+    .update(schema.documents)
+    .set({ purgeAfter: addMs(decidedAt, policy.rawRetentionDays * MS.day) })
+    .where(and(eq(schema.documents.verificationId, v.id), isNull(schema.documents.removedAt), isNull(schema.documents.sourceDocumentId), isNull(schema.documents.purgedAt)));
+  await enqueue(EVIDENCE_GENERATE_JOB, { verificationId: v.id }, { dedupeKey: `${EVIDENCE_GENERATE_JOB}:${v.id}` }, db);
 }
 
 /* ---------------------------------------------------------------------------------------------- job */
@@ -208,9 +260,10 @@ async function openOrUpdateReviewTask(db: DbOrTx, v: VerificationRow, reasons: A
  * connection is still syncing it waits (DECIDE_WAIT) and re-queues itself; after the last wait it decides with
  * what is on file (anything unread goes to a person).
  */
-export async function decideVerificationJob(verificationId: string, opts: { wait?: number } = {}): Promise<void> {
+export async function decideVerificationJob(verificationId: string, opts: { wait?: number; trigger?: DecideTrigger } = {}): Promise<void> {
   const db = await getDb();
   const wait = opts.wait ?? 0;
+  const trigger = opts.trigger ?? "family";
   await db.transaction(async (tx) => {
     const v = await loadVerificationRow(tx, verificationId, { forUpdate: true });
     if (!v || v.status !== "pending" || !DECIDABLE_STAGES.has(v.stage) || !v.householdId) return;
@@ -225,7 +278,7 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
     if ((reading.length > 0 || rails.pending) && wait < DECIDE_WAIT.maxWaits) {
       if (v.stage !== "processing") await tx.update(schema.verifications).set({ stage: "processing", updatedAt: now() }).where(eq(schema.verifications.id, v.id));
       if (wait === 0) await recordVerificationEvent(tx, v.id, "decision.waiting", { type: "system", id: null }, { documentsBeingRead: reading.length, railsSyncing: rails.pending });
-      await enqueue(VERIFICATION_DECIDE_JOB, { verificationId: v.id, wait: wait + 1 }, { dedupeKey: `${decideDedupeKey(v.id)}:wait:${wait + 1}`, runAt: addMs(now(), DECIDE_WAIT.delayMs) }, tx);
+      await enqueue(VERIFICATION_DECIDE_JOB, { verificationId: v.id, wait: wait + 1, ...(trigger === "reviewer" ? { trigger } : {}) }, { dedupeKey: `${decideDedupeKey(v.id)}:wait:${wait + 1}`, runAt: addMs(now(), DECIDE_WAIT.delayMs) }, tx);
       return;
     }
 
@@ -235,7 +288,6 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
     const decision = decide(input);
     const { status, stage } = outcomeOf(decision);
     const reasons = uniqueReasons(decision);
-    const threshold = decision.threshold;
     const at = now();
     const decided = status === "eligible" || status === "ineligible";
 
@@ -243,30 +295,13 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
       await recordVerificationEvent(tx, v.id, "household.changed_since_completed", { type: "system", id: null }, { householdSize: snapshot.size, countyFips: snapshot.county?.fips ?? null });
     }
 
+    const county = snapshot.county ? { fips: snapshot.county.fips, name: snapshot.county.name, hudAreaCode: snapshot.county.hudArea?.code ?? null, hudAreaName: snapshot.county.hudArea?.name ?? null } : null;
     const [updated] = await tx
       .update(schema.verifications)
       .set({
         status,
         stage,
-        method: decision.method,
-        incomeYear: decision.incomeYear,
-        householdSize: decision.householdSize,
-        countyFips: snapshot.county?.fips ?? v.countyFips,
-        countyName: threshold?.county.name ?? snapshot.county?.name ?? v.countyName,
-        hudAreaCode: threshold?.area.code ?? snapshot.county?.hudArea?.code ?? v.hudAreaCode,
-        areaName: threshold?.area.name ?? snapshot.county?.hudArea?.name ?? v.areaName,
-        medianIncomeCents: threshold?.medianIncomeCents ?? null,
-        thresholdCents: threshold ? (threshold.reliedOnLimitCents ?? threshold.thresholdCents) : null,
-        thresholdSource: decision.thresholdTable.source,
-        thresholdTableVersion: decision.thresholdTable.tableVersion,
-        thresholdEffectiveDate: decision.thresholdTable.effectiveDate,
-        incomeCapPct: decision.sgoPolicy.capPct,
-        householdIncomeCents: decision.householdIncomeCents,
-        awardProgram: decision.awardProgram,
-        awardLetterDate: decision.awardLetterDate,
-        provisional: decision.provisional,
-        decision: decision as unknown as Record<string, unknown>,
-        decisionReasons: reasons,
+        ...decisionColumns(v, decision, county),
         decidedAt: decided ? at : null,
         decidedBy: decided ? "engine" : null,
         expiresAt: decided && decision.validUntil ? endOfCentralDay(decision.validUntil) : null,
@@ -275,27 +310,7 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
       .where(eq(schema.verifications.id, v.id))
       .returning();
 
-    await tx.delete(schema.incomeItems).where(and(eq(schema.incomeItems.verificationId, v.id), eq(schema.incomeItems.source, "document")));
-    if (documentItems.length > 0) {
-      await tx.insert(schema.incomeItems).values(
-        documentItems.map((item) => ({
-          id: newId("incomeItem"),
-          verificationId: v.id,
-          memberId: item.memberId,
-          source: "document" as const,
-          category: item.category,
-          description: item.description ?? null,
-          incomeYear: item.incomeYear,
-          annualAmountCents: item.annualAmountCents,
-          counted: getIncomeCategory(item.category)?.treatment !== "excluded",
-          basis: (item.description ?? "Read from an uploaded document").slice(0, 500),
-          documentId: item.documentId ?? null,
-          railConnectionId: null,
-          createdBy: "engine",
-          createdAt: at,
-        })),
-      );
-    }
+    await replaceDocumentIncomeItems(tx, v.id, documentItems, at);
 
     await recordVerificationEvent(tx, v.id, "decision.made", { type: "system", id: null }, {
       status,
@@ -317,21 +332,48 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
     );
 
     if (decided) {
-      const policy = await getSgoPolicy(v.orgId, tx);
-      await tx
-        .update(schema.documents)
-        .set({ purgeAfter: addMs(at, policy.rawRetentionDays * MS.day) })
-        .where(and(eq(schema.documents.verificationId, v.id), isNull(schema.documents.removedAt)));
-      await enqueue(EVIDENCE_GENERATE_JOB, { verificationId: v.id }, { dedupeKey: `${EVIDENCE_GENERATE_JOB}:${v.id}` }, tx);
+      const closed = await closeOpenReviewTask(tx, v.id, { resolution: status, notes: "Decided by the engine after re-evaluation with the information on file.", resolvedBy: null });
+      if (closed) await recordVerificationEvent(tx, v.id, "review.closed", { type: "system", id: null }, { reviewTaskId: closed, resolution: status });
+      await scheduleDecidedFollowUps(tx, updated, at);
     } else if (status === "needs_review") {
-      const taskId = await openOrUpdateReviewTask(tx, updated, reasons);
-      await emitEvent({ orgId: v.orgId, type: "verification.needs_review", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: v.mode }, tx);
-      const notified = await emailReviewers(tx, updated, decision.reviewReasons.length);
-      await recordVerificationEvent(tx, v.id, "review.requested", { type: "system", id: null }, { reviewTaskId: taskId, reviewersNotified: notified });
+      const task = await openOrUpdateReviewTask(tx, updated, reasons, trigger);
+      let notified = 0;
+      if (task.announce) {
+        await emitEvent({ orgId: v.orgId, type: "verification.needs_review", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: v.mode }, tx);
+        notified = await notifySgo(tx, updated, "needs_review", { reasonCount: decision.reviewReasons.length });
+      }
+      await recordVerificationEvent(tx, v.id, task.created ? "review.requested" : "review.updated", { type: "system", id: null }, { reviewTaskId: task.taskId, reviewersNotified: notified });
     } else {
       await emailFamily(tx, updated, decision, "more_information");
     }
   });
+}
+
+/**
+ * Document-sourced income lines are derived: each decision replaces them with the reconciled lines it used.
+ * Lines from data connections belong to the rails service; reviewer and self-reported lines are never touched.
+ */
+export async function replaceDocumentIncomeItems(db: DbOrTx, verificationId: string, documentItems: IncomeItemInput[], at: Date): Promise<void> {
+  await db.delete(schema.incomeItems).where(and(eq(schema.incomeItems.verificationId, verificationId), eq(schema.incomeItems.source, "document")));
+  if (documentItems.length === 0) return;
+  await db.insert(schema.incomeItems).values(
+    documentItems.map((item) => ({
+      id: newId("incomeItem"),
+      verificationId,
+      memberId: item.memberId,
+      source: "document" as const,
+      category: item.category,
+      description: item.description ?? null,
+      incomeYear: item.incomeYear,
+      annualAmountCents: item.annualAmountCents,
+      counted: getIncomeCategory(item.category)?.treatment !== "excluded",
+      basis: (item.description ?? "Read from an uploaded document").slice(0, 500),
+      documentId: item.documentId ?? null,
+      railConnectionId: null,
+      createdBy: "engine",
+      createdAt: at,
+    })),
+  );
 }
 
 /** Thrown when a stored decision is needed and missing; a programming error, never a family-facing state. */

@@ -13,6 +13,7 @@ import { audit } from "@/server/audit";
 import { emitEvent } from "@/server/events";
 import { getSgoPolicy } from "@/server/sgos";
 import { getObjectBytes, getObjectMeta } from "@/server/storage";
+import { closeOpenReviewTask } from "./decide";
 import { loadOrgVerification, orgAuditActor, recordVerificationEvent, type OrgActor, type VerificationRow } from "./internal";
 import { CLOSED_STATUSES } from "./policy";
 import { toApiVerification } from "./serialize";
@@ -100,7 +101,8 @@ export async function getVerification(orgId: string, id: string, opts: { mode: M
 
 /**
  * Cancels a verification that is not decided yet: the family link stops working, open review tasks close, its
- * uploads get a purge date from the SGO's retention window and `verification.canceled` is emitted. A decided, expired or already canceled verification is a conflict
+ * uploads get a purge date from the SGO's retention window and `verification.canceled` is emitted. A decided,
+ * expired or already canceled verification is a conflict
  * (canceling twice is reported, not repeated). Uses `actor.mode` as the mode scope.
  */
 export async function cancelVerification(orgId: string, id: string, actor: OrgActor, dbOrTx?: DbOrTx): Promise<VerificationRow> {
@@ -111,16 +113,15 @@ export async function cancelVerification(orgId: string, id: string, actor: OrgAc
     if (row.status === "eligible" || row.status === "ineligible") throw conflict("A decided verification cannot be canceled.", { reason: "verification_decided" });
     const at = now();
     const [updated] = await tx.update(schema.verifications).set({ status: "canceled", canceledAt: at, updatedAt: at }).where(eq(schema.verifications.id, row.id)).returning();
-    await tx
-      .update(schema.reviewTasks)
-      .set({ status: "resolved", resolution: "canceled", resolvedAt: at })
-      .where(and(eq(schema.reviewTasks.verificationId, row.id), eq(schema.reviewTasks.status, "open")));
+    // Who canceled is in the timeline and the audit log (an API key is not a user, so resolved_by stays empty).
+    await closeOpenReviewTask(tx, row.id, { resolution: "canceled", notes: null, resolvedBy: null });
     // Uploads of a canceled verification follow the same retention window as decided ones (no state without a rule).
+    // Documents carried over by a passport reuse share the earlier verification's file and are not purged from here.
     const policy = await getSgoPolicy(orgId, tx);
     await tx
       .update(schema.documents)
       .set({ purgeAfter: addMs(at, policy.rawRetentionDays * MS.day) })
-      .where(and(eq(schema.documents.verificationId, row.id), isNull(schema.documents.purgeAfter), isNull(schema.documents.purgedAt)));
+      .where(and(eq(schema.documents.verificationId, row.id), isNull(schema.documents.purgeAfter), isNull(schema.documents.purgedAt), isNull(schema.documents.sourceDocumentId)));
     await recordVerificationEvent(tx, row.id, "canceled", { type: actor.type, id: actor.id }, { previousStatus: row.status, previousStage: row.stage });
     await emitEvent({ orgId, type: "verification.canceled", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: row.mode }, tx);
     await audit({ actor: orgAuditActor(actor), orgId, action: "verification.cancel", target: { type: "verification", id: row.id }, metadata: { previousStatus: row.status }, request: actor.request }, tx);

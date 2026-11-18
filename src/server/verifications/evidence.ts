@@ -18,6 +18,7 @@ import {
   type EvidenceInput,
   type EvidenceMemberRole,
   type EvidenceRailInput,
+  type EvidenceReviewEntryInput,
   type EvidenceTimelineEntryInput,
 } from "@/engine/evidence";
 import { incomeCategoryLabel, INCOME_TAXONOMY_VERSION, type IncomeLine } from "@/engine/income";
@@ -35,6 +36,7 @@ import { activeCertificationRows } from "./certifications";
 import { readStoredExtraction } from "./documents";
 import { emailFamily, requireDecision } from "./decide";
 import { loadVerificationRow, recordVerificationEvent, type VerificationRow } from "./internal";
+import { notifySgo } from "./notifications";
 import { DECIDED_STATUSES } from "./policy";
 import { toApiVerification } from "./serialize";
 
@@ -83,6 +85,25 @@ async function consentInput(db: DbOrTx, consentId: string, grantedBy: string): P
   const [c] = await db.select().from(schema.consents).where(eq(schema.consents.id, consentId)).limit(1);
   if (!c) throw new AppError("internal", `Consent ${consentId} is missing`);
   return { id: c.id, kind: c.kind, copyVersion: c.copyVersion, copySha256: c.copySha256, locale: c.locale, grantedAt: c.grantedAt, grantedBy, scope: c.scope };
+}
+
+/** Timeline events that are review actions, with the words the review trail uses for them. */
+const REVIEW_ACTIONS: Readonly<Record<string, (data: Record<string, unknown>) => string>> = {
+  "review.assigned": () => "Assigned the review",
+  "review.unassigned": () => "Unassigned the review",
+  "document.reviewer_keyed": (d) => `Keyed or corrected the fields of document ${String(d.documentId ?? "")}`.trim(),
+  "income.reviewer_added": (d) => `Added an income line (${humanize(String(d.category ?? "income")).toLowerCase()})`,
+  "income.reviewer_removed": (d) => `Removed an income line (${humanize(String(d.category ?? "income")).toLowerCase()})`,
+  "review.rerun_requested": () => "Asked the engine to decide again with the information on file",
+  "review.more_info_requested": () => "Asked the family for more information",
+  "review.resolved": (d) => `Resolved the verification as ${String(d.resolution ?? "decided")}`,
+};
+
+async function staffNames(db: DbOrTx, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, unique));
+  return new Map(rows.map((r) => [r.id, r.name?.trim() || r.email]));
 }
 
 /** Everything the evidence engine needs about a decided verification. Reads only. */
@@ -146,7 +167,23 @@ export async function assembleEvidenceInput(db: DbOrTx, v: VerificationRow, gene
   }
 
   const events = await db.select().from(schema.verificationEvents).where(eq(schema.verificationEvents.verificationId, v.id)).orderBy(asc(schema.verificationEvents.createdAt), asc(schema.verificationEvents.id));
-  const timeline: EvidenceTimelineEntryInput[] = events.map((e) => ({ at: e.createdAt, event: humanize(e.type), actor: { type: e.actorType === "system" && e.type === "decision.made" ? "engine" : e.actorType, id: e.actorType === "family" ? null : e.actorId } }));
+  const tasks = await db.select().from(schema.reviewTasks).where(eq(schema.reviewTasks.verificationId, v.id));
+  const reviewerId = v.decidedBy && v.decidedBy !== "engine" ? v.decidedBy : null;
+  const names = await staffNames(db, [...events.filter((e) => e.actorType === "user" && e.actorId).map((e) => e.actorId!), ...(reviewerId ? [reviewerId] : [])]);
+  const staffActor = (id: string | null) => ({ type: "reviewer" as const, id, name: id ? (names.get(id) ?? null) : null });
+
+  const timeline: EvidenceTimelineEntryInput[] = events.map((e) => ({
+    at: e.createdAt,
+    event: humanize(e.type),
+    actor: e.actorType === "user" ? staffActor(e.actorId) : { type: e.actorType === "system" && e.type === "decision.made" ? "engine" : e.actorType, id: e.actorType === "family" ? null : e.actorId },
+    detail: e.type === "passport.reused" && v.passportSourceId ? `Reuses verification ${v.passportSourceId}${v.passportSourceRecordSha256 ? ` (evidence record SHA-256 ${v.passportSourceRecordSha256})` : ""} with a new consent.` : null,
+  }));
+  const reviewTrail: EvidenceReviewEntryInput[] = events
+    .filter((e) => e.actorType === "user" && REVIEW_ACTIONS[e.type])
+    .map((e) => {
+      const task = e.type === "review.resolved" ? tasks.find((t) => t.id === e.data.reviewTaskId) : undefined;
+      return { at: e.createdAt, actor: staffActor(e.actorId), action: REVIEW_ACTIONS[e.type]!(e.data), notes: task?.resolutionNotes ?? null };
+    });
 
   const t = decision.threshold;
   const table = getTable(t.tableVersion);
@@ -165,7 +202,10 @@ export async function assembleEvidenceInput(db: DbOrTx, v: VerificationRow, gene
       method: decision.method,
       reasons: decision.reasons.map((r) => ({ code: r.code, message: r.message, memberIds: r.memberIds, sourceIds: r.sourceIds })),
       decidedAt: v.decidedAt ?? generatedAt,
-      decidedBy: { type: "engine" },
+      decidedBy:
+        reviewerId && decision.decidedBy.type === "reviewer"
+          ? { type: "reviewer", reviewerId, reviewerName: names.get(reviewerId) ?? reviewerId, notes: decision.decidedBy.notes }
+          : { type: "engine" },
       applicationDate: decision.applicationDate,
       incomeYear: decision.incomeYear,
       expiresAt: v.expiresAt,
@@ -210,7 +250,7 @@ export async function assembleEvidenceInput(db: DbOrTx, v: VerificationRow, gene
     rails,
     consent: await consentInput(db, v.consentId, owner ? `${owner.firstName} ${owner.lastName}` : nameOf(null)),
     additionalConsents,
-    reviewTrail: [],
+    reviewTrail,
     timeline,
     generatedAt,
     versions: { engine: decision.engineVersion, taxonomy: income?.taxonomyVersion ?? INCOME_TAXONOMY_VERSION, ruleSet: decision.ruleSet.id },
@@ -245,6 +285,7 @@ export async function generateEvidenceJob(verificationId: string): Promise<void>
     await audit({ actor: SYSTEM_ACTOR, orgId: v.orgId, action: "evidence.generate", target: { type: "verification", id: v.id }, metadata: { pdfObjectId: pdfObject.id, jsonObjectId: jsonObject.id, recordSha256: signed.signature.record_sha256 } }, tx);
     await emitEvent({ orgId: v.orgId, type: "verification.decided", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: v.mode }, tx);
     await emailFamily(tx, updated, requireDecision(updated), "outcome");
+    await notifySgo(tx, updated, "decided");
     if (updated.handoffId) {
       await enqueue(HANDOFF_VERIFICATION_UPDATED_JOB, { handoffId: updated.handoffId, verificationId: v.id }, { dedupeKey: `${HANDOFF_VERIFICATION_UPDATED_JOB}:${v.id}:${updated.decidedAt?.toISOString() ?? "decided"}` }, tx);
     }

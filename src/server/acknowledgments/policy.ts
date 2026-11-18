@@ -82,3 +82,17 @@ export const ANNUAL_JOB_MODES = ["live", "test"] as const;
 
 /** Rows per page of the IRS report history. */
 export const REPORT_HISTORY_LIMIT = 100;
+
+/** Donor ids per query when the worklist reads numbers, versions and consents (keeps statements well under the bind-parameter limit). */
+export const WORKLIST_ID_CHUNK = 1000;
+
+/** Dashboard path linked from SGO reminder emails (the page itself belongs to the SGO dashboard). */
+export const SGO_DASHBOARD_PATH = "/sgo";
+
+/**
+ * Columns of the IRS contribution report file. The IRS layout is NOT IN SOURCES (F35): these are internal names for
+ * exactly the fields the regulation lists per unique donor number (F33: name, address, aggregate qualified
+ * contributions), with the address split into its parts for manual entry. They are deliberately not named as if
+ * IRS-defined, and the SGO's EIN, name and calendar year travel in the report record and the file name.
+ */
+export const IRS_REPORT_COLUMNS = ["unique_donor_number", "donor_name", "address_line1", "address_line2", "city", "state", "zip", "aggregate_qualified_contributions"] as const;

@@ -37,6 +37,8 @@ export interface FamilyDocumentView {
   status: DocumentStatus;
   /** Codes only (the messages are written for SGO reviewers). */
   reviewReasonCodes: string[];
+  /** Carried over from an earlier verification by a passport reuse (the file itself is not shared again). */
+  carriedOver: boolean;
   createdAt: Date;
 }
 
@@ -52,6 +54,7 @@ export function toFamilyDocumentView(row: DocumentRow): FamilyDocumentView {
     size: row.size,
     status: row.status,
     reviewReasonCodes: row.reviewReasons.map((r) => r.code),
+    carriedOver: row.sourceDocumentId !== null,
     createdAt: row.createdAt,
   };
 }
@@ -200,6 +203,9 @@ export async function removeDocument(documentId: string, actor: FamilyActor, dbO
     await tx.delete(schema.incomeItems).where(eq(schema.incomeItems.documentId, doc.id));
     await recordVerificationEvent(tx, doc.verificationId, "document.removed", { type: "family", id: actor.userId }, { documentId: doc.id, sha256: doc.sha256 });
     await audit({ actor: familyAuditActor(actor), orgId: access.verification.orgId, action: "document.remove", target: { type: "document", id: doc.id }, metadata: { verificationId: doc.verificationId }, request: actor.request }, tx);
+    // A document carried over by a passport reuse shares the earlier verification's file: taking it back here
+    // stops it counting, but the file is governed by the earlier verification's retention.
+    if (doc.sourceDocumentId) return { row, purge: false };
     await enqueue("storage.purge_object", { objectId: doc.objectId, reason: "family_removed" }, { dedupeKey: `purge:${doc.objectId}` }, tx);
     return { row, purge: true };
   });

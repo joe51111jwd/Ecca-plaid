@@ -53,10 +53,17 @@ export async function submit(verificationId: string, actor: FamilyActor, dbOrTx?
     const applicationDate = v.applicationDate ?? centralDateString(at);
     const [updated] = await tx
       .update(schema.verifications)
-      .set({ stage: "submitted", applicationDate, incomeYear: Number(applicationDate.slice(0, 4)) - 1, submittedAt: at, updatedAt: at })
+      .set({ stage: "submitted", applicationDate, incomeYear: Number(applicationDate.slice(0, 4)) - 1, submittedAt: at, familyRequest: null, updatedAt: at })
       .where(eq(schema.verifications.id, v.id))
       .returning();
-    await recordVerificationEvent(tx, v.id, "submitted", { type: "family", id: actor.userId }, { applicationDate, resubmission: v.submittedAt !== null });
+    // A reviewer's request is answered by this submission; the open task stays linked and the decision updates it.
+    if (v.familyRequest) {
+      await tx
+        .update(schema.reviewTasks)
+        .set({ moreInfoRequestedAt: null })
+        .where(and(eq(schema.reviewTasks.verificationId, v.id), eq(schema.reviewTasks.status, "open")));
+    }
+    await recordVerificationEvent(tx, v.id, "submitted", { type: "family", id: actor.userId }, { applicationDate, resubmission: v.submittedAt !== null, answersReviewerRequest: v.familyRequest !== null });
     await emitEvent({ orgId: v.orgId, type: "verification.submitted", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: v.mode }, tx);
     await audit({ actor: familyAuditActor(actor), orgId: v.orgId, action: "verification.submit", target: { type: "verification", id: v.id }, metadata: { applicationDate }, request: actor.request }, tx);
     await enqueue(VERIFICATION_DECIDE_JOB, { verificationId: v.id }, { dedupeKey: decideDedupeKey(v.id) }, tx);

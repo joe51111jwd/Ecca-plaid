@@ -80,6 +80,12 @@ export interface StoredExtraction {
   model: { id: string; readerVersion: string } | null;
   pageCount: number | null;
   textSource: "pdf_text" | "plain" | "none";
+  /**
+   * Set when an SGO reviewer keyed or corrected the fields (saveReviewerExtraction). `extraction` then holds the
+   * reviewer's fields and `replacedExtraction` what the reader had produced, kept for the audit trail.
+   */
+  reviewerKeyed?: { reviewerId: string; keyedAt: string; notes: string | null; replacedExtractedBy: "parser" | "model" | "reviewer" | null } | null;
+  replacedExtraction?: Extraction | null;
 }
 
 export interface MappableDocument {
@@ -126,8 +132,14 @@ function effectiveKind(doc: MappableDocument): DocumentKind {
   return detected && detected !== "unknown" ? detected : doc.declaredKind;
 }
 
+/**
+ * A reading the engines may rest an automatic decision on: keyed or confirmed by a reviewer, or read cleanly by the
+ * parser. A clean reading stays trusted after retention deletes the raw file (status "purged" with the stored
+ * extraction kept), so a later re-evaluation (passport reuse) sees the same evidence.
+ */
 function trusted(doc: MappableDocument): boolean {
-  return doc.extractedBy === "reviewer" || (doc.status === "extracted" && doc.stored?.readerStatus === "extracted");
+  if (doc.extractedBy === "reviewer") return true;
+  return (doc.status === "extracted" || doc.status === "purged") && doc.stored?.readerStatus === "extracted";
 }
 
 function extractor(doc: MappableDocument): "parser" | "model" | "reviewer" {

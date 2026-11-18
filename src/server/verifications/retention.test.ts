@@ -27,16 +27,16 @@ describe("retention and expiry", () => {
     const { document } = await addDocument({ verificationId: verification.id, declaredKind: "w2", bytes: syntheticFile("pdf"), filename: "a.pdf", contentType: "application/pdf" }, family.actor);
     const db = await getDb();
     await db.update(schema.documents).set({ extractionEnc: "v1.synthetic.kept.value" }).where(eq(schema.documents.id, document.id));
-    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0 });
+    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0, abandoned: 0 });
 
     await cancelVerification(sgo.orgId, verification.id, { type: "api_key", id: "key_x", mode: "test" });
     const [scheduled] = await db.select().from(schema.documents).where(eq(schema.documents.id, document.id));
     expect(scheduled.purgeAfter?.toISOString()).toBe("2026-11-28T16:00:00.000Z");
     setTestNow("2026-11-28T15:59:59.000Z");
-    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0 });
+    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0, abandoned: 0 });
     setTestNow("2026-11-28T16:00:00.000Z");
-    expect(await purgeDueUploads()).toEqual({ purged: 1, failed: 0 });
-    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0 });
+    expect(await purgeDueUploads()).toEqual({ purged: 1, failed: 0, abandoned: 0 });
+    expect(await purgeDueUploads()).toEqual({ purged: 0, failed: 0, abandoned: 0 });
 
     const [row] = await db.select().from(schema.documents).where(eq(schema.documents.id, document.id));
     expect(row.purgedAt?.toISOString()).toBe("2026-11-28T16:00:00.000Z");

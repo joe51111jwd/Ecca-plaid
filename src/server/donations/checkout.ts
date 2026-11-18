@@ -366,11 +366,6 @@ export async function placeOrder(token: string, options: PlaceOrderOptions = {})
   }
 
   const fingerprint = orderFingerprint(view, form);
-  const existing =
-    row.orderFingerprint === fingerprint && row.orderNumber > 0
-      ? await db.select().from(donations).where(and(eq(donations.checkoutSessionId, row.id), eq(donations.orderNumber, row.orderNumber), ne(donations.status, "canceled")))
-      : [];
-  const reuse = existing.length > 0;
 
   const placed = await db.transaction(async (tx) => {
     const [locked] = await tx.select().from(checkoutSessions).where(eq(checkoutSessions.id, row.id)).for("update");
@@ -380,13 +375,21 @@ export async function placeOrder(token: string, options: PlaceOrderOptions = {})
       throw conflict(`This checkout is ${locked.status} and cannot take a new order.`);
     }
     if (canonicalJson(locked.form) !== canonicalJson(row.form)) throw conflict("The checkout changed while the order was being placed. Review it and try again.", { reason: "form_changed" });
-    if (reuse) {
+    // Decided under the row lock: a concurrent call (double click, retry) that committed the same order first is
+    // reused here rather than racing it into a second order with a second payment.
+    const existing =
+      locked.orderFingerprint === fingerprint && locked.orderNumber > 0
+        ? await tx.select().from(donations).where(and(eq(donations.checkoutSessionId, locked.id), eq(donations.orderNumber, locked.orderNumber), ne(donations.status, "canceled")))
+        : [];
+    if (existing.length > 0) {
       await tx.update(checkoutSessions).set({ status: "awaiting_payment", lastActivityAt: at }).where(eq(checkoutSessions.id, locked.id));
       return { orderNumber: locked.orderNumber, donationRows: existing };
     }
 
     const orderNumber = locked.orderNumber + 1;
     const userId = options.userId ?? locked.userId ?? null;
+    const [signedInUser] = userId ? await tx.select({ id: schema.users.id, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId)) : [];
+    const signedIn = signedInUser ? { userId: signedInUser.id, email: signedInUser.email } : null;
     const address = form.address ?? {};
     const contributors = view.order.contributors;
     const weights = contributors.map((c) => c.giftCents);
@@ -415,7 +418,7 @@ export async function placeOrder(token: string, options: PlaceOrderOptions = {})
             state: address.state as string,
             zip: address.zip as string,
           },
-          c.key === "primary" ? userId : null,
+          c.key === "primary" ? signedIn : null,
           tx,
         ),
       );

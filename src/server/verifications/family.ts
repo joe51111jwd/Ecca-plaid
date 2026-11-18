@@ -75,7 +75,7 @@ export interface FamilyVerificationView {
   returnUrl: string | null;
 }
 
-async function orgNameOf(db: DbOrTx, orgId: string): Promise<string> {
+export async function orgNameOf(db: DbOrTx, orgId: string): Promise<string> {
   try {
     const sgo = await getSgoProfile(orgId, db);
     return sgo.profile.displayName || sgo.org.name;
@@ -86,7 +86,7 @@ async function orgNameOf(db: DbOrTx, orgId: string): Promise<string> {
   }
 }
 
-async function familyLocale(db: DbOrTx, v: VerificationRow): Promise<VerificationLocale> {
+export async function familyLocale(db: DbOrTx, v: VerificationRow): Promise<VerificationLocale> {
   if (!v.householdId) return v.locale;
   const [h] = await db.select({ locale: schema.households.locale }).from(schema.households).where(eq(schema.households.id, v.householdId)).limit(1);
   return h?.locale ?? v.locale;
@@ -213,9 +213,16 @@ function shareUntil(): string {
   return `${centralYear(now()) + SHARE_CONSENT_YEARS_AFTER}-12-31`;
 }
 
+/** The organization's name as the consents service renders it (organizations.name), so a preview hashes the same. */
+export async function consentOrganizationName(db: DbOrTx, orgId: string): Promise<string> {
+  const [org] = await db.select({ name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, orgId)).limit(1);
+  if (!org) throw notFound("Organization");
+  return org.name;
+}
+
 async function sharingVars(db: DbOrTx, v: VerificationRow) {
   const policy = await getSgoPolicy(v.orgId, db);
-  return { organizationName: await orgNameOf(db, v.orgId), shareUntil: shareUntil(), uploadRetentionDays: policy.rawRetentionDays };
+  return { organizationName: await consentOrganizationName(db, v.orgId), shareUntil: shareUntil(), uploadRetentionDays: policy.rawRetentionDays };
 }
 
 /** The exact sharing-consent words to show: who receives what, for what purpose and for how long. */

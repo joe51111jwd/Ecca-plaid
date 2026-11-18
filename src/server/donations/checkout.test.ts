@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { schema } from "@/db/client";
 import { setTestNow } from "@/lib/clock";
 import { isAppError } from "@/lib/errors";
+import { newId } from "@/lib/ids";
 import { listAuditLogs } from "@/server/audit";
 import { setSetting } from "@/server/settings";
 import { COPY_VERSION } from "@/taxmath";
 import { useTestDb } from "../../../tests/helpers/db";
 import { getCheckout, getCheckoutPayment, placeOrder, saveCheckout, startCheckout } from "./checkout";
+import { listGiftsForUser } from "./read";
 import { createListedSgo, jointPatch, removeFromList, singleFilerPatch, type ListedSgo } from "./test-support";
 
 /* All organizations, people, addresses and EINs are synthetic. */
@@ -201,6 +203,23 @@ describe("donor checkout", () => {
       expect((await getCheckoutPayment(token)).paymentId).toBe(first.paymentId);
     });
 
+    it("creates ONE order and ONE payment when the same order is placed twice concurrently (double click)", async () => {
+      const { token } = await ready();
+      const results = await Promise.allSettled([placeOrder(token), placeOrder(token), placeOrder(token)]);
+      const placed = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof placeOrder>>> => r.status === "fulfilled").map((r) => r.value);
+      expect(placed.length).toBeGreaterThan(0);
+      expect(new Set(placed.map((p) => p.paymentId)).size).toBe(1);
+      expect(new Set(placed.map((p) => p.orderNumber))).toEqual(new Set([1]));
+      const donations = await t.db.select().from(schema.donations);
+      expect(donations).toHaveLength(1);
+      expect(donations[0].paymentId).toBe(placed[0].paymentId);
+      const payments = await t.db.select().from(schema.payments);
+      expect(payments).toHaveLength(1);
+      const [session] = await t.db.select().from(schema.checkoutSessions);
+      expect(session.paymentId).toBe(placed[0].paymentId);
+      expect(session.orderNumber).toBe(1);
+    });
+
     it("needs a new order when an amount changes after the order was placed", async () => {
       const { token } = await ready();
       const first = await placeOrder(token);
@@ -286,6 +305,37 @@ describe("donor checkout", () => {
       const moved = await ready(singleFilerPatch({ giftCents: 50_000, address: { line1: "9 Other Synthetic St", city: "Austin", state: "TX", zip: "78702" } }));
       await placeOrder(moved.token);
       expect(await t.db.select().from(schema.donors)).toHaveLength(2);
+    });
+
+    it("never attaches someone else's existing donor row to a signed-in user whose email differs", async () => {
+      // The victim gave without signing in; another signed-in person retypes the victim's email, name and address.
+      const victim = await ready();
+      await placeOrder(victim.token);
+      const intruderId = newId("user");
+      await t.db.insert(schema.users).values({ id: intruderId, email: "intruder@synthetic.example" });
+      const intruder = await ready();
+      await placeOrder(intruder.token, { userId: intruderId });
+      const rows = await t.db.select().from(schema.donors);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].userId).toBeNull();
+      expect(await listGiftsForUser(intruderId)).toEqual([]);
+
+      // The owner of the address, once signed in with it, is linked.
+      const ownerId = newId("user");
+      await t.db.insert(schema.users).values({ id: ownerId, email: "donor@synthetic.example" });
+      const own = await ready(singleFilerPatch({ giftCents: 50_000 }));
+      await placeOrder(own.token, { userId: ownerId });
+      const [linked] = await t.db.select().from(schema.donors);
+      expect(linked.userId).toBe(ownerId);
+    });
+
+    it("links a new donor row to the signed-in user who created it", async () => {
+      const userId = newId("user");
+      await t.db.insert(schema.users).values({ id: userId, email: "someone-else@synthetic.example" });
+      const { token } = await ready(singleFilerPatch({ email: "receipts@synthetic.example" }));
+      await placeOrder(token, { userId });
+      const [row] = await t.db.select().from(schema.donors);
+      expect(row.userId).toBe(userId);
     });
 
     it("splits fees by person and charges a donor service fee on top under that structure", async () => {

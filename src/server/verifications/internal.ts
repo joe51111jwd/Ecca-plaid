@@ -3,12 +3,12 @@
  */
 import { and, eq, sql } from "drizzle-orm";
 import { schema, type DbOrTx } from "@/db/client";
-import type { Mode, VerificationFlag, VerificationStage } from "@/db/schema";
+import type { MemberRole, Mode, VerificationFlag, VerificationStage } from "@/db/schema";
 import { now } from "@/lib/clock";
-import { AppError, conflict, notFound } from "@/lib/errors";
+import { AppError, conflict, forbidden, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import type { AuditActor, AuditRequestInfo } from "@/server/audit";
-import { assertHouseholdAccess, type HouseholdAccess, type User } from "@/server/auth";
+import { assertHouseholdAccess, assertOrgMember, type HouseholdAccess, type OrgAccess, type User } from "@/server/auth";
 import { CLOSED_STATUSES, FAMILY_EDITABLE_STAGES, STAGE_ORDER } from "./policy";
 
 export type VerificationRow = typeof schema.verifications.$inferSelect;
@@ -121,4 +121,17 @@ export async function loadOrgVerification(db: DbOrTx, orgId: string, mode: Mode,
 /** A certification id. Prefixed like every other entity; built on newId's generator. */
 export function newCertificationId(): string {
   return `vcr_${newId("consent").slice("con_".length)}`;
+}
+
+/**
+ * A signed-in SGO staff member with at least `minRole` in the organization. API keys are refused: names, documents
+ * and extracted values are never on the API surface. A person who is not a member of the organization is
+ * forbidden (they learn nothing about its verifications); ids of another organization are then not found.
+ */
+export async function requireOrgStaff(db: DbOrTx, orgId: string, actor: OrgActor, minRole: MemberRole): Promise<OrgAccess> {
+  if (!actor || actor.type !== "user") throw forbidden("This needs a signed-in staff member of the organization.");
+  if (actor.mode !== "test" && actor.mode !== "live") throw forbidden();
+  const [user] = typeof actor.id === "string" && actor.id.length > 0 && actor.id.length <= 128 ? await db.select().from(schema.users).where(eq(schema.users.id, actor.id)).limit(1) : [];
+  if (!user) throw forbidden();
+  return assertOrgMember(user, orgId, minRole, db);
 }

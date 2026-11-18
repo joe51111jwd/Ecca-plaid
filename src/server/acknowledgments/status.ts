@@ -22,6 +22,21 @@ export interface AcknowledgmentSummary {
   pdfObjectId: string | null;
   /** A gift or refund changed the year's total after the latest version (or no version exists yet). */
   needsRegeneration: boolean;
+  /**
+   * The version currently in force with the donor (status "issued"), which can be older than the latest version when
+   * a later version is blocked: the donor keeps the document they were given until a new one is issued.
+   */
+  issued: IssuedVersionSummary | null;
+}
+
+export interface IssuedVersionSummary {
+  acknowledgmentId: string;
+  version: number;
+  issuedAt: Date | null;
+  delivery: "email" | "paper_required";
+  deliveredAt: Date | null;
+  pdfObjectId: string | null;
+  totalDesignatedCents: number;
 }
 
 export interface StatusScope {
@@ -57,6 +72,7 @@ export async function acknowledgmentSummaries(scope: StatusScope, dbOrTx?: DbOrT
   const stale = new Set(pending.map((p) => p.donorId));
   for (const donorId of ids) {
     const latest = rows.find((r) => r.donorId === donorId);
+    const issued = rows.find((r) => r.donorId === donorId && r.status === "issued");
     out.set(donorId, {
       status: latest?.status ?? "not_generated",
       acknowledgmentId: latest?.id ?? null,
@@ -67,6 +83,9 @@ export async function acknowledgmentSummaries(scope: StatusScope, dbOrTx?: DbOrT
       blockedReason: latest?.blockedReason ?? null,
       pdfObjectId: latest?.pdfObjectId ?? null,
       needsRegeneration: stale.has(donorId),
+      issued: issued
+        ? { acknowledgmentId: issued.id, version: issued.version, issuedAt: issued.issuedAt, delivery: issued.delivery, deliveredAt: issued.deliveredAt, pdfObjectId: issued.pdfObjectId, totalDesignatedCents: issued.totalDesignatedCents }
+        : null,
     });
   }
   return out;

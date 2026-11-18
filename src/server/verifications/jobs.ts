@@ -11,7 +11,7 @@ import { VERIFICATION_DECIDE_JOB } from "./submit";
 
 const id = z.string().min(1).max(128);
 const extractPayload = z.object({ documentId: id });
-const decidePayload = z.object({ verificationId: id, wait: z.number().int().min(0).max(DECIDE_WAIT.maxWaits).optional() });
+const decidePayload = z.object({ verificationId: id, wait: z.number().int().min(0).max(DECIDE_WAIT.maxWaits).optional(), trigger: z.enum(["family", "reviewer"]).optional() });
 const evidencePayload = z.object({ verificationId: id });
 
 /** Job handlers owned by this domain. Keys are job type names. Every handler is idempotent and safe to retry. */
@@ -21,10 +21,10 @@ export const jobHandlers: JobHandlers = {
     const { documentId } = extractPayload.parse(payload);
     await extractDocumentJob(documentId);
   },
-  /** Decides a submitted verification: `{ verificationId, wait? }`. */
+  /** Decides a submitted verification: `{ verificationId, wait?, trigger? }`. */
   [VERIFICATION_DECIDE_JOB]: async (payload) => {
-    const { verificationId, wait } = decidePayload.parse(payload);
-    await decideVerificationJob(verificationId, { wait });
+    const { verificationId, wait, trigger } = decidePayload.parse(payload);
+    await decideVerificationJob(verificationId, { wait, trigger });
   },
   /** Builds, signs and stores the evidence pack, then emits verification.decided: `{ verificationId }`. */
   [EVIDENCE_GENERATE_JOB]: async (payload) => {
@@ -36,7 +36,7 @@ export const jobHandlers: JobHandlers = {
     const { failed } = await purgeDueUploads();
     if (failed > 0) throw new Error(`${failed} document purge(s) failed`);
   },
-  /** Marks decided results past their expiry as expired. */
+  /** Marks decided results past their expiry, and family links that expired unopened, as expired. */
   [VERIFICATION_EXPIRE_JOB]: async () => {
     await expireDueVerifications();
   },

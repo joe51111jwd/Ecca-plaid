@@ -185,6 +185,8 @@ export const donations = pgTable(
     index("donations_donor_idx").on(t.donorId),
     index("donations_checkout_idx").on(t.checkoutSessionId),
     index("donations_payment_idx").on(t.paymentId),
+    // One donation per taxpayer per order: a second concurrent order attempt can never add a second charge's rows.
+    uniqueIndex("donations_order_role_uq").on(t.checkoutSessionId, t.orderNumber, t.taxpayerRole),
   ],
 );
 

@@ -76,29 +76,6 @@ export function familyDecisionEmailFrame(locale: VerificationLocale, kind: "outc
     : { subject: "We need a little more information", cta: "Continue", missingHeading: "We still need" };
 }
 
-/* ----------------------------------------------------------------------------------------- reviewer */
-
-export interface ReviewerEmailCopy {
-  subject: string;
-  heading: string;
-  paragraphs: string[];
-  cta: string;
-}
-
-/** SGO-facing, English. Names no household member and shows no figure: details are behind sign-in. */
-export function reviewerEmailCopy(input: { verificationId: string; externalRef: string | null; reasonCount: number; mode: "test" | "live" }): ReviewerEmailCopy {
-  const ref = input.externalRef ? ` (your reference ${input.externalRef})` : "";
-  return {
-    subject: `${input.mode === "test" ? "[Test] " : ""}A verification needs review`,
-    heading: "A verification needs review",
-    paragraphs: [
-      `Verification ${input.verificationId}${ref} needs a reviewer before it can be decided.`,
-      `${input.reasonCount === 1 ? "There is 1 point" : `There are ${input.reasonCount} points`} to settle. Sign in to the dashboard to see them.`,
-    ],
-    cta: "Open in the dashboard",
-  };
-}
-
 /* ------------------------------------------------------------------------------- certifications */
 
 /** Bump when any word of a certification changes; stored with every signature. */
@@ -245,4 +222,160 @@ export function renderCertification(kind: CertificationKind, locale: Verificatio
   const stored: Record<string, string | number> = { signerName: clean.signerName, organizationName: clean.organizationName, incomeYear: clean.incomeYear };
   if (scope === "member") stored.memberName = clean.memberName;
   return { kind, version, locale, title: template.title, paragraphs, checkboxLabel: template.checkboxLabel, text, sha256: sha256Hex(text), vars: stored };
+}
+
+/* ---------------------------------------------------------------------------------- SGO notifications */
+
+export interface SgoNotificationItem {
+  verificationId: string;
+  externalRef: string | null;
+  /** Points a reviewer has to settle (needs_review) — never the points themselves, which stay behind sign-in. */
+  reasonCount?: number;
+  /** The decision (decided). */
+  status?: "eligible" | "ineligible";
+  decidedBy?: "engine" | "reviewer";
+}
+
+export interface SgoNotificationCopy {
+  subject: string;
+  heading: string;
+  paragraphs: string[];
+  cta: string;
+}
+
+/**
+ * SGO-facing, English, one or many verifications (a digest is the same email with more lines). Names no household
+ * member, shows no figure and no family-supplied text: the details are behind sign-in.
+ */
+export function sgoNotificationCopy(kind: "needs_review" | "decided", input: { mode: "test" | "live"; items: readonly SgoNotificationItem[] }): SgoNotificationCopy {
+  const tag = input.mode === "test" ? "[Test] " : "";
+  const n = input.items.length;
+  const ref = (i: SgoNotificationItem) => `${i.verificationId}${i.externalRef ? ` (your reference ${i.externalRef})` : ""}`;
+  if (kind === "needs_review") {
+    const lines = input.items.map((i) => {
+      const count = i.reasonCount ?? 0;
+      return `Verification ${ref(i)}: ${count === 1 ? "1 point" : `${count} points`} to settle.`;
+    });
+    return {
+      subject: n === 1 ? `${tag}A verification needs review` : `${tag}${n} verifications need review`,
+      heading: n === 1 ? "A verification needs review" : `${n} verifications need review`,
+      paragraphs: [...lines, "A reviewer must look at these before they can be decided. Sign in to the dashboard to see the details."],
+      cta: n === 1 ? "Open in the dashboard" : "Open the review queue",
+    };
+  }
+  const lines = input.items.map((i) => {
+    const outcome = i.status === "ineligible" ? "income above the limit" : "meets the income requirement";
+    return `Verification ${ref(i)}: ${outcome}${i.decidedBy === "reviewer" ? " (resolved by a reviewer)" : ""}.`;
+  });
+  return {
+    subject: n === 1 ? `${tag}A verification has been decided` : `${tag}${n} verifications have been decided`,
+    heading: n === 1 ? "A verification has been decided" : `${n} verifications have been decided`,
+    paragraphs: [...lines, "The evidence pack is ready to download in the dashboard. Verifying income is one requirement; awards remain your organization's decision."],
+    cta: n === 1 ? "Open in the dashboard" : "Open the dashboard",
+  };
+}
+
+/* ------------------------------------------------------------------------------- reviewer request */
+
+export interface FamilyRequestEmailCopy {
+  subject: string;
+  heading: string;
+  intro: string;
+  itemsHeading: string;
+  cta: string;
+}
+
+/**
+ * Frame around a reviewer's own words (requestMoreInfo). The reviewer's message and items are shown as written;
+ * the frame says who is asking, in the family's language.
+ */
+export function familyRequestEmailCopy(locale: VerificationLocale, orgName: string): FamilyRequestEmailCopy {
+  if (locale === "es") {
+    return {
+      subject: `${orgName} necesita algo más para revisar sus ingresos`,
+      heading: "Necesitamos un poco más de información",
+      intro: `Una persona de ${orgName} revisó su información y le pide lo siguiente:`,
+      itemsHeading: "Lo que se pide",
+      cta: "Continuar",
+    };
+  }
+  return {
+    subject: `${orgName} needs something more to check your income`,
+    heading: "We need a little more information",
+    intro: `A person at ${orgName} looked at your information and asks for the following:`,
+    itemsHeading: "What is asked for",
+    cta: "Continue",
+  };
+}
+
+/* ------------------------------------------------------------------------------------- family view */
+
+export type FamilyStep = "consent" | "household" | "evidence" | "waiting" | "outcome";
+export type Bilingual = { en: string; es: string };
+
+export const FAMILY_STEP_LABELS: Readonly<Record<FamilyStep, Bilingual>> = Object.freeze({
+  consent: { en: "Give permission", es: "Dar permiso" },
+  household: { en: "Tell us about your household", es: "Información de su hogar" },
+  evidence: { en: "Share proof of income", es: "Compartir comprobantes de ingresos" },
+  waiting: { en: "We are checking", es: "Estamos revisando" },
+  outcome: { en: "Result", es: "Resultado" },
+});
+
+/** Plain-language status of one document, as the family sees it. */
+export type FamilyDocumentState = "reading" | "received" | "needs_person" | "checked_by_person" | "cannot_use" | "removed" | "deleted_after_decision" | "carried_over";
+
+export const FAMILY_DOCUMENT_STATE_LABELS: Readonly<Record<FamilyDocumentState, Bilingual>> = Object.freeze({
+  reading: { en: "Received — we are reading it", es: "Recibido — lo estamos leyendo" },
+  received: { en: "Received", es: "Recibido" },
+  needs_person: { en: "We could not read this — a person will look at it", es: "No pudimos leer esto — una persona lo revisará" },
+  checked_by_person: { en: "Checked by a person", es: "Revisado por una persona" },
+  cannot_use: { en: "We cannot use this document", es: "No podemos usar este documento" },
+  removed: { en: "Removed", es: "Quitado" },
+  deleted_after_decision: { en: "File deleted after the decision (we keep a fingerprint of it)", es: "Archivo borrado después de la decisión (guardamos una huella digital)" },
+  carried_over: { en: "From your earlier verification", es: "De su verificación anterior" },
+});
+
+/** "What happens next", by where the verification is. Never promises an award. */
+export function familyNextSteps(state: "evidence" | "waiting" | "in_review" | "awaiting_family" | "eligible" | "ineligible" | "closed", orgName: string): Bilingual {
+  const notAPromise: Bilingual = {
+    en: "The scholarship organization decides awards. Being eligible is not a promise of a scholarship.",
+    es: "La organización de becas decide las becas. Ser elegible no es una promesa de beca.",
+  };
+  switch (state) {
+    case "evidence":
+      return {
+        en: `When you have shared what you can, press submit. We check the income requirement and send the result to ${orgName}. ${notAPromise.en}`,
+        es: `Cuando haya compartido lo que pueda, presione enviar. Revisamos el requisito de ingresos y enviamos el resultado a ${orgName}. ${notAPromise.es}`,
+      };
+    case "waiting":
+      return {
+        en: `We are reading what you shared. We will email you when there is a result or if we need anything else. ${notAPromise.en}`,
+        es: `Estamos leyendo lo que compartió. Le enviaremos un correo cuando haya un resultado o si necesitamos algo más. ${notAPromise.es}`,
+      };
+    case "in_review":
+      return {
+        en: `A person at ${orgName} is looking at your information. You do not need to do anything now; we will email you. ${notAPromise.en}`,
+        es: `Una persona de ${orgName} está revisando su información. No tiene que hacer nada por ahora; le enviaremos un correo. ${notAPromise.es}`,
+      };
+    case "awaiting_family":
+      return {
+        en: `Add what is listed below and press submit again. Everything you already shared is kept. ${notAPromise.en}`,
+        es: `Agregue lo que se indica abajo y presione enviar otra vez. Todo lo que ya compartió se guarda. ${notAPromise.es}`,
+      };
+    case "eligible":
+      return {
+        en: `${orgName} has the result. ${notAPromise.en}`,
+        es: `${orgName} tiene el resultado. ${notAPromise.es}`,
+      };
+    case "ineligible":
+      return {
+        en: `${orgName} has the result. If you think something is wrong, contact ${orgName}.`,
+        es: `${orgName} tiene el resultado. Si cree que algo está mal, comuníquese con ${orgName}.`,
+      };
+    case "closed":
+      return {
+        en: `This verification is closed. Contact ${orgName} if you still need to verify your income.`,
+        es: `Esta verificación está cerrada. Comuníquese con ${orgName} si todavía necesita verificar sus ingresos.`,
+      };
+  }
 }
