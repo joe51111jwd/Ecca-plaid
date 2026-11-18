@@ -40,7 +40,9 @@
     ".next-uikit/types/**/*.ts",
     ".next-uikit/dev/types/**/*.ts",
     ".next-auth/types/**/*.ts",
-    ".next-auth/dev/types/**/*.ts"
+    ".next-auth/dev/types/**/*.ts",
+    ".next-payments/types/**/*.ts",
+    ".next-payments/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

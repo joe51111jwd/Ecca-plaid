@@ -23,6 +23,11 @@ export function formatUtcTimestamp(isoTimestamp: string): string {
   return `${isoTimestamp.slice(0, 10)} ${isoTimestamp.slice(11, 19)} UTC`;
 }
 
+/** "2026-11-18T15:04:05.000Z" -> "2026-11-18 15:04:05", for table columns whose header already says UTC. */
+export function formatUtcClock(isoTimestamp: string): string {
+  return `${isoTimestamp.slice(0, 10)} ${isoTimestamp.slice(11, 19)}`;
+}
+
 /** "2026-11-18T15:04:05.000Z" -> "2026-11-18" (the UTC calendar date). */
 export function utcDateOf(isoTimestamp: string): string {
   return isoTimestamp.slice(0, 10);

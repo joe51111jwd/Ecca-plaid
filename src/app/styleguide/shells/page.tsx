@@ -196,7 +196,10 @@ export default function StyleGuideShells() {
 
         <Specimen id="system-page" name="SystemPage" importLine='import { SystemPage } from "@/components/layout"' note={<p>A full-page message in the system style: not found, something went wrong, link expired, signed out. The app’s 404 and error pages use it.</p>}>
           <Example label="Demo">
-            <Demo href="/styleguide/this-page-does-not-exist">Open the 404 page</Demo>
+            <div className="flex flex-wrap gap-3">
+              <Demo href="/styleguide/this-page-does-not-exist">Open the 404 page</Demo>
+              <Demo href="/styleguide/shells/error">Open the error-page demo</Demo>
+            </div>
           </Example>
         </Specimen>
       </GuideSection>

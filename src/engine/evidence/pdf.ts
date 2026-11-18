@@ -16,7 +16,7 @@ import {
   STATUS_LABEL,
   consentKindLabel,
 } from "./copy";
-import { formatBytes, formatCalendarDate, formatMoney, formatUtcTimestamp, groupHash, humanizeKey, utcDateOf } from "./format";
+import { formatBytes, formatCalendarDate, formatMoney, formatUtcClock, formatUtcTimestamp, groupHash, humanizeKey, utcDateOf } from "./format";
 import { COLOR, CONTENT_WIDTH, PdfWriter, STYLE, type Cell, type CellPart, type TextStyle } from "./pdf-layout";
 import { canonicalRecordBytes } from "./record";
 import {
@@ -51,6 +51,19 @@ const MUTED = STYLE.smallMuted;
 
 function part(text: string, style?: TextStyle): CellPart {
   return style ? { text, style } : { text };
+}
+
+/** One entry of the cover's summary grid: a small label over its value. */
+type Fact = readonly [label: string, value: readonly CellPart[]];
+const FACT_LABEL: TextStyle = { font: "bold", size: 7.5, color: COLOR.muted };
+
+type KeyValueRow = readonly [label: string, value: Cell];
+
+/* A heading stays on the page of a short block that follows it; a long block is allowed to break. */
+const KEEP_TOGETHER_LIMIT = 400;
+
+function factCell([label, value]: Fact): CellPart[] {
+  return [part(label, FACT_LABEL), ...value];
 }
 
 /** A hash as two lines of four groups, which fits a narrow table column and still reads as one value. */
@@ -142,18 +155,31 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     { border: statusColor, background: COLOR.panel, bar: true, title: { text: "DECISION", style: { font: "bold", size: 7.5, color: COLOR.muted } } },
   );
 
+  if (threshold.provisional) {
+    // The words in this block are the threshold label's, printed as supplied. Its full explanation is in section 1.
+    pdf.callout(
+      [
+        { text: threshold.label.limit_label, style: STYLE.smallBold },
+        { text: threshold.label.source_line, style: STYLE.small },
+      ],
+      { border: COLOR.amber, background: COLOR.amberPanel, title: { text: threshold.label.badge, style: { font: "bold", size: 10.5, color: COLOR.amber } } },
+    );
+  }
+
   const decidedBy =
     decision.decided_by.type === "reviewer"
       ? `Reviewer: ${decision.decided_by.reviewer_name ?? ""} (${decision.decided_by.reviewer_id ?? ""})`
       : `Decision engine, version ${record.versions.engine}`;
-  const limitCell: CellPart[] = [part(limitRange, STYLE.bodyBold)];
+  const limitFact: CellPart[] = [part(limitRange, STYLE.bodyBold)];
   if (threshold.relied_on === "lower_bound" || threshold.relied_on === "upper_bound") {
-    limitCell.push(part(`The decision relied on the ${threshold.relied_on === "lower_bound" ? "lower" : "upper"} bound: ${formatMoney(threshold.relied_on_limit_cents ?? 0)}`, STYLE.small));
+    limitFact.push(part(`The decision relied on the ${threshold.relied_on === "lower_bound" ? "lower" : "upper"} bound: ${formatMoney(threshold.relied_on_limit_cents ?? 0)}`, STYLE.small));
   }
-  if (threshold.cap_pct !== 300) limitCell.push(part(`Set at ${threshold.cap_pct}% of area median income, the SGO's stricter cap`, STYLE.small));
-  limitCell.push(part(threshold.label.source_line, MUTED));
+  if (threshold.cap_pct !== 300) limitFact.push(part(`Set at ${threshold.cap_pct}% of area median income, the SGO's stricter cap`, STYLE.small));
+  // With a provisional table the block above already carries the source line; otherwise it is shown here.
+  if (!threshold.provisional) limitFact.push(part(threshold.label.source_line, MUTED));
+  limitFact.push(part(`Table ${threshold.table_version}, effective ${formatCalendarDate(threshold.effective_date)}`, MUTED));
 
-  const basisRow: readonly [string, Cell] =
+  const basisFact: Fact =
     income !== null
       ? [`Household income counted (${income.year})`, [part(formatMoney(income.total_counted_cents), STYLE.bodyBold)]]
       : [
@@ -163,38 +189,38 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
                 part(categorical.program_label, STYLE.bodyBold),
                 part(`${categorical.letter_date ? `Documentation dated ${formatCalendarDate(categorical.letter_date)}. ` : ""}Approval status read from the document: ${APPROVAL_LABEL[categorical.approval_status].toLowerCase()}.`, STYLE.small),
               ]
-            : "Program not yet determined",
+            : [part("Program not yet determined")],
         ];
 
-  const summaryRows: Array<readonly [string, Cell]> = [
+  const sgoDetail = [record.sgo.ein ? `EIN ${record.sgo.ein}` : "", record.sgo.external_ref ? `SGO reference: ${record.sgo.external_ref}` : ""].filter((text) => text !== "").join("  |  ");
+  const facts: Fact[] = [
     ["Verification", [part(record.verification_id, MONO)]],
-    ["Scholarship granting organization", [part(record.sgo.name), ...(record.sgo.ein ? [part(`EIN ${record.sgo.ein}`, MUTED)] : []), ...(record.sgo.external_ref ? [part(`SGO reference: ${record.sgo.external_ref}`, MUTED)] : [])]],
-    [household.students.length === 1 ? "Student" : "Students", students],
-    ["Status", [part(`${STATUS_LABEL[decision.status]} (${STATUS_DETAIL[decision.status].toLowerCase()})`, { ...STYLE.bodyBold, color: statusColor })]],
+    ["Scholarship granting organization", [part(record.sgo.name), ...(sgoDetail === "" ? [] : [part(sgoDetail, MUTED)])]],
+    [household.students.length === 1 ? "Student" : "Students", [part(students)]],
+    ["Household size", [part(`${household.size} ${household.size === 1 ? "person" : "persons"}`)]],
     ["Method", [part(decision.method_label), part(`${METHOD_BASIS_LABEL[decision.method_basis]}. ${decision.method_citation}`, MUTED)]],
-    ["Household size", `${household.size} ${household.size === 1 ? "person" : "persons"}`],
     ["County and area", [part(`${county} (FIPS ${geography.county_fips})`), part(`${geography.area_name} (area code ${geography.area_code})`, MUTED)]],
-    ["Income year", `${decision.income_year} (application dated ${formatCalendarDate(decision.application_date)})`],
-    [threshold.label.limit_label, limitCell],
-    basisRow,
+    [threshold.label.limit_label, limitFact],
+    basisFact,
+    ["Income year", [part(`${decision.income_year} (application dated ${formatCalendarDate(decision.application_date)})`)]],
     ["Decided", [part(formatUtcTimestamp(decision.decided_at)), part(decidedBy, MUTED)]],
-    ...(decision.expires_at ? [["Result valid until", formatUtcTimestamp(decision.expires_at)] as const] : []),
-    ...(record.reused_from_verification_id ? [["Reuses the result of", [part(record.reused_from_verification_id, MONO)]] as const] : []),
-    ["Mode", test ? "Test (sandbox)" : "Live"],
+    ["Result valid until", [part(decision.expires_at ? formatUtcTimestamp(decision.expires_at) : "No expiry recorded")]],
+    ["Mode", [part(test ? "Test (sandbox)" : "Live")]],
+    ...(record.reused_from_verification_id ? [["Reuses the result of verification", [part(record.reused_from_verification_id, MONO)]] as Fact] : []),
   ];
-  pdf.keyValues(summaryRows, 168);
-
-  if (threshold.provisional) {
-    // The words in this block are the threshold label's, printed as supplied.
-    pdf.callout(
-      [
-        { text: threshold.label.limit_label, style: STYLE.smallBold },
-        { text: threshold.label.source_line, style: STYLE.small },
-        { text: threshold.label.explanation, style: STYLE.small },
-      ],
-      { border: COLOR.amber, background: COLOR.amberPanel, title: { text: threshold.label.badge, style: { font: "bold", size: 10.5, color: COLOR.amber } } },
-    );
+  const half = CONTENT_WIDTH / 2;
+  const factRows: Cell[][] = [];
+  for (let index = 0; index < facts.length; index += 2) {
+    factRows.push([factCell(facts[index]), index + 1 < facts.length ? factCell(facts[index + 1]) : ""]);
   }
+  pdf.table(
+    [
+      { header: "", width: half, style: STYLE.body },
+      { header: "", width: half, style: STYLE.body },
+    ],
+    factRows,
+    { header: false },
+  );
 
   pdf.callout(
     PDF_COPY.howToRead.map((text) => ({ text, style: STYLE.small })),
@@ -204,7 +230,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   /* -------------------------------------------------------------- 1. how the limit was calculated */
 
   pdf.heading("1. How this limit was calculated");
-  pdf.paragraph(threshold.label.source_line, STYLE.body);
+  pdf.paragraph(threshold.label.explanation, STYLE.body, { gapAfter: 8 });
   const medianRow: Array<readonly [string, Cell]> = threshold.median_income_cents !== null ? [["Area median income (four-person basis)", formatMoney(threshold.median_income_cents)]] : [];
   const multiplierRow: Array<readonly [string, Cell]> =
     threshold.family_size_multiplier !== null ? [["Family-size multiplier", `${threshold.family_size_multiplier} for a household of ${household.size}`]] : [];
@@ -227,7 +253,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
       ...(threshold.method ? [["Calculation method id", [part(threshold.method, MONO)]] as const] : []),
       ["Wording version", [part(threshold.label.copy_version, MONO)]],
     ],
-    168,
+    180,
   );
 
   pdf.subheading(threshold.readings.length === 1 ? "The limit under the table in use" : "Every reading of the limit");
@@ -249,7 +275,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         ["Lower bound (smallest reading)", formatMoney(threshold.lower_bound_cents)],
         ["Upper bound (largest reading)", formatMoney(threshold.upper_bound_cents)],
       ],
-      168,
+      180,
     );
   }
   if (threshold.label.readings_note) pdf.paragraph(threshold.label.readings_note, STYLE.small);
@@ -259,11 +285,9 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     bar: true,
     title: { text: "Which limit the decision relied on", style: STYLE.bodyBold },
   });
-  if (!threshold.provisional) pdf.paragraph(threshold.label.explanation, STYLE.small);
 
   /* -------------------------------------------------------------------------------- 2. household */
 
-  pdf.heading("2. Household");
   const custody = household.custody;
   const custodyCell: Cell =
     custody === null
@@ -277,16 +301,15 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
             ...(custody.this_household_has_higher_income !== null ? [part(`This household has the higher income: ${custody.this_household_has_higher_income}`, STYLE.small)] : []),
             ...(custody.notes ? [part(`Notes: ${custody.notes}`, STYLE.small)] : []),
           ];
-  pdf.keyValues(
-    [
-      ["Household size (family size)", `${household.size} ${household.size === 1 ? "person" : "persons"}, counted from the roster below`],
-      ...(household.id ? [["Household", [part(household.id, MONO)]] as const] : []),
-      [household.students.length === 1 ? "Student" : "Students", household.students.map((student) => part(`${student.name}  (${student.member_id})`))],
-      ["Residence", [part(`${county}${geography.zip ? `, ZIP ${geography.zip}` : ""}`), ...(geography.county_resolution ? [part(COUNTY_RESOLUTION_LABEL[geography.county_resolution], MUTED)] : [])]],
-      ["Shared custody", custodyCell],
-    ],
-    168,
-  );
+  const householdRows: KeyValueRow[] = [
+    ["Household size (family size)", `${household.size} ${household.size === 1 ? "person" : "persons"}, counted from the roster below`],
+    ...(household.id ? [["Household", [part(household.id, MONO)]] as const] : []),
+    [household.students.length === 1 ? "Student" : "Students", household.students.map((student) => part(`${student.name}  (${student.member_id})`))],
+    ["Residence", [part(`${county}${geography.zip ? `, ZIP ${geography.zip}` : ""}`), ...(geography.county_resolution ? [part(COUNTY_RESOLUTION_LABEL[geography.county_resolution], MUTED)] : [])]],
+    ["Shared custody", custodyCell],
+  ];
+  pdf.heading("2. Household", Math.min(pdf.keyValuesHeight(householdRows, 168), KEEP_TOGETHER_LIMIT));
+  pdf.keyValues(householdRows, 168);
   pdf.table(
     [
       { header: "Member", width: 190, style: MONO },
@@ -307,10 +330,10 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   } else {
     pdf.table(
       [
-        { header: "Document", width: 122 },
+        { header: "Document", width: 124 },
         { header: "File", width: 122 },
-        { header: "Extraction and raw file", width: 110 },
-        { header: "SHA-256 of the stored file", width: 150 },
+        { header: "Extraction and raw file", width: 100 },
+        { header: "SHA-256 of the stored file", width: 158 },
       ],
       record.documents.map((document) => [
         [part(DOCUMENT_KIND_LABEL[document.kind], STYLE.smallBold), part(document.id, MONO_SMALL), ...(document.member_id ? [part(`About ${memberLabel(document.member_id)}`, MUTED)] : [])],
@@ -328,14 +351,14 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     pdf.table(
       [
         { header: "Connection", width: 150 },
-        { header: "Connected and retrieved", width: 204 },
-        { header: "SHA-256 of the report", width: 150 },
+        { header: "Connected and retrieved (UTC)", width: 196 },
+        { header: "SHA-256 of the report", width: 158 },
       ],
       record.rails.map((rail) => [
         [part(RAIL_KIND_LABEL[rail.kind], STYLE.smallBold), part(rail.id, MONO_SMALL), part(`Provider: ${rail.provider}`, MUTED), ...(rail.member_id ? [part(`About ${memberLabel(rail.member_id)}`, MUTED)] : [])],
         [
-          part(`Connected ${formatUtcTimestamp(rail.connected_at)}`),
-          ...(rail.retrieved_at ? [part(`Report retrieved ${formatUtcTimestamp(rail.retrieved_at)}`)] : []),
+          part(`Connected ${formatUtcClock(rail.connected_at)}`),
+          ...(rail.retrieved_at ? [part(`Report retrieved ${formatUtcClock(rail.retrieved_at)}`)] : []),
           ...(rail.consent_id ? [part(`Under consent ${rail.consent_id}`, MUTED)] : []),
         ],
         hashParts(rail.report_sha256),
@@ -376,10 +399,10 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     } else {
       pdf.table(
         [
-          { header: "Category", width: 160 },
-          { header: "Source", width: 150 },
-          { header: "Counted", width: 110 },
-          { header: "Annual amount", width: 84, align: "right" },
+          { header: "Category", width: 172 },
+          { header: "Source", width: 136 },
+          { header: "Counted", width: 116 },
+          { header: "Annual amount", width: 80, align: "right" },
         ],
         income.items.map((item) => [
           [part(item.category_label, STYLE.smallBold), ...(item.description ? [part(item.description)] : []), ...(item.member_id ? [part(`Member ${memberLabel(item.member_id)}`, MUTED)] : [])],
@@ -398,9 +421,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
       { header: false },
     );
   } else if (categorical !== null) {
-    pdf.heading("4. Categorical eligibility detail");
-    pdf.keyValues(
-      [
+    const categoricalRows: KeyValueRow[] = [
         ["Program", categorical.program_label ?? "Not yet determined"],
         ["Documentation dated", categorical.letter_date ? `${formatCalendarDate(categorical.letter_date)} (${categorical.letter_date})` : "Not yet determined"],
         ["Approval status read from the document", APPROVAL_LABEL[categorical.approval_status]],
@@ -410,31 +431,32 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         ...(categorical.document_id ? [["Document", [part(categorical.document_id, MONO)]] as const] : []),
         ["Application date", `${formatCalendarDate(decision.application_date)} (${decision.application_date})`],
         ["Decision date", formatUtcTimestamp(decision.decided_at)],
-      ],
-      190,
-    );
+    ];
+    pdf.heading("4. Categorical eligibility detail", Math.min(pdf.keyValuesHeight(categoricalRows, 190), KEEP_TOGETHER_LIMIT));
+    pdf.keyValues(categoricalRows, 190);
   }
 
   /* ---------------------------------------------------------------------------------- 5. consent */
 
-  pdf.heading("5. Consent record");
-  pdf.keyValues(consentRows(record.consent), 168);
+  const primaryConsent = consentRows(record.consent);
+  pdf.heading("5. Consent record", Math.min(pdf.keyValuesHeight(primaryConsent, 150), KEEP_TOGETHER_LIMIT));
+  pdf.keyValues(primaryConsent, 150);
   for (const consent of record.additional_consents) {
+    const rows = consentRows(consent);
     pdf.gap(4);
-    pdf.keyValues(consentRows(consent), 168);
+    pdf.ensure(Math.min(pdf.keyValuesHeight(rows, 150), KEEP_TOGETHER_LIMIT));
+    pdf.keyValues(rows, 150);
   }
 
   /* ----------------------------------------------------------------------------- 6. review trail */
 
-  pdf.heading("6. Decision reasons and review trail");
-  pdf.keyValues(
-    [
-      ["Decision made by", decidedBy],
-      ["Decision made", formatUtcTimestamp(decision.decided_at)],
-      ...(decision.decided_by.reviewer_notes ? [["Reviewer notes", decision.decided_by.reviewer_notes] as const] : []),
-    ],
-    168,
-  );
+  const decisionRows: KeyValueRow[] = [
+    ["Decision made by", decidedBy],
+    ["Decision made", formatUtcTimestamp(decision.decided_at)],
+    ...(decision.decided_by.reviewer_notes ? [["Reviewer notes", decision.decided_by.reviewer_notes] as const] : []),
+  ];
+  pdf.heading("6. Decision reasons and review trail", Math.min(pdf.keyValuesHeight(decisionRows, 150), KEEP_TOGETHER_LIMIT));
+  pdf.keyValues(decisionRows, 150);
   if (decision.reasons.length > 0) {
     pdf.table(
       [
@@ -450,13 +472,13 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     pdf.subheading("Who or what reviewed exceptions");
     pdf.table(
       [
-        { header: "When (UTC)", width: 104 },
-        { header: "Who or what", width: 130 },
+        { header: "When (UTC)", width: 100 },
+        { header: "Who or what", width: 134 },
         { header: "Action", width: 110 },
         { header: "Notes", width: 160 },
       ],
       record.review_trail.map((entry) => [
-        formatUtcTimestamp(entry.at),
+        formatUtcClock(entry.at),
         [part(actorText(entry.actor)), ...(entry.actor.id ? [part(entry.actor.id, MONO_SMALL)] : [])],
         entry.action,
         entry.notes ?? "",
@@ -472,12 +494,12 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   } else {
     pdf.table(
       [
-        { header: "When (UTC)", width: 104 },
-        { header: "Event", width: 150 },
+        { header: "When (UTC)", width: 100 },
+        { header: "Event", width: 144 },
         { header: "Who or what", width: 110 },
-        { header: "Detail", width: 140 },
+        { header: "Detail", width: 150 },
       ],
-      record.timeline.map((entry) => [formatUtcTimestamp(entry.at), entry.event, actorText(entry.actor), entry.detail ?? ""]),
+      record.timeline.map((entry) => [formatUtcClock(entry.at), entry.event, actorText(entry.actor), entry.detail ?? ""]),
     );
   }
 
@@ -527,8 +549,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   const headerFooter = {
     headerLeft: `${brandName}  |  ${DOCUMENT_TITLE}`,
     headerRight: record.verification_id,
-    footerLeft: `${test ? `${PDF_COPY.testWatermark}  |  ` : ""}Generated ${formatUtcTimestamp(record.generated_at)}`,
-    footerCenter: `Record SHA-256 ${signature.record_sha256.slice(0, 16)}...`,
+    footerLeft: `${test ? `${PDF_COPY.testWatermark}  |  ` : ""}Generated ${formatUtcTimestamp(record.generated_at)}  |  Record SHA-256 ${signature.record_sha256.slice(0, 16)}...`,
   };
   for (const value of Object.values(headerFooter)) pdf.encoder.encode(value);
   const substituted = pdf.encoder.substituted;

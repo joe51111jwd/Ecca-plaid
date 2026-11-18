@@ -9,9 +9,10 @@ import { AppError, conflict, invalid, notFound } from "@/lib/errors";
 import { newToken } from "@/lib/ids";
 import { enqueue } from "@/server/jobs";
 import { applyProcessorEvent } from "./events";
-import { readPaymentMeta, type InvoiceLineRow, type InvoiceRow, type PaymentLine, type PaymentRow } from "./metadata";
-import { MAX_CHARGE_CENTS, MIN_CHARGE_CENTS, SANDBOX_ASYNC_SETTLE_DELAY_MS } from "./policy";
-import { isExpired, isValidSecurityCode, normalizeCardNumber, parseExpiry, resolveSandboxCard, SANDBOX_FAILURE_MESSAGES, SANDBOX_TEST_CARDS, sandboxTestExpiry, type SandboxTestCard } from "./sandbox-cards";
+import type { SandboxClientPayment } from "./client";
+import { readPaymentMeta, type InvoiceLineRow, type InvoiceRow, type PaymentRow } from "./metadata";
+import { CURRENCY, MAX_CHARGE_CENTS, MIN_CHARGE_CENTS, SANDBOX_ASYNC_SETTLE_DELAY_MS } from "./policy";
+import { isExpired, isValidSecurityCode, normalizeCardNumber, parseExpiry, resolveSandboxCard, SANDBOX_FAILURE_MESSAGES, SANDBOX_TEST_CARDS, sandboxTestExpiry } from "./sandbox-cards";
 import type {
   CreateInvoiceInput,
   CreatePaymentInput,
@@ -200,19 +201,30 @@ export class SandboxProcessor implements PaymentProcessor {
 /* Paying a sandbox payment ----------------------------------------------------------------------------- */
 
 export interface SandboxPaymentView {
-  paymentId: string;
-  /** Pass back to `confirmSandboxPayment`. */
-  clientSecret: string;
-  status: PaymentStatus;
-  amountCents: number;
-  description: string;
-  lines: PaymentLine[];
-  failureReason: string | null;
+  /** What `<PaymentForm>` needs, exactly as a checkout page would get it from `getPaymentForClient`. */
+  payment: SandboxClientPayment;
   /** The organization the payment is for, when known. */
   payeeName: string | null;
-  testCards: readonly SandboxTestCard[];
-  /** A future expiry date (MM/YY) for the form's "use this number" buttons. */
-  testExpiry: string;
+}
+
+/** The browser's view of a sandbox payment row. */
+export function sandboxClientPayment(row: PaymentRow): SandboxClientPayment {
+  const meta = readPaymentMeta(row);
+  return {
+    provider: "sandbox",
+    paymentId: row.id,
+    mode: "test",
+    status: row.status,
+    amountCents: row.amountCents,
+    currency: CURRENCY,
+    description: meta.description,
+    lines: meta.lines,
+    failureReason: row.failureReason,
+    clientSecret: sandboxPaymentSecret(row.id),
+    sandboxUrl: sandboxPaymentPath(row.id),
+    testCards: SANDBOX_TEST_CARDS,
+    testExpiry: sandboxTestExpiry(now()),
+  };
 }
 
 /** What the hosted sandbox pay page shows. Throws not_found unless `key` is the payment's sandbox secret. */
@@ -226,19 +238,7 @@ export async function getSandboxPaymentView(paymentId: string, key: string | nul
     .leftJoin(organizations, eq(organizations.id, payments.orgId))
     .where(eq(payments.id, paymentId));
   if (!row || row.payment.processor !== "sandbox") throw notFound("Payment");
-  const meta = readPaymentMeta(row.payment);
-  return {
-    paymentId: row.payment.id,
-    clientSecret: sandboxPaymentSecret(row.payment.id),
-    status: row.payment.status,
-    amountCents: row.payment.amountCents,
-    description: meta.description,
-    lines: meta.lines,
-    failureReason: row.payment.failureReason,
-    payeeName: row.payeeName ?? null,
-    testCards: SANDBOX_TEST_CARDS,
-    testExpiry: sandboxTestExpiry(now()),
-  };
+  return { payment: sandboxClientPayment(row.payment), payeeName: row.payeeName ?? null };
 }
 
 const confirmInput = z.object({

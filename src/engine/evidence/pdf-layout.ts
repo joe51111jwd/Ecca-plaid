@@ -35,7 +35,7 @@ export const COLOR = Object.freeze({
   amber: rgb(0.64, 0.38, 0.02),
   amberPanel: rgb(1, 0.975, 0.91),
   redPanel: rgb(0.995, 0.945, 0.945),
-  watermark: rgb(0.93, 0.9, 0.9),
+  watermark: rgb(0.945, 0.92, 0.92),
   white: rgb(1, 1, 1),
 });
 
@@ -180,7 +180,6 @@ export interface HeaderFooter {
   headerLeft: string;
   headerRight: string;
   footerLeft: string;
-  footerCenter: string;
 }
 
 const CELL_PAD_X = 5;
@@ -234,7 +233,7 @@ export class PdfWriter {
       while (fit < rest.length && this.widthOf(rest.slice(0, fit + 1), style) <= maxWidth) fit += 1;
       let cut = fit;
       for (let i = fit; i > Math.floor(fit / 2); i -= 1) {
-        if ("/_-.:,;".includes(rest[i - 1])) {
+        if ("/_-:,;".includes(rest[i - 1])) {
           cut = i;
           break;
         }
@@ -409,6 +408,10 @@ export class PdfWriter {
       });
     });
 
+    // A box that fits on one page is never split; only a box taller than a page continues on the next.
+    const totalHeight = lines.reduce((sum, line) => sum + line.height, 0) + 2 * padY;
+    if (totalHeight <= CONTENT_TOP - CONTENT_BOTTOM) this.ensure(totalHeight);
+
     let start = 0;
     while (start < lines.length) {
       this.ensure(2 * padY + lines[start].height * Math.min(3, lines.length - start));
@@ -435,16 +438,50 @@ export class PdfWriter {
     this.y -= 10;
   }
 
+  private static keyValueColumns(labelWidth: number): Column[] {
+    return [
+      { header: "", width: labelWidth, style: STYLE.label },
+      { header: "", width: CONTENT_WIDTH - labelWidth, style: STYLE.body },
+    ];
+  }
+
   /** Label and value pairs. Values may be multi-part cells. */
   keyValues(rows: ReadonlyArray<readonly [label: string, value: Cell]>, labelWidth = 150): void {
-    this.table(
-      [
-        { header: "", width: labelWidth, style: STYLE.label },
-        { header: "", width: CONTENT_WIDTH - labelWidth, style: STYLE.body },
-      ],
-      rows.map(([label, value]) => [label, value]),
-      { header: false },
-    );
+    this.table(PdfWriter.keyValueColumns(labelWidth), rows, { header: false });
+  }
+
+  /** Height `keyValues` would take on one page. Lets a heading stay with a short block that follows it. */
+  keyValuesHeight(rows: ReadonlyArray<readonly [label: string, value: Cell]>, labelWidth = 150): number {
+    return this.tableHeight(PdfWriter.keyValueColumns(labelWidth), rows, { header: false });
+  }
+
+  private cellLines(columns: readonly Column[], row: readonly Cell[]): PlacedLine[][] {
+    return columns.map((column, index) => {
+      const cell = row[index] ?? "";
+      const parts: readonly CellPart[] = typeof cell === "string" ? [{ text: cell }] : cell;
+      return parts.flatMap((part) => this.linesOf(part.text, part.style ?? column.style ?? STYLE.small, column.width - 2 * CELL_PAD_X));
+    });
+  }
+
+  private rowLineHeight(cells: readonly PlacedLine[][]): number {
+    return Math.max(...cells.flat().map((line) => this.lineHeight(line.style)), this.lineHeight(STYLE.small));
+  }
+
+  private headerHeight(columns: readonly Column[]): number {
+    const lineCounts = columns.map((column) => this.wrap(column.header, STYLE.tableHeader, column.width - 2 * CELL_PAD_X).length);
+    return Math.max(...lineCounts) * this.lineHeight(STYLE.tableHeader) + 2 * CELL_PAD_Y;
+  }
+
+  /** Height `table` would take if it were drawn on one page. Measuring does not count character substitutions twice. */
+  tableHeight(columns: readonly Column[], rows: ReadonlyArray<readonly Cell[]>, options: TableOptions = {}): number {
+    const substituted = this.encoder.substituted;
+    let height = (options.header ?? true) ? this.headerHeight(columns) : 0;
+    for (const row of rows) {
+      const cells = this.cellLines(columns, row);
+      height += Math.max(...cells.map((lines) => lines.length)) * this.rowLineHeight(cells) + 2 * CELL_PAD_Y;
+    }
+    this.encoder.substituted = substituted;
+    return height + 8;
   }
 
   table(columns: readonly Column[], rows: ReadonlyArray<readonly Cell[]>, options: TableOptions = {}): void {
@@ -453,7 +490,7 @@ export class PdfWriter {
     const headerStyle = STYLE.tableHeader;
     const headerLines = columns.map((column) => this.linesOf(column.header, headerStyle, column.width - 2 * CELL_PAD_X));
     const headerLineHeight = this.lineHeight(headerStyle);
-    const headerHeight = Math.max(...headerLines.map((lines) => lines.length)) * headerLineHeight + 2 * CELL_PAD_Y;
+    const headerHeight = this.headerHeight(columns);
     const columnLeft: number[] = [];
     columns.reduce((x, column) => {
       columnLeft.push(x);
@@ -482,12 +519,8 @@ export class PdfWriter {
     drawHeader();
 
     rows.forEach((row, rowIndex) => {
-      const cells = columns.map((column, index) => {
-        const cell = row[index] ?? "";
-        const parts: readonly CellPart[] = typeof cell === "string" ? [{ text: cell }] : cell;
-        return parts.flatMap((part) => this.linesOf(part.text, part.style ?? column.style ?? STYLE.small, column.width - 2 * CELL_PAD_X));
-      });
-      const lineHeight = Math.max(...cells.flat().map((line) => this.lineHeight(line.style)), this.lineHeight(STYLE.small));
+      const cells = this.cellLines(columns, row);
+      const lineHeight = this.rowLineHeight(cells);
       const lineCount = Math.max(...cells.map((lines) => lines.length));
       const fullPage = CONTENT_TOP - CONTENT_BOTTOM - (showHeader ? headerHeight : 0) - 2 * CELL_PAD_Y;
 
@@ -537,8 +570,7 @@ export class PdfWriter {
     };
     const headerLeft = fitted(text.headerLeft, headerStyle, CONTENT_WIDTH * 0.5);
     const headerRight = fitted(text.headerRight, idStyle, CONTENT_WIDTH * 0.48);
-    const footerLeft = fitted(text.footerLeft, footerStyle, CONTENT_WIDTH * 0.34);
-    const footerCenter = fitted(text.footerCenter, footerStyle, CONTENT_WIDTH * 0.3);
+    const footerLeft = fitted(text.footerLeft, footerStyle, CONTENT_WIDTH * 0.84);
 
     this.pages.forEach((page, index) => {
       page.drawText(headerLeft, { x: CONTENT_LEFT, y: HEADER_BASELINE, size: headerStyle.size, font: this.fonts.bold, color: headerStyle.color });
@@ -548,7 +580,6 @@ export class PdfWriter {
       page.drawLine({ start: { x: CONTENT_LEFT, y: FOOTER_RULE_Y }, end: { x: CONTENT_RIGHT, y: FOOTER_RULE_Y }, thickness: 0.5, color: COLOR.rule });
       const pageLabel = `Page ${index + 1} of ${total}`;
       page.drawText(footerLeft, { x: CONTENT_LEFT, y: FOOTER_BASELINE, size: footerStyle.size, font: this.fonts.regular, color: footerStyle.color });
-      page.drawText(footerCenter, { x: PAGE.width / 2 - this.widthOf(footerCenter, footerStyle) / 2, y: FOOTER_BASELINE, size: footerStyle.size, font: this.fonts.regular, color: footerStyle.color });
       page.drawText(pageLabel, { x: CONTENT_RIGHT - this.widthOf(pageLabel, footerStyle), y: FOOTER_BASELINE, size: footerStyle.size, font: this.fonts.regular, color: footerStyle.color });
     });
     return total;

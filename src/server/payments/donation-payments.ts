@@ -13,8 +13,8 @@ import { enqueue } from "@/server/jobs";
 import { lockKey, META, readPaymentMeta, type PaymentLine, type PaymentRow } from "./metadata";
 import { CURRENCY, MAX_CHARGE_CENTS, MIN_CHARGE_CENTS, REFUND_REASON_MIN_LENGTH } from "./policy";
 import { getProcessor, processorFor } from "./processor";
-import { sandboxPaymentPath, sandboxPaymentSecret } from "./sandbox";
-import { SANDBOX_TEST_CARDS, sandboxTestExpiry, type SandboxTestCard } from "./sandbox-cards";
+import type { ClientPayment } from "./client";
+import { sandboxClientPayment } from "./sandbox";
 import type { PaymentLookup, ProcessorName, ProcessorPayment, Settlement } from "./types";
 
 /**
@@ -55,38 +55,6 @@ export interface CreateDonationPaymentInput {
    */
   settlement?: { settlementMode: "destination"; counselSignoffRef: string };
 }
-
-interface ClientPaymentBase {
-  paymentId: string;
-  mode: Mode;
-  status: PaymentStatus;
-  amountCents: number;
-  currency: typeof CURRENCY;
-  description: string;
-  lines: PaymentLine[];
-  /** Why the last attempt failed, in words the payer may see. */
-  failureReason: string | null;
-}
-
-/** Everything the browser needs to pay. Plain JSON: safe to pass from a server component to `<PaymentForm>`. */
-export type ClientPayment =
-  | (ClientPaymentBase & {
-      provider: "sandbox";
-      clientSecret: string;
-      /** In-app path of the hosted sandbox pay page. */
-      sandboxUrl: string;
-      testCards: readonly SandboxTestCard[];
-      /** A future expiry date (MM/YY) for the form's "use this number" buttons. */
-      testExpiry: string;
-    })
-  | (ClientPaymentBase & {
-      provider: "stripe";
-      /** Null once the payment can no longer be paid. */
-      clientSecret: string | null;
-      publishableKey: string;
-      /** Set for direct charges: Stripe.js must be loaded for this connected account. */
-      connectedAccountId: string | null;
-    });
 
 export interface PaymentSummary {
   id: string;
@@ -351,8 +319,17 @@ async function attachProcessorPayment(paymentId: string, processor: ProcessorNam
 }
 
 async function clientPayment(row: PaymentRow, fresh?: ProcessorPayment): Promise<ClientPayment> {
+  if (row.processor === "sandbox") return sandboxClientPayment(row);
   const meta = readPaymentMeta(row);
-  const base: ClientPaymentBase = {
+  const publishableKey = env().NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  if (!publishableKey) throw new AppError("not_available", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set");
+  let clientSecret: string | null = null;
+  if (isPayable(row.status) && row.processorPaymentId) {
+    // Never stored on our side: read from the processor whenever the browser needs it.
+    clientSecret = fresh?.clientSecret ?? (await processorFor("stripe").retrievePayment(row.processorPaymentId, lookupFor(row))).clientSecret ?? null;
+  }
+  return {
+    provider: "stripe",
     paymentId: row.id,
     mode: meta.mode,
     status: row.status,
@@ -361,25 +338,10 @@ async function clientPayment(row: PaymentRow, fresh?: ProcessorPayment): Promise
     description: meta.description,
     lines: meta.lines,
     failureReason: row.failureReason,
+    clientSecret,
+    publishableKey,
+    connectedAccountId: lookupFor(row).connectedAccountId ?? null,
   };
-  if (row.processor === "sandbox") {
-    return {
-      ...base,
-      provider: "sandbox",
-      clientSecret: sandboxPaymentSecret(row.id),
-      sandboxUrl: sandboxPaymentPath(row.id),
-      testCards: SANDBOX_TEST_CARDS,
-      testExpiry: sandboxTestExpiry(now()),
-    };
-  }
-  const publishableKey = env().NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-  if (!publishableKey) throw new AppError("not_available", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set");
-  let clientSecret: string | null = null;
-  if (isPayable(row.status) && row.processorPaymentId) {
-    // Never stored on our side: read from the processor whenever the browser needs it.
-    clientSecret = fresh?.clientSecret ?? (await processorFor("stripe").retrievePayment(row.processorPaymentId, lookupFor(row))).clientSecret ?? null;
-  }
-  return { ...base, provider: "stripe", clientSecret, publishableKey, connectedAccountId: lookupFor(row).connectedAccountId ?? null };
 }
 
 /**

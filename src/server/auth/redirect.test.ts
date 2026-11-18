@@ -45,6 +45,16 @@ describe("sanitizeRedirect", () => {
     "/sign-out",
     "/sign-in?next=/x",
     "/sign-in",
+    // Dot segments that normalise into a protocol-relative URL (regression: these used to come out as "//evil.com").
+    "/a/..//evil.com",
+    "/.//evil.com",
+    "/%2e%2e//evil.com",
+    "/a/%2e%2e//evil.com",
+    "/x/../%2fevil.com",
+    "/a/..//evil.com/path?x=1",
+    // Percent-encoded blocked segments.
+    "/%61uth/callback?token=x",
+    "/sign%2Dout",
   ])("rejects %j", (input) => {
     expect(sanitizeRedirect(input)).toBeNull();
   });

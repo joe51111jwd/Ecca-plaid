@@ -105,7 +105,8 @@ function Hero() {
                     </span>
                   </span>
                   <span className="mt-3 flex-1 text-sm text-fg-muted sm:mt-2">{entry.body}</span>
-                  <span className="mt-4 border-t border-line pt-3 text-xs font-medium text-fg-muted">{entry.note}</span>
+                  {/* Two lines reserved from sm up so the dividers line up across the row. */}
+                  <span className="mt-4 border-t border-line pt-3 text-xs font-medium text-fg-muted sm:min-h-[2.875rem]">{entry.note}</span>
                 </Link>
               </li>
             ))}

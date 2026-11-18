@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useState, type ReactNode } from "react";
-import { Alert, Banner, LineItems, Spinner } from "@/components/ui";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Alert, Banner, Button, LineItems, Spinner } from "@/components/ui";
 import type { PaymentStatus } from "@/db/schema";
 import { formatUsd } from "@/lib/money";
 import type { ClientPayment, SandboxConfirmResult } from "@/server/payments";
@@ -29,19 +29,32 @@ export interface PaymentFormProps {
    * Where the payer goes once the payment has succeeded or is pending: an in-app path ("/give/thanks") or an
    * absolute http(s) URL. `payment_id` and `redirect_status` (succeeded | processing) are added to its query.
    * The page there must read the payment's real state on the server; the query is only a hint.
+   * Without it the form stays on the page, shows the outcome and refreshes the server components around it.
    */
   returnUrl?: string;
   /** Called after every attempt. With a `returnUrl`, it runs just before the redirect. */
   onResult?: (result: PaymentFormResult) => void;
-  /** Default "Pay $1,700.00". The checkout decides its own verb. */
+  /** Default "Pay $1,700.00" (sandbox: "Pay $1,700.00 (sandbox)"). The checkout decides its own verb. */
   submitLabel?: ReactNode;
   /** Show what the total is made of above the form (default: only when there is more than one line). */
   showLines?: boolean;
+  /** The "Sandbox — no money moves" block above the sandbox form. Turn it off only on a page that already shows the sandbox banner. */
+  showSandboxNotice?: boolean;
+  /**
+   * While the payment is pending, ask the server for the page again every few seconds so it shows the
+   * outcome when it arrives. For flows that finish in seconds (the sandbox); a real bank payment takes days.
+   */
+  refreshWhilePending?: boolean;
   className?: string;
 }
 
+/** How often a pending payment is looked up again when `refreshWhilePending` is set. */
+const PENDING_REFRESH_MS = 2500;
+
+const isPayable = (status: PaymentStatus): status is "requires_payment" | "failed" => status === "requires_payment" || status === "failed";
+
 function isSafeReturnUrl(url: string): boolean {
-  if (url.startsWith("/")) return !url.startsWith("//") && !url.startsWith("/\\");
+  if (url.startsWith("/")) return !url.startsWith("//") && !url.includes("\\");
   return /^https?:\/\//i.test(url);
 }
 
@@ -55,19 +68,23 @@ function withResult(url: string, paymentId: string, status?: "succeeded" | "proc
  * The payment step of a checkout. Give it what the server said about the payment and it shows the right
  * form: Stripe's Payment Element, or the sandbox card form with its "no money moves" notice. When the
  * payment is finished, pending, canceled or refunded it shows that instead.
+ *
+ * What the form reports (through `onResult` and the redirect) is what the browser saw. The record of the
+ * payment is the server's: the processor's event, or `syncPaymentWithProcessor`.
  */
-export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLines, className }: PaymentFormProps) {
+export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLines, showSandboxNotice = true, refreshWhilePending = false, className }: PaymentFormProps) {
   const router = useRouter();
-  const [status, setStatus] = useState<PaymentStatus>(payment.status);
+  const [submitted, setSubmitted] = useState<PaymentFormResult["status"] | null>(null);
+  // The server's word wins: what the form last heard only bridges the moment until the page is rendered again.
+  const status: PaymentStatus = isPayable(payment.status) && submitted && submitted !== "failed" ? submitted : payment.status;
   const sandbox = payment.provider === "sandbox";
   const target = returnUrl && isSafeReturnUrl(returnUrl) ? returnUrl : null;
 
   const finish = useCallback(
     (result: PaymentFormResult) => {
-      setStatus(result.status);
+      setSubmitted(result.status);
       onResult?.(result);
-      if (result.status === "failed") return;
-      if (!target) {
+      if (result.status === "failed" || !target) {
         // No redirect: let the server components around the form pick up the new state.
         router.refresh();
         return;
@@ -89,8 +106,14 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
 
   const onStripeResult = useCallback((result: StripeFormResult) => finish({ paymentId: payment.paymentId, ...result }), [finish, payment.paymentId]);
 
+  useEffect(() => {
+    if (!refreshWhilePending || status !== "processing") return;
+    const timer = setInterval(() => router.refresh(), PENDING_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refreshWhilePending, status, router]);
+
   const total = formatUsd(payment.amountCents, { cents: true });
-  const lines = showLines ?? payment.lines.length > 1;
+  const continueTo = target && (status === "succeeded" || status === "processing") ? withResult(target, payment.paymentId, status) : null;
 
   return (
     <div className={className} data-testid="payment-form" data-provider={payment.provider} data-status={status}>
@@ -101,24 +124,34 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
           </Banner>
         ) : null}
 
-        {lines ? (
+        {(showLines ?? payment.lines.length > 1) ? (
           <LineItems
-            label="What you are paying"
+            label="What this payment is made of"
             showCents
             items={payment.lines.map((line) => ({ label: line.description, amountCents: line.amountCents }))}
             total={{ label: sandbox ? "Total (sandbox, not charged)" : "Total", amountCents: payment.amountCents }}
           />
         ) : (
-          <p className="flex items-baseline justify-between gap-4 text-base">
-            <span className="font-medium text-fg">{sandbox ? "Amount (sandbox, not charged)" : "Amount"}</span>
-            <span className="text-lg font-semibold text-fg nums" data-testid="payment-amount">
+          <p className="flex items-baseline justify-between gap-4 border-y border-line py-4">
+            <span className="text-base font-medium text-fg">{sandbox ? "Amount (sandbox, not charged)" : "Amount"}</span>
+            <span className="text-2xl font-semibold text-fg nums" data-testid="payment-amount">
               {total}
             </span>
           </p>
         )}
 
-        {status !== "requires_payment" && status !== "failed" ? (
-          <PaymentOutcome status={status} sandbox={sandbox} />
+        {!isPayable(status) ? (
+          <PaymentOutcome
+            status={status}
+            sandbox={sandbox}
+            actions={
+              continueTo ? (
+                <Button href={continueTo} data-testid="payment-continue">
+                  Continue
+                </Button>
+              ) : undefined
+            }
+          />
         ) : payment.provider === "sandbox" ? (
           <SandboxPaymentForm
             paymentId={payment.paymentId}
@@ -129,6 +162,7 @@ export function PaymentForm({ payment, returnUrl, onResult, submitLabel, showLin
             lastFailure={payment.failureReason}
             onResult={onSandboxResult}
             submitLabel={submitLabel}
+            showNotice={showSandboxNotice}
           />
         ) : payment.clientSecret ? (
           <StripePaymentForm

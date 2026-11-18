@@ -108,7 +108,7 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
           <Field id={FIELD_IDS.expiry} label={FIELD_LABELS.expiry} hint="Any future date, MM/YY." error={fieldError(state, "expiry")}>
             <Input name="sandboxExpiry" value={expiry} onChange={(event) => setExpiry(event.target.value.slice(0, 9))} inputMode="numeric" autoComplete="off" placeholder="MM/YY" className="font-mono" />
           </Field>
-          <Field id={FIELD_IDS.securityCode} label={FIELD_LABELS.securityCode} hint="Any 3 digits." error={fieldError(state, "securityCode")}>
+          <Field id={FIELD_IDS.securityCode} label={FIELD_LABELS.securityCode} hint="Any 3 or 4 digits." error={fieldError(state, "securityCode")}>
             <Input
               name="sandboxSecurityCode"
               value={securityCode}
@@ -133,7 +133,7 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
         <p className="mt-1 text-sm text-fg-muted">The number you use decides what happens to the test payment.</p>
         <ul className="mt-3 divide-y divide-line">
           {testCards.map((card) => (
-            <li key={card.number} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5">
+            <li key={card.number} className="grid items-center gap-x-4 gap-y-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-fg">
                   <span className="font-mono">{card.display}</span>
@@ -144,7 +144,14 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
                 </p>
                 <p className="text-sm text-fg-muted">{card.description}</p>
               </div>
-              <Button variant="secondary" size="sm" onClick={() => fillTestCard(card)} aria-label={`Use test number ${card.display}: ${card.label}`} data-testid={`sandbox-use-${card.outcome}`}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => fillTestCard(card)}
+                aria-label={`Use test number ${card.display}: ${card.label}`}
+                data-testid={`sandbox-use-${card.outcome}`}
+              >
                 Use this number
               </Button>
             </li>

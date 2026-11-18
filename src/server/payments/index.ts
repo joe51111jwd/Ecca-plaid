@@ -55,7 +55,6 @@ export {
   getPaymentForClient,
   refundPayment,
   syncPaymentWithProcessor,
-  type ClientPayment,
   type CreateDonationPaymentInput,
   type DonationPayment,
   type PaymentScope,
@@ -63,6 +62,7 @@ export {
   type RefundPaymentRequest,
   type RefundResult,
 } from "./donation-payments";
+export type { ClientPayment, ClientPaymentBase, SandboxClientPayment, StripeClientPayment } from "./client";
 export type { PaymentLine } from "./metadata";
 
 export { applyProcessorEvent, DONATION_PAYMENT_UPDATED_JOB, INVOICE_PAYMENT_UPDATED_JOB, type ApplyEventResult, type IgnoredReason } from "./events";

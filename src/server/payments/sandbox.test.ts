@@ -206,8 +206,11 @@ describe("sandbox processor, end to end", () => {
     expect((await getPayment(payment.id)).status).toBe("requires_payment");
 
     const view = await getSandboxPaymentView(payment.id, sandboxPaymentSecret(payment.id));
-    expect(view).toMatchObject({ paymentId: payment.id, status: "requires_payment", amountCents: 170_000, payeeName: "Synthetic Scholarship Fund", description: "Contribution to Synthetic Scholarship Fund" });
-    expect(view.lines).toEqual([{ kind: "designated_contribution", amountCents: 170_000, description: "Designated contribution (synthetic)" }]);
+    expect(view.payeeName).toBe("Synthetic Scholarship Fund");
+    // Exactly what a checkout page gets for the same payment, so the hosted page and an embedded form agree.
+    expect(view.payment).toEqual(payment.client);
+    expect(view.payment).toMatchObject({ provider: "sandbox", mode: "test", status: "requires_payment", amountCents: 170_000, description: "Contribution to Synthetic Scholarship Fund", testExpiry: "12/30" });
+    expect(view.payment.lines).toEqual([{ kind: "designated_contribution", amountCents: 170_000, description: "Designated contribution (synthetic)" }]);
   });
 
   it("never touches a payment that belongs to another processor", async () => {

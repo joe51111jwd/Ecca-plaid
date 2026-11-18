@@ -160,7 +160,7 @@ describe("orgs", () => {
     it("lets members remove themselves and lists members for members only", async () => {
       const viewer = (await addMember({ orgId, email: "viewer@example.com", role: "viewer" }, { userId: owner.id })).user;
       const list = await listMembers(orgId, { userId: viewer.id });
-      expect(list.map((m) => m.user.email)).toEqual(["owner@example.com", "viewer@example.com"]);
+      expect(list.map((m) => m.user.email).sort()).toEqual(["owner@example.com", "viewer@example.com"]);
       expect(await codeOf(listMembers(orgId, { userId: stranger.id }))).toBe("forbidden");
 
       await removeMember({ orgId, userId: viewer.id }, { userId: viewer.id });
