@@ -1,7 +1,7 @@
 import { eq, lte, sql } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/db/client";
 import { MS, now } from "@/lib/clock";
-import { sha256Hex } from "@/lib/crypto";
+import { deriveKey, hmacSha256 } from "@/lib/crypto";
 import { AppError } from "@/lib/errors";
 
 /**
@@ -59,11 +59,12 @@ function rateLimitsDisabled(): boolean {
 }
 
 /**
- * Row key for a limiter key. Limiter keys routinely contain email addresses and IP addresses; only a hash
- * is stored, so the table holds no personal data and keys of any length fit.
+ * Row key for a limiter key. Limiter keys routinely contain email addresses and IP addresses; only a keyed
+ * hash (HMAC under a sub-key of the master key) is stored. A plain SHA-256 would not do: the whole IPv4 space
+ * and any list of known emails can be hashed in minutes, so an unkeyed digest is the address in disguise.
  */
 export function rateLimitStorageKey(key: string): string {
-  return sha256Hex(`ecca-ratelimit-v1:${key}`);
+  return hmacSha256(deriveKey("ratelimit-key"), `ecca-ratelimit-v2:${key}`).toString("hex");
 }
 
 function check(key: string, opts: RateLimitOptions): void {
