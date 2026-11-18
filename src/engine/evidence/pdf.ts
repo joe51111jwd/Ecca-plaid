@@ -22,7 +22,6 @@ import { canonicalRecordBytes } from "./record";
 import {
   EVIDENCE_SCHEMA_VERSION,
   type EvidencePdfOptions,
-  type EvidenceRecord,
   type EvidenceRecordActor,
   type EvidenceRecordConsent,
   type EvidenceScopeValue,

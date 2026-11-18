@@ -94,4 +94,4 @@ export {
   type MissingCode,
   type MissingItem,
 } from "./types";
-export { addMonthsClamped, formatLongDate, isIsoDate, lastDayOfYear, yearOf, type IsoDate } from "./calendar";
+export { addMonthsClamped, earliestDate, formatLongDate, isIsoDate, lastDayOfYear, yearOf, type IsoDate } from "./calendar";

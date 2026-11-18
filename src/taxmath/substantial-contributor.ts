@@ -192,8 +192,10 @@ export function assessSubstantialContributor(input: SubstantialContributorInput)
       : null;
 
   const advisories: SubstantialContributorAdvisory[] = [];
-  // Lead with the test that makes the donor a substantial contributor, else the organization-level one.
-  const leading = tests.find((test) => test.substantial === true) ?? tests.find((test) => test.exceedsAmountThreshold);
+  // Lead with the test that decides the status: one that is met, else one that cannot be decided without a
+  // total, else one that is over the amount but under the share.
+  const leading =
+    tests.find((test) => test.substantial === true) ?? tests.find((test) => test.substantial === null) ?? tests.find((test) => test.exceedsAmountThreshold);
   const advisory = leading ? advisoryFor(leading) : null;
   if (advisory) advisories.push(advisory);
   if (projected?.exceedsAmountThreshold && !organization.exceedsAmountThreshold) {

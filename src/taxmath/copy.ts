@@ -472,7 +472,7 @@ const DEFINITIONS = {
     audience: "donor",
     text: "Only one spouse is making a qualified contribution here, so this preview applies one {cap} limit. Under the proposed rules the limit belongs to each spouse who makes a qualified contribution: one spouse's gift cannot use the other spouse's limit, so {jointCap} is not available when only one spouse gives.",
     authority: "proposed_reg",
-    citation: `Inference from Prop. Treas. Reg. 1.25F-2(a) ("separate taxpayers") and the preamble ("provided that each spouse has made qualified contributions"); the sources give no example. [${REF} F16; Open Questions 3]`,
+    citation: `Inference from Prop. Treas. Reg. 1.25F-2(a) ("separate taxpayers") and the preamble ("provided that each spouse has made qualified contributions") of ${NPRM}; the sources give no example. [${REF} F16; Open Questions 3]`,
   },
   "note.joint_combined_limit": {
     kind: "statement",

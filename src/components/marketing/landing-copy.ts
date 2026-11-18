@@ -1,21 +1,37 @@
+import { formatDateTime } from "@/components/ui/date-format";
+import { STATUTORY_CAP_PCT } from "@/engine/ami";
 import { BRAND } from "@/lib/brand";
+import { formatUsd } from "@/lib/money";
+import { COPY_VERSION, CREDIT_CAP_PER_TAXPAYER_CENTS, FIRST_ELIGIBLE_DATE, JOINT_RETURN_MAX_CREDIT_CENTS, STATE_SGO_LIST_DEADLINE_2027, renderCopy } from "@/taxmath";
 
 /**
  * Every sentence on the public landing page, in one reviewable place.
  *
- * COPY RULES (docs/architecture.md → "Copy rules"). Each legal or tax statement below is limited to what
- * the build spec's "Context and constraints" and "Piece 1" sections say, and is tagged with where it
- * comes from. Do not strengthen these sentences:
- *   - proposed-regulation content says "under the proposed rules";
- *   - a gift is never called "free";
- *   - nothing implies the IRS income-limit table or the IRS SGO list has been published;
- *   - no statistics, testimonials, logos or partner names.
+ * COPY RULES (docs/architecture.md → "Copy rules"):
+ *   - Section 25F NUMBERS are never typed here. The cap, the joint-return amount, the credit start date and
+ *     the State-list deadline are read from src/taxmath; the income cap percentage from src/engine/ami.
+ *   - The statements of how the credit works ("donor.points") are the canonical sentences from
+ *     src/taxmath/copy, rendered as written there — this file adds none of its own.
+ *   - What remains is landing wording limited to the build spec's "Context and constraints" and "Piece 1"
+ *     sections, each tagged with its source. Do not strengthen it: proposed-regulation content says
+ *     "under the proposed rules"; a gift is never called "free"; nothing implies the IRS income-limit
+ *     table or the IRS SGO list has been published; no statistics, testimonials, logos or partner names.
  *
- * The section 25F figures repeated here (cap, joint-return amount, start date, carryforward years) are
- * owned by src/taxmath. When that module's constants change, this file must change with them; bump
- * LANDING_COPY_VERSION on every edit so a review can be tied to a version.
+ * Bump LANDING_COPY_VERSION on every edit so a review can be tied to a version.
  */
-export const LANDING_COPY_VERSION = "2026-11-18.1";
+export const LANDING_COPY_VERSION = "2026-11-18.2";
+
+/** The version of the tax copy catalog the donor section was rendered from. */
+export const LANDING_TAX_COPY_VERSION = COPY_VERSION;
+
+const CAP = formatUsd(CREDIT_CAP_PER_TAXPAYER_CENTS.value);
+const JOINT_MAX = formatUsd(JOINT_RETURN_MAX_CREDIT_CENTS.value);
+const CREDIT_START = formatDateTime(FIRST_ELIGIBLE_DATE.value, "dateLong");
+const CREDIT_START_SHORT = formatDateTime(FIRST_ELIGIBLE_DATE.value, "date");
+const STATE_LIST_DEADLINE = formatDateTime(STATE_SGO_LIST_DEADLINE_2027.value, "dateLong");
+
+/** The household used for the illustration in the hero: the build spec's own example (Harris County, four people). */
+export const LANDING_EXAMPLE = { countyFips: "48201", householdSize: 4, state: "Texas" } as const;
 
 export const LANDING = {
   hero: {
@@ -32,7 +48,7 @@ export const LANDING = {
       title: "I want to give",
       body: "Give to a scholarship organization and see how the federal credit would apply before you pay.",
       // Spec, Context: "Gifts before that date do not earn the credit."
-      note: "Gifts made before January 1, 2027 do not earn the credit.",
+      note: `Gifts made before ${CREDIT_START} do not earn the credit.`,
     },
     {
       key: "family",
@@ -59,16 +75,14 @@ export const LANDING = {
     },
   ],
 
+  // The numbers in the example (limit, formula, county name, provisional or not) come from the income engine at render time.
   example: {
     label: "Example — not a real household",
     title: "Income verification result",
-    household: "Household of 4",
-    county: "Harris County, Texas",
-    // Spec, Piece 3 (illustration): Houston-area FY 2026 median family income $104,000; 300% = $312,000.
-    // At family size 4 the HUD multiplier is 1.00, so the illustrative limit equals 300% of the median.
+    householdLabel: "Household",
+    household: (size: number) => `Household of ${size}`,
+    countyLabel: "County",
     limitLabel: "Income limit used",
-    limitCents: 31_200_000,
-    limitHint: "300% of the area median for a household of 4, from HUD FY 2026 income limits.",
     methodLabel: "Method",
     method: "Benefit award letter",
     evidenceLabel: "Evidence pack",
@@ -82,19 +96,19 @@ export const LANDING = {
       {
         // Spec, Context: "$1,700 Federal credit cap per taxpayer. Up to $3,400 on a joint return if each spouse contributes."
         // Spec, Piece 1: joint-return treatment is "under the proposed regulations".
-        figure: "$1,700",
+        figure: CAP,
         label: "Federal credit cap per taxpayer",
-        hint: "Under the proposed rules, up to $3,400 on a joint return if each spouse contributes.",
+        hint: `Under the proposed rules, up to ${JOINT_MAX} on a joint return if each spouse contributes.`,
       },
       {
         // Spec, Context: "300% Household income cap. Of area median gross income, prior calendar year."
-        figure: "300%",
+        figure: `${STATUTORY_CAP_PCT}%`,
         label: "Household income cap",
         hint: "Of area median gross income, measured for the calendar year before the application.",
       },
       {
         // Spec, Context: "Jan 1, 2027 Credit and verification go live. Gifts before that date do not earn the credit."
-        figure: "Jan 1, 2027",
+        figure: CREDIT_START_SHORT,
         label: "The credit begins",
         hint: "Gifts made before that date do not earn the credit.",
       },
@@ -130,14 +144,15 @@ export const LANDING = {
     eyebrow: "For donors",
     title: "The credit, explained before you pay",
     lead: "The checkout shows how the federal credit would apply to your gift. It is a preview, not tax advice, and it never guesses what you owe in tax.",
-    // Spec, Piece 1, "The math that has to be on the page".
+    // The canonical statements from the tax copy catalog (src/taxmath/copy), in the order they build on each other.
     points: [
-      "It is a nonrefundable federal income tax credit for cash gifts to scholarship granting organizations, for gifts made on or after January 1, 2027.",
-      "It generally equals what you give, up to $1,700 per taxpayer, reduced by any state tax credit you are allowed for the same gift.",
-      "Under the proposed rules, spouses filing jointly are treated as separate taxpayers, so a couple can reach $3,400 if each spouse contributes.",
-      "It cannot be more than your federal income tax for the year. Unused credit may be carried forward for up to five years.",
-      "The part of a gift you take as a credit cannot also be deducted as a charitable contribution.",
-      "A gift cannot be earmarked for a named student, and checkout is for individuals only.",
+      renderCopy("note.cap_per_taxpayer"),
+      renderCopy("note.nonrefundable"),
+      renderCopy("note.carryforward"),
+      renderCopy("note.joint_each_spouse"),
+      renderCopy("note.section_170_no_double_benefit"),
+      renderCopy("notice.no_earmark"),
+      renderCopy("notice.individuals_only"),
     ],
     // Architecture, "Money rules": the designated amount and any platform fee are always separate lines.
     feeNote: "If a platform fee ever applies, it is shown as its own line and is never described as part of your contribution.",
@@ -182,24 +197,29 @@ export const LANDING = {
     lead: "We would rather tell you plainly than have you find out later.",
     items: [
       {
+        key: "regulations",
         title: "The regulations are not final",
         // Spec, Context: proposed + temporary regulations Oct 2, 2026; comments due Dec 1, 2026; final rules may change methods.
-        body: "Treasury and the IRS published proposed and temporary regulations on October 2, 2026. Comments are due December 1, 2026, and the final rules may change details, including which ways of verifying income are allowed.",
+        body: "Treasury and the IRS published proposed and temporary regulations on October 2, 2026. The comment period runs to December 1, 2026, and the final rules may change details, including which ways of verifying income are allowed.",
       },
       {
+        // Shown only while the income engine's active table is provisional; see landing.tsx.
+        key: "limits",
         title: "Income limits are provisional",
         // Spec, Piece 3: IRS anticipates publishing limitations by area and family size; until then HUD-derived, labeled provisional.
         body: "The proposed rules say the IRS expects to publish income limits by area and family size each year. Until it does, the limits used here are calculated from HUD income-limit data, and every result that relies on them is labeled provisional.",
       },
       {
+        key: "sgo_list",
         title: "The list of scholarship organizations is provisional",
         // Spec, Context: "Feb 15, 2027 State SGO lists due to the IRS (2027 transition deadline under the temporary regulations)".
-        body: "For 2027, states’ lists of scholarship organizations are due to the IRS by February 15, 2027. Until the IRS list is public, the organizations shown here are a curated list, labeled provisional.",
+        body: `For 2027, states’ lists of scholarship organizations are due to the IRS by ${STATE_LIST_DEADLINE}. Until the IRS list is public, the organizations shown here are a curated list, labeled provisional.`,
       },
       {
-        title: "Credit-eligible giving has not started",
+        key: "credit_start",
+        title: `Gifts before ${CREDIT_START} do not earn the credit`,
         // Architecture, "Money rules": checkout held behind the credit start date; sandbox gifts are marked not credit-eligible.
-        body: "The credit applies to gifts made on or after January 1, 2027. Before then, the checkout can be tried in a sandbox where no money moves, and gifts are plainly marked as not eligible for the credit.",
+        body: `The credit applies to gifts made on or after ${CREDIT_START}. Before that date the checkout runs only as a sandbox: no money moves, and gifts are plainly marked as not eligible for the credit.`,
       },
     ],
   },

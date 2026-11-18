@@ -11,7 +11,8 @@ import { Money } from "@/components/ui/money";
 import { ProvisionalBadge } from "@/components/ui/provisional";
 import { KeyValue, KeyValueList } from "@/components/ui/stat";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { LANDING } from "./landing-copy";
+import { describeThresholdSource, getActiveTable, getThreshold, type ThresholdResult, type ThresholdSourceDescription } from "@/engine/ami";
+import { LANDING, LANDING_EXAMPLE } from "./landing-copy";
 
 const CONTAINER = "mx-auto w-full max-w-page px-4 sm:px-6 lg:px-8";
 
@@ -38,9 +39,29 @@ function SectionHeading({ eyebrow, title, lead, id }: { eyebrow?: string; title:
   );
 }
 
-/** The illustrative result shown in the hero. Labeled as an example and as provisional, like the real thing. */
-function ExampleResult() {
+interface LiveThreshold {
+  result: ThresholdResult;
+  source: ThresholdSourceDescription;
+}
+
+/**
+ * The example's numbers come from the income engine itself, so the landing page can never show a limit
+ * the product would not actually use, and it stops saying "provisional" on its own once an IRS-published
+ * table is the active one. If the engine cannot answer, the example is shown without a limit.
+ */
+function liveThreshold(): LiveThreshold | null {
+  try {
+    return { result: getThreshold({ countyFips: LANDING_EXAMPLE.countyFips, householdSize: LANDING_EXAMPLE.householdSize }), source: describeThresholdSource(getActiveTable()) };
+  } catch (error) {
+    console.error("Landing example: the income engine could not compute the illustrative limit", error);
+    return null;
+  }
+}
+
+/** The illustrative result shown in the hero. Labeled as an example and, while it is, as provisional — like the real thing. */
+function ExampleResult({ live }: { live: LiveThreshold | null }) {
   const example = LANDING.example;
+  const provisional = live?.result.provisional ?? true;
   return (
     <div className="rounded-panel border border-line bg-canvas p-3 sm:p-4">
       <div className="rounded-card border border-line bg-surface shadow-md">
@@ -51,16 +72,22 @@ function ExampleResult() {
           </Badge>
         </div>
         <div className="px-5 py-5">
-          <StatusBadge kind="verification" status="eligible" provisional />
+          <StatusBadge kind="verification" status="eligible" provisional={provisional} />
           <KeyValueList className="mt-4" dense>
-            <KeyValue label="Household">{example.household}</KeyValue>
-            <KeyValue label="County">{example.county}</KeyValue>
-            <KeyValue label={example.limitLabel} hint={example.limitHint}>
-              <span className="inline-flex flex-wrap items-center gap-2">
-                <Money cents={example.limitCents} />
-                <ProvisionalBadge size="sm" />
-              </span>
-            </KeyValue>
+            <KeyValue label={example.householdLabel}>{example.household(LANDING_EXAMPLE.householdSize)}</KeyValue>
+            {live ? (
+              <>
+                <KeyValue label={example.countyLabel}>
+                  {live.result.county.name}, {LANDING_EXAMPLE.state}
+                </KeyValue>
+                <KeyValue label={example.limitLabel} hint={`${live.result.formula}. ${live.source.sourceLine}`}>
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <Money cents={live.result.thresholdCents} />
+                    {provisional ? <ProvisionalBadge size="sm" /> : null}
+                  </span>
+                </KeyValue>
+              </>
+            ) : null}
             <KeyValue label={example.methodLabel}>{example.method}</KeyValue>
             <KeyValue label={example.evidenceLabel}>{example.evidence}</KeyValue>
           </KeyValueList>
@@ -71,7 +98,7 @@ function ExampleResult() {
   );
 }
 
-function Hero() {
+function Hero({ live }: { live: LiveThreshold | null }) {
   return (
     <section aria-labelledby="hero-title" className="border-b border-line bg-surface">
       <div className={cn(CONTAINER, "grid gap-y-10 py-12 sm:py-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-x-14 lg:gap-y-14 lg:py-20")}>
@@ -114,7 +141,7 @@ function Hero() {
         </nav>
 
         <div className="lg:col-start-2 lg:row-start-1 lg:self-center">
-          <ExampleResult />
+          <ExampleResult live={live} />
         </div>
       </div>
     </section>
@@ -279,8 +306,10 @@ function Partner() {
   );
 }
 
-function Honesty() {
+function Honesty({ limitsProvisional }: { limitsProvisional: boolean }) {
   const copy = LANDING.honesty;
+  // Never say the limits are provisional once the IRS table is the one in use (and never the reverse).
+  const items = copy.items.filter((item) => item.key !== "limits" || limitsProvisional);
   return (
     <section aria-labelledby="honesty-title" className="bg-surface">
       <div className={cn(CONTAINER, "pb-16 sm:pb-20")}>
@@ -293,8 +322,8 @@ function Honesty() {
             <p className="mt-3 text-lg text-caution-fg">{copy.lead}</p>
           </div>
           <dl className="mt-8 grid gap-4 md:grid-cols-2">
-            {copy.items.map((item) => (
-              <div key={item.title} className="rounded-card border border-accent-200 bg-surface p-5">
+            {items.map((item) => (
+              <div key={item.key} className="rounded-card border border-accent-200 bg-surface p-5">
                 <dt className="text-base font-semibold text-fg">{item.title}</dt>
                 <dd className="mt-2 text-sm leading-6 text-fg-muted">{item.body}</dd>
               </div>
@@ -358,14 +387,15 @@ function Developers() {
 
 /** The public landing page body. Wrap in `<PublicShell>`. All wording comes from landing-copy.ts. */
 export function Landing() {
+  const live = liveThreshold();
   return (
     <>
-      <Hero />
+      <Hero live={live} />
       <Facts />
       <Verification />
       <Donor />
       <Partner />
-      <Honesty />
+      <Honesty limitsProvisional={live?.result.provisional ?? true} />
       <Care />
       <Developers />
     </>

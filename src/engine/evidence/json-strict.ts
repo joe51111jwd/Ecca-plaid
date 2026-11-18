@@ -9,17 +9,36 @@ import { invalid } from "@/lib/errors";
  * repeated member name is refused.
  */
 
-/** Returns the path of the first repeated member name in syntactically valid JSON text, or null. */
+interface Container {
+  /** Member names seen so far in an object; null for an array. */
+  names: Set<string> | null;
+  path: string;
+  /** Position of the element being read, for arrays. */
+  index: number;
+  /** Name of the member being read, for objects. */
+  member: string;
+}
+
+function joinPath(path: string, name: string): string {
+  return path === "" ? name : `${path}.${name}`;
+}
+
+/** Returns the path of the first repeated member name, or null. `text` must already be valid JSON. */
 function findDuplicateMember(text: string): string | null {
-  // One entry per open container: an object's member names so far, or null for an array.
-  const stack: Array<{ names: Set<string> | null; path: string; index: number }> = [];
+  const stack: Container[] = [];
+  const childPath = (): string => {
+    const parent = stack[stack.length - 1];
+    if (!parent) return "";
+    return parent.names === null ? `${parent.path}[${parent.index}]` : joinPath(parent.path, parent.member);
+  };
+
   let i = 0;
   while (i < text.length) {
     const char = text[i];
     if (char === "{") {
-      stack.push({ names: new Set(), path: currentPath(stack), index: 0 });
+      stack.push({ names: new Set(), path: childPath(), index: 0, member: "" });
     } else if (char === "[") {
-      stack.push({ names: null, path: currentPath(stack), index: 0 });
+      stack.push({ names: null, path: childPath(), index: 0, member: "" });
     } else if (char === "}" || char === "]") {
       stack.pop();
     } else if (char === ",") {
@@ -30,33 +49,23 @@ function findDuplicateMember(text: string): string | null {
       i += 1;
       while (text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
       const top = stack[stack.length - 1];
-      // A string is a member name when the next significant character is a colon.
+      // A string is a member name exactly when the next significant character is a colon.
       let next = i + 1;
       while (next < text.length && " \t\n\r".includes(text[next])) next += 1;
       if (top?.names && text[next] === ":") {
+        // Decoded, so that "a" and its escaped spelling count as the same name.
         const name = JSON.parse(text.slice(start, i + 1)) as string;
-        if (top.names.has(name)) return `${top.path}${top.path === "" ? "" : "."}${name}`;
+        if (top.names.has(name)) return joinPath(top.path, name);
         top.names.add(name);
-        top.lastName = name;
+        top.member = name;
       }
     }
     i += 1;
   }
   return null;
-
-  function currentPath(containers: typeof stack): string {
-    const parent = containers[containers.length - 1];
-    if (!parent) return "";
-    if (parent.names === null) return `${parent.path}[${parent.index}]`;
-    return `${parent.path}${parent.path === "" ? "" : "."}${parent.lastName ?? ""}`;
-  }
 }
 
-declare module "./json-strict" {
-  // Marker so the container type above can carry the name of the member being read.
-}
-
-/** Parses JSON text. Throws a `bad_request` AppError for a syntax error and for a repeated member name. */
+/** Parses JSON text. Throws a `validation_failed` AppError for a syntax error and for a repeated member name. */
 export function parseJsonStrict(text: string): unknown {
   const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   let value: unknown;
