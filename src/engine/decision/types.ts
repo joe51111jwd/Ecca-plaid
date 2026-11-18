@@ -248,7 +248,13 @@ export type MethodBasis =
   | "categorical_documentation";
 
 /** Which figure household income was compared with. The same vocabulary as the evidence pack's `relied_on`. */
-export type ThresholdReliedOn = "single_limit" | "lower_bound" | "upper_bound" | "none";
+/**
+ * Which figure an income comparison rested on. `single_limit`: the readings agree. `lower_bound` / `upper_bound`:
+ * the lowest / highest reading. `statutory_limit`: a reviewer resolved "eligible" above the SGO's cap but within
+ * the highest reading at the statutory 300 percent. `none`: no income comparison decided the outcome.
+ * Same vocabulary as the evidence pack's `EvidenceReliedOn`.
+ */
+export type ThresholdReliedOn = "single_limit" | "lower_bound" | "upper_bound" | "statutory_limit" | "none";
 
 export interface ThresholdTableInfo {
   source: ThresholdSource;

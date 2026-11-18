@@ -61,8 +61,10 @@ describe("applyReviewerResolution", () => {
     expect(resolved.engineOutcome!.reviewReasons.map((reason) => reason.code)).toEqual(["between_provisional_readings"]);
     expect(resolved.reasons.at(-1)).toMatchObject({ code: "reviewer_resolved" });
     expect(resolved.reasons.slice(0, -1)).toEqual(decision.reasons);
-    // The limit, the income and the evidence are untouched; the result is still provisional.
-    expect(resolved.threshold).toEqual(decision.threshold);
+    // The limit, the income and the evidence are untouched; the result is still provisional. The decision now
+    // records the figure the resolution rests on: $150,000 is within the higher reading only.
+    expect(decision.threshold).toMatchObject({ reliedOn: "none", reliedOnLimitCents: null });
+    expect(resolved.threshold).toEqual({ ...decision.threshold, reliedOn: "upper_bound", reliedOnLimitCents: 25_110_000 });
     expect(resolved.income).toEqual(decision.income);
     expect(resolved.provisional).toBe(true);
     expect(JSON.parse(JSON.stringify(resolved))).toEqual(resolved);
@@ -89,6 +91,8 @@ describe("applyReviewerResolution", () => {
       decidedBy: { type: "reviewer", notes: "Read the letter: SNAP approval for the mother, dated January 10." },
     });
     expect(resolved.reasons.at(-1)).toMatchObject({ code: "reviewer_resolved", sourceIds: ["doc_letter"] });
+    // No income comparison was relied on.
+    expect(resolved.threshold).toMatchObject({ reliedOn: "none", reliedOnLimitCents: null });
     // The validity follows the letter, as it does for the engine.
     const shorter = decide(decisionInput({ categorical: { letters: [awardLetter({ extractedBy: "model", letterDate: "2026-06-01" })] } }));
     expect(applyReviewerResolution(shorter, resolution({ basis: { method: "categorical", documentId: "doc_letter" } })).validUntil).toBe("2027-06-01");
@@ -98,6 +102,8 @@ describe("applyReviewerResolution", () => {
     // Over the lower reading, under the higher one: the engine cannot say, a reviewer can.
     const resolved = applyReviewerResolution(betweenReadings(), resolution({ resolution: "ineligible" }));
     expect(resolved).toMatchObject({ status: "ineligible", method: "direct", validUntil: "2027-12-31", reviewReasons: [] });
+    // Over the lower reading only, so that is the figure the resolution rests on.
+    expect(resolved.threshold).toMatchObject({ reliedOn: "lower_bound", reliedOnLimitCents: 11_610_000 });
     // Self-employment over the limit.
     const selfEmployed = decide(
       decisionInput({ direct: directEvidence(20_000_000, 15_000_000, [{ id: "se", memberId: MARIA.id, category: "self_employment_net", incomeYear: 2026, annualAmountCents: 5_000_000, source: "document", documentId: "doc_se" }]) }),
@@ -145,7 +151,10 @@ describe("applyReviewerResolution", () => {
         decide(decisionInput({ sgoPolicy: { capPct: 185, reviewBandBps: 0 }, direct: directEvidence(total - 4_000_000, 4_000_000, [{ id: "se", memberId: MARIA.id, category: "self_employment_net", incomeYear: 2026, annualAmountCents: 0, source: "document", documentId: "doc_se" }]) }));
       const overCapUnderStatute = atCap(25_000_000);
       expect(overCapUnderStatute.threshold).toMatchObject({ upperBoundCents: 19_240_000, statutoryUpperBoundCents: 31_200_000 });
-      expect(applyReviewerResolution(overCapUnderStatute, resolution()).status).toBe("eligible");
+      const approved = applyReviewerResolution(overCapUnderStatute, resolution());
+      expect(approved.status).toBe("eligible");
+      // Above the SGO's cap and within the statutory 300%: the decision says it rests on the statutory limit.
+      expect(approved.threshold).toMatchObject({ reliedOn: "statutory_limit", reliedOnLimitCents: 31_200_000 });
       expect(refusal(() => applyReviewerResolution(atCap(31_200_001), resolution())).reason).toBe("income_above_statutory_limit");
     });
 

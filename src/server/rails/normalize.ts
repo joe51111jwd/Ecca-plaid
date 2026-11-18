@@ -20,10 +20,15 @@ export function isReviewSource(source: Pick<NormalizedIncomeSource, "type" | "ta
   return (source.type === "paystub_projection" || source.type === "bank_income_estimate") && source.taxYear === incomeYear;
 }
 
+/**
+ * `incomeYearCovered`: countable evidence for the income year exists. `partialYear`: it does not, and what
+ * there is spans only part of the year (a mid-year pay stub, or fewer than twelve months of bank data,
+ * which the adapter signals with `partialHint`).
+ */
 export function summarizeCoverage(sources: readonly NormalizedIncomeSource[], incomeYear: number, opts: { partialHint?: boolean } = {}): NormalizedIncomeReport["coverage"] {
   const incomeYearCovered = sources.some((s) => isCountableSource(s, incomeYear));
-  const hasReviewOnly = sources.some((s) => isReviewSource(s, incomeYear));
-  return { incomeYearCovered, partialYear: !incomeYearCovered && (hasReviewOnly || opts.partialHint === true) };
+  const hasProjection = sources.some((s) => s.type === "paystub_projection" && s.taxYear === incomeYear);
+  return { incomeYearCovered, partialYear: !incomeYearCovered && (hasProjection || opts.partialHint === true) };
 }
 
 /**

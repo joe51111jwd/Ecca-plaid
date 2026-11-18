@@ -23,7 +23,7 @@ import { conflict, invalid } from "@/lib/errors";
 import { idSchema, isoDateSchema, lastDayOfYear, parseInput, yearOf, type HouseholdIncomeResult, type IsoDate } from "@/engine/income";
 import { categoricalValidUntil } from "./categorical";
 import { METHOD_CITATIONS } from "./policy";
-import type { Decision, MethodBasis, ReviewerBasis } from "./types";
+import type { Decision, DecisionThreshold, MethodBasis, ReviewerBasis } from "./types";
 
 export interface ReviewerResolutionInput {
   resolution: "eligible" | "ineligible";
@@ -67,6 +67,23 @@ function directBasis(income: HouseholdIncomeResult | null): MethodBasis {
   const data = lines.some((line) => line.source === "rail");
   if (written && data) return "written_documentation_and_other_relevant_data_sources";
   return data ? "other_relevant_data_sources" : "written_documentation";
+}
+
+/**
+ * The figure a reviewer's direct-method resolution rests on, from the recorded income: "eligible" rests on the
+ * lowest figure the income is within (the SGO's readings first, then the statutory 300 percent); "ineligible"
+ * on the highest figure the income is above, or on the lowest reading when only the open income lines put it
+ * over (the same rule the evidence pack states).
+ */
+function reliedOnFor(threshold: DecisionThreshold, resolution: "eligible" | "ineligible", recorded: number): Pick<DecisionThreshold, "reliedOn" | "reliedOnLimitCents"> {
+  const lower = { reliedOn: threshold.readingsAgree ? "single_limit" : "lower_bound", reliedOnLimitCents: threshold.lowerBoundCents } as const;
+  const upper = { reliedOn: threshold.readingsAgree ? "single_limit" : "upper_bound", reliedOnLimitCents: threshold.upperBoundCents } as const;
+  if (resolution === "eligible") {
+    if (recorded <= threshold.lowerBoundCents) return lower;
+    if (recorded <= threshold.upperBoundCents) return upper;
+    return { reliedOn: "statutory_limit", reliedOnLimitCents: threshold.statutoryUpperBoundCents };
+  }
+  return recorded > threshold.upperBoundCents ? upper : lower;
 }
 
 /**
@@ -136,8 +153,15 @@ export function applyReviewerResolution(decision: Decision, rawInput: ReviewerRe
 
   const method = input.basis.method;
   const notes = input.notes.trim();
+  const resolvedThreshold: DecisionThreshold | null =
+    threshold === null
+      ? null
+      : method === "direct" && recorded !== null
+        ? { ...threshold, ...reliedOnFor(threshold, input.resolution, recorded) }
+        : { ...threshold, reliedOn: "none", reliedOnLimitCents: null };
   return {
     ...decision,
+    threshold: resolvedThreshold,
     status: input.resolution,
     method,
     methodBasis: method === "categorical" ? "categorical_documentation" : directBasis(decision.income),
