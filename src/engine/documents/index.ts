@@ -75,7 +75,8 @@ const policySchema = z
   .partial();
 
 export const readDocumentInputSchema = z.object({
-  bytes: z.instanceof(Uint8Array),
+  // Any Uint8Array view (Buffer, subarray, pdf-lib output), whatever its backing buffer type.
+  bytes: z.custom<Uint8Array<ArrayBufferLike>>((v) => v instanceof Uint8Array, { message: "bytes must be a Uint8Array" }),
   contentType: z.string().max(200).default(""),
   declaredKind: z.enum(DOCUMENT_KINDS as [DocumentKind, ...DocumentKind[]]).nullish(),
   /** `YYYY-MM-DD`. When given, award-letter dates are checked against the 12-month window. */

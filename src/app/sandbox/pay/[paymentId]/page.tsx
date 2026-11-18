@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FocusShell } from "@/components/layout";
+import { FocusShell } from "@/components/layout/focus-shell";
 import { PaymentForm, SandboxBanner } from "@/features/payments";
 import { getSandboxPaymentView } from "@/server/payments";
 import { assertSandboxPagesEnabled, firstParam, orNotFound, safeReturnPath } from "../../shared";

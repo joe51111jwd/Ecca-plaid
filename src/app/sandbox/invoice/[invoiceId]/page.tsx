@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FocusShell } from "@/components/layout";
+import { FocusShell } from "@/components/layout/focus-shell";
 import { Alert, DateTime, KeyValue, KeyValueList, LineItems, StatusBadge } from "@/components/ui";
 import { SandboxBanner, SandboxInvoicePayButton } from "@/features/payments";
 import { BRAND } from "@/lib/brand";

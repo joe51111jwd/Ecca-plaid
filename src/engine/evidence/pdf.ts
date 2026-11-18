@@ -330,8 +330,8 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     ["Residence", [part(`${county}${geography.zip ? `, ZIP ${geography.zip}` : ""}`), ...(geography.county_resolution ? [part(COUNTY_RESOLUTION_LABEL[geography.county_resolution], MUTED)] : [])]],
     ["Shared custody", custodyCell],
   ];
-  pdf.heading("2. Household", Math.min(pdf.keyValuesHeight(householdRows, 168), KEEP_TOGETHER_LIMIT));
-  pdf.keyValues(householdRows, 168);
+  pdf.heading("2. Household", Math.min(pdf.keyValuesHeight(householdRows, 180), KEEP_TOGETHER_LIMIT));
+  pdf.keyValues(householdRows, 180);
   pdf.table(
     [
       { header: "Member", width: 190, style: MONO },

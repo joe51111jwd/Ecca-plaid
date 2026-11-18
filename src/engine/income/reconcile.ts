@@ -388,12 +388,105 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-type WagedRecord = TaxRecordEvidence & { wagesCents: number };
+function sourceFields(origin: EvidenceOrigin, sourceId: string): Pick<IncomeItemInput, "source" | "documentId" | "railConnectionId"> {
+  return origin === "rail" ? { source: "rail", documentId: null, railConnectionId: sourceId } : { source: "document", documentId: sourceId, railConnectionId: null };
+}
 
+type WagedRecord = TaxRecordEvidence & { wagesCents: number };
+type StubOfMember = StubInYear & { memberId: string };
+
+/** The evidence for the income year, sorted by kind, after other years and repeated forms are set aside. */
+interface EvidencePool {
+  w2s: W2Evidence[];
+  records: TaxRecordEvidence[];
+  stubs: StubOfMember[];
+  /** Per member: box 1 wages that may be one Form W-2 counted twice. */
+  possibleDuplicateCents: Map<string, number>;
+}
+
+/** What the reconciliation writes into. */
+interface Output {
+  incomeYear: number;
+  items: IncomeItemInput[];
+  flags: IncomeReviewFlag[];
+  wages: WageFinding[];
+  ignored: IgnoredEvidence[];
+}
+
+function addFlag(out: Output, code: IncomeFlagCode, severity: IncomeFlagSeverity, message: string, memberIds: string[], sourceIds: string[], itemId: string | null = null): void {
+  out.flags.push({ code, severity, message, itemId, memberIds: [...memberIds], sourceIds: unique(sourceIds) });
+}
+
+/** Sets aside evidence for other years and repeated copies of the same Form W-2. */
+function poolEvidence(evidence: IncomeEvidence[], out: Output): EvidencePool {
+  const { incomeYear, ignored } = out;
+  const pool: EvidencePool = { w2s: [], records: [], stubs: [], possibleDuplicateCents: new Map() };
+  const w2sByMember = new Map<string, W2Evidence[]>();
+
+  for (const entry of evidence) {
+    if (entry.kind === "pay_stub") {
+      const stubClass = classifyPayStub(entry, incomeYear);
+      if (stubClass === "other_year") {
+        ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "different_year", detail: `Pay date ${entry.payDate} is not in ${incomeYear}.` });
+      } else if (entry.grossYtdCents === null) {
+        ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "no_year_to_date_figure", detail: "Year-to-date gross pay was not read from the pay stub." });
+      } else {
+        pool.stubs.push({ stub: { ...entry, grossYtdCents: entry.grossYtdCents }, stubClass, memberId: entry.memberId });
+      }
+    } else if (entry.taxYear !== incomeYear) {
+      ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "different_year", detail: `The document is for ${entry.taxYear}, not ${incomeYear}.` });
+    } else if (entry.kind === "w2") {
+      w2sByMember.set(entry.memberId, [...(w2sByMember.get(entry.memberId) ?? []), entry]);
+    } else {
+      pool.records.push(entry);
+    }
+  }
+
+  for (const [memberId, memberW2s] of w2sByMember) {
+    const distinct = distinctW2s(memberW2s);
+    pool.w2s.push(...distinct.forms);
+    for (const duplicate of distinct.duplicates) {
+      ignored.push({ sourceId: duplicate.sourceId, kind: "w2", reason: "duplicate", detail: "Another copy of the same Form W-2 (same person, employer and box 1 amount) is on file and is counted once." });
+    }
+    if (distinct.possibleDuplicates.length > 0) {
+      pool.possibleDuplicateCents.set(memberId, distinct.possibleDuplicates.reduce((total, pair) => total + pair.other.wagesCents, 0));
+    }
+  }
+  return pool;
+}
+
+/** Units: a person alone, or the people a multi-person tax record ties together. Each unit and the list are sorted. */
+function groupIntoUnits(pool: EvidencePool): string[][] {
+  const memberIds = unique([...pool.w2s.map((w2) => w2.memberId), ...pool.stubs.map((entry) => entry.memberId), ...pool.records.flatMap((record) => record.memberIds)]).sort();
+  const parent = new Map(memberIds.map((memberId) => [memberId, memberId]));
+  const find = (memberId: string): string => {
+    let root = memberId;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    return root;
+  };
+  for (const record of pool.records) {
+    for (const memberId of record.memberIds.slice(1)) parent.set(find(memberId), find(record.memberIds[0]));
+  }
+  const units = new Map<string, string[]>();
+  for (const memberId of memberIds) units.set(find(memberId), [...(units.get(find(memberId)) ?? []), memberId]);
+  return [...units.values()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+interface WageFigure {
+  tier: WageSourceTier;
+  /** The recorded figure, on the taxable-wage basis except for a pay stub. */
+  amountCents: number;
+  lowCents: number;
+  highCents: number;
+  governingSourceIds: string[];
+  origin: EvidenceOrigin;
+}
+
+/** Everything on file about one person's wages. */
 interface MemberWages {
   memberId: string;
-  /** Null when no record or W-2 states this member's taxable wages. */
-  figure: { tier: WageSourceTier; amountCents: number; lowCents: number; highCents: number; governingSourceIds: string[]; origin: EvidenceOrigin } | null;
+  /** Null when no tax record or W-2 states this member's taxable wages. */
+  figure: WageFigure | null;
   /** How far Medicare wages or year-end gross pay exceed the taxable wages of the same employment. */
   upliftCents: number;
   /** Sum of year-end gross pay across employers; null when any employer's latest stub is mid-year or there are no stubs. */
@@ -401,6 +494,233 @@ interface MemberWages {
   latestStubs: StubInYear[];
   sourceIds: string[];
   conflicts: string[];
+}
+
+function memberWages(memberId: string, pool: EvidencePool): MemberWages {
+  const tolerance = RECONCILIATION_POLICY.sameFigureToleranceCents;
+  const own = ranked(pool.records.filter((record): record is WagedRecord => record.wagesCents !== null && sameMembers(record.memberIds, [memberId])));
+  const w2s = pool.w2s.filter((w2) => w2.memberId === memberId).sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+  const taxable = w2s.reduce((total, w2) => total + w2.wagesCents, 0);
+  const medicare = w2s.reduce((total, w2) => total + Math.max(w2.wagesCents, w2.medicareWagesCents ?? w2.wagesCents), 0);
+  const latestStubs = latestPerEmployer(pool.stubs.filter((entry) => entry.memberId === memberId));
+  const yearEndGrossCents = latestStubs.length > 0 && latestStubs.every((entry) => entry.stubClass === "year_end") ? latestStubs.reduce((total, entry) => total + entry.stub.grossYtdCents, 0) : null;
+  const conflicts: string[] = [];
+
+  let figure: WageFigure | null = null;
+  if (own.length > 0) {
+    const amounts = own.map((record) => record.wagesCents);
+    let highCents = Math.max(...amounts);
+    const lowCents = Math.min(...amounts);
+    if (highCents - lowCents > tolerance) conflicts.push(own.map((record) => `${FORM_LABEL[record.form]} ${formatUsd(record.wagesCents)}`).join(" against "));
+    if (w2s.length > 0 && taxable > own[0].wagesCents + tolerance) {
+      conflicts.push(`Forms W-2 total ${formatUsd(taxable)}, more than the ${formatUsd(own[0].wagesCents)} on the ${FORM_LABEL[own[0].form]}`);
+      highCents = Math.max(highCents, taxable);
+    }
+    figure = { tier: own[0].form, amountCents: own[0].wagesCents, lowCents, highCents, governingSourceIds: [own[0].sourceId], origin: own[0].origin };
+  } else if (w2s.length > 0) {
+    const maybeCountedTwice = pool.possibleDuplicateCents.get(memberId) ?? 0;
+    if (maybeCountedTwice > 0) {
+      conflicts.push(`two Forms W-2 show the same amount and only one names its employer, so ${formatUsd(maybeCountedTwice)} may be the same wages counted twice`);
+    }
+    figure = { tier: "w2", amountCents: taxable, lowCents: taxable - maybeCountedTwice, highCents: taxable, governingSourceIds: unique(w2s.map((w2) => w2.sourceId)), origin: w2s[0].origin };
+  }
+
+  const upliftBase = w2s.length > 0 ? taxable : (figure?.amountCents ?? 0);
+  const grossLike = Math.max(w2s.length > 0 ? medicare : 0, yearEndGrossCents ?? 0);
+  return {
+    memberId,
+    figure,
+    upliftCents: figure ? Math.max(0, grossLike - upliftBase) : 0,
+    yearEndGrossCents,
+    latestStubs,
+    sourceIds: unique([...own.map((record) => record.sourceId), ...w2s.map((w2) => w2.sourceId), ...latestStubs.map((entry) => entry.stub.sourceId)]),
+    conflicts,
+  };
+}
+
+/** Writes one wage item with its audit finding and, when documents disagree, the conflict flag. Returns the item id. */
+function pushWageItem(out: Output, unit: string[], figure: WageFigure, highCents: number, allSourceIds: string[], conflicts: string[], description: string): string {
+  const itemId = `wages:${unit.join("+")}`;
+  out.items.push({
+    id: itemId,
+    memberId: unit[0],
+    ...(unit.length > 1 ? { alsoCoversMemberIds: unit.slice(1) } : {}),
+    category: "wages_salary",
+    incomeYear: out.incomeYear,
+    annualAmountCents: figure.amountCents,
+    lowCents: Math.min(figure.lowCents, figure.amountCents),
+    highCents: Math.max(highCents, figure.amountCents),
+    ...sourceFields(figure.origin, figure.governingSourceIds[0]),
+    description,
+  });
+  out.wages.push({
+    itemId,
+    memberIds: [...unit],
+    tier: figure.tier,
+    governingSourceIds: figure.governingSourceIds,
+    corroboratingSourceIds: unique(allSourceIds).filter((sourceId) => !figure.governingSourceIds.includes(sourceId)),
+    conflict: conflicts.length > 0,
+  });
+  if (conflicts.length > 0) {
+    addFlag(
+      out,
+      "income_figures_conflict",
+      "blocking",
+      `Documents for the same ${out.incomeYear} wages do not agree: ${conflicts.join("; ")}. The higher figure is in the upper bound of household income; a reviewer must settle which is right.`,
+      unit,
+      allSourceIds,
+      itemId,
+    );
+  }
+  return itemId;
+}
+
+/** One person's wages from their own tax record or W-2s, or, failing both, from pay stubs alone. */
+function reconcileMemberWages(picture: MemberWages, out: Output): void {
+  const unit = [picture.memberId];
+  if (picture.figure) {
+    const description = picture.figure.tier === "w2" ? "Wages per Forms W-2 (box 1)" : `Wages per ${FORM_LABEL[picture.figure.tier as TaxRecordForm]}`;
+    pushWageItem(out, unit, picture.figure, picture.figure.highCents + picture.upliftCents, picture.sourceIds, picture.conflicts, description);
+    return;
+  }
+  if (picture.latestStubs.length === 0) return;
+
+  // Pay stubs only. Gross pay is the one figure known; taxable wages are not, so nothing is in the lower bound.
+  const total = picture.latestStubs.reduce((sum, entry) => sum + entry.stub.grossYtdCents, 0);
+  const stubSourceIds = picture.latestStubs.map((entry) => entry.stub.sourceId);
+  const figure: WageFigure = { tier: "pay_stub", amountCents: total, lowCents: 0, highCents: total, governingSourceIds: unique(stubSourceIds), origin: picture.latestStubs[0].stub.origin };
+  const itemId = pushWageItem(out, unit, figure, total, picture.sourceIds, [], "Year-to-date gross pay per pay stub");
+  addFlag(
+    out,
+    "wages_from_pay_stub_only",
+    "bounded",
+    "Wages rest on a pay stub alone. Year-to-date gross pay is the upper figure; taxable wages (Form W-2 box 1) are not known, so the lower bound of household income leaves these wages out.",
+    unit,
+    stubSourceIds,
+    itemId,
+  );
+  for (const entry of picture.latestStubs.filter((candidate) => candidate.stubClass === "mid_year")) {
+    addFlag(
+      out,
+      "pay_stub_projection_only",
+      "blocking",
+      `The latest pay stub on file is dated ${entry.stub.payDate} and does not close ${out.incomeYear}: it shows ${formatUsd(entry.stub.grossYtdCents)} of gross pay so far. ` +
+        `A straight-line projection to the full year would be ${formatUsd(projectAnnualFromYtd(entry.stub.grossYtdCents, entry.stub.payDate))}; the projection is shown for the reviewer and is not used. ` +
+        "A year-end pay stub, Form W-2, tax return or IRS transcript is needed, or a reviewer must decide.",
+      unit,
+      [entry.stub.sourceId],
+      itemId,
+    );
+  }
+}
+
+/** A married couple's wages from a joint record, checked against each spouse's own records, W-2s and pay stubs. */
+function reconcileJointWages(unit: string[], joint: WagedRecord[], pictures: MemberWages[], allSourceIds: string[], out: Output): void {
+  const tolerance = RECONCILIATION_POLICY.sameFigureToleranceCents;
+  const governing = joint[0];
+  const amounts = joint.map((record) => record.wagesCents);
+  let lowCents = Math.min(...amounts);
+  let highCents = Math.max(...amounts);
+  const conflicts = pictures.flatMap((picture) => picture.conflicts);
+  if (highCents - lowCents > tolerance) conflicts.push(joint.map((record) => `${FORM_LABEL[record.form]} ${formatUsd(record.wagesCents)}`).join(" against "));
+
+  const figures = pictures.flatMap((picture) => (picture.figure ? [picture.figure] : []));
+  const memberTotal = figures.reduce((total, figure) => total + figure.amountCents, 0);
+  const memberHigh = figures.reduce((total, figure) => total + figure.highCents, 0);
+  // Each spouse's own tax record is complete for that spouse, so together they must equal the joint figure.
+  // W-2s may be missing, so they may total less than it, never more.
+  const eachHasOwnRecord = figures.length === unit.length && figures.every((figure) => figure.tier !== "w2");
+  if (eachHasOwnRecord && Math.abs(memberTotal - governing.wagesCents) > tolerance) {
+    conflicts.push(`each spouse's own record totals ${formatUsd(memberTotal)} against ${formatUsd(governing.wagesCents)} on the joint ${FORM_LABEL[governing.form]}`);
+    lowCents = Math.min(lowCents, figures.reduce((total, figure) => total + figure.lowCents, 0));
+    highCents = Math.max(highCents, memberHigh);
+  } else if (!eachHasOwnRecord && memberHigh > governing.wagesCents + tolerance) {
+    conflicts.push(`wage statements on file total ${formatUsd(memberHigh)}, more than the ${formatUsd(governing.wagesCents)} on the joint ${FORM_LABEL[governing.form]}`);
+    highCents = Math.max(highCents, memberHigh);
+  }
+
+  const stubsOnly = figures.length === 0 && pictures.every((picture) => picture.yearEndGrossCents !== null);
+  const upliftCents = stubsOnly
+    ? Math.max(0, pictures.reduce((total, picture) => total + (picture.yearEndGrossCents ?? 0), 0) - governing.wagesCents)
+    : pictures.reduce((total, picture) => total + picture.upliftCents, 0);
+
+  const figure: WageFigure = { tier: governing.form, amountCents: governing.wagesCents, lowCents, highCents, governingSourceIds: [governing.sourceId], origin: governing.origin };
+  pushWageItem(out, unit, figure, highCents + upliftCents, allSourceIds, conflicts, `Wages per joint ${FORM_LABEL[governing.form]}`);
+}
+
+/** Items for the income lines other than wages, one set per distinct group of people a tax record covers. */
+function reconcileOtherIncome(unitRecords: TaxRecordEvidence[], out: Output): void {
+  const tolerance = RECONCILIATION_POLICY.sameFigureToleranceCents;
+  const groups = new Map<string, TaxRecordEvidence[]>();
+  for (const record of unitRecords) {
+    const key = [...record.memberIds].sort().join("+");
+    groups.set(key, [...(groups.get(key) ?? []), record]);
+  }
+  const coveredByReturn = new Set(unitRecords.filter((record) => record.form !== "irs_wage_income_transcript" && record.otherIncome.status !== "not_read").flatMap((record) => record.memberIds));
+
+  for (const [key, group] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const groupMembers = key.split("+");
+    const returns = ranked(group.filter((record) => record.form !== "irs_wage_income_transcript"));
+    // A return already reports the interest, benefits and other amounts a wage and income transcript lists for the same person.
+    const candidates = returns.length > 0 ? returns : ranked(group).filter((record) => !record.memberIds.some((memberId) => coveredByReturn.has(memberId)));
+    const readable = candidates.filter((record) => record.otherIncome.status !== "not_read");
+    if (candidates.length > 0 && readable.length === 0) {
+      addFlag(
+        out,
+        "tax_record_incompletely_read",
+        "blocking",
+        `Only part of a ${FORM_LABEL[candidates[0].form]} was read: its income lines other than wages are not known. A reviewer must read them from the document.`,
+        groupMembers,
+        candidates.map((record) => record.sourceId),
+      );
+      continue;
+    }
+    if (readable.length === 0) continue;
+
+    const totals = readable.map((record) => {
+      const byLine = new Map<TaxRecordLineKey, number>();
+      if (record.otherIncome.status === "itemized") {
+        for (const entry of record.otherIncome.lines) byLine.set(entry.line, (byLine.get(entry.line) ?? 0) + entry.amountCents);
+      }
+      return byLine;
+    });
+    for (const lineKey of TAX_RECORD_LINE_KEYS) {
+      if (!totals.some((byLine) => byLine.has(lineKey))) continue;
+      const rule = TAX_RECORD_LINES[lineKey];
+      const amounts = totals.map((byLine) => byLine.get(lineKey) ?? 0);
+      const lowest = Math.min(...amounts);
+      const highest = Math.max(...amounts);
+      if (rule.ignoreLoss && highest <= 0) continue;
+
+      const itemId = `${lineKey}:${key}`;
+      // The highest-precedence record supplies the recorded figure; every record's figure widens the bounds.
+      const amountCents = rule.ignoreLoss ? Math.max(0, amounts[0]) : amounts[0];
+      out.items.push({
+        id: itemId,
+        memberId: groupMembers[0],
+        ...(groupMembers.length > 1 ? { alsoCoversMemberIds: groupMembers.slice(1) } : {}),
+        category: rule.category,
+        incomeYear: out.incomeYear,
+        annualAmountCents: amountCents,
+        lowCents: rule.lowIsZero ? Math.min(0, lowest) : Math.min(amountCents, rule.ignoreLoss ? Math.max(0, lowest) : lowest),
+        highCents: Math.max(amountCents, highest),
+        ...sourceFields(readable[0].origin, readable[0].sourceId),
+        description: `${rule.label} per ${FORM_LABEL[readable[0].form]}`,
+      });
+      if (highest - lowest > tolerance) {
+        addFlag(
+          out,
+          "income_figures_conflict",
+          "blocking",
+          `Tax records for ${out.incomeYear} do not agree on "${rule.label}": ${readable.map((record, index) => `${FORM_LABEL[record.form]} ${formatUsd(amounts[index])}`).join(" against ")}. A reviewer must settle which is right.`,
+          groupMembers,
+          readable.map((record) => record.sourceId),
+          itemId,
+        );
+      }
+      if (rule.flag) addFlag(out, rule.flag.code, rule.flag.severity, rule.flag.message, groupMembers, [readable[0].sourceId], itemId);
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------------------- reconcile */
@@ -412,218 +732,19 @@ interface MemberWages {
  */
 export function reconcileIncomeEvidence(input: { incomeYear: number; evidence: IncomeEvidence[] }): ReconciledIncome {
   const { incomeYear, evidence } = parseInput(reconcileInputSchema, input, "income evidence");
-  const tolerance = RECONCILIATION_POLICY.sameFigureToleranceCents;
+  const out: Output = { incomeYear, items: [], flags: [], wages: [], ignored: [] };
+  const pool = poolEvidence(evidence, out);
 
-  const ignored: IgnoredEvidence[] = [];
-  const flags: IncomeReviewFlag[] = [];
-  const items: IncomeItemInput[] = [];
-  const wages: WageFinding[] = [];
-  const w2s: W2Evidence[] = [];
-  const records: TaxRecordEvidence[] = [];
-  const stubs: Array<StubInYear & { memberId: string }> = [];
-
-  for (const entry of evidence) {
-    if (entry.kind === "pay_stub") {
-      const stubClass = classifyPayStub(entry, incomeYear);
-      if (stubClass === "other_year") {
-        ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "different_year", detail: `Pay date ${entry.payDate} is not in ${incomeYear}.` });
-      } else if (entry.grossYtdCents === null) {
-        ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "no_year_to_date_figure", detail: "Year-to-date gross pay was not read from the pay stub." });
-      } else {
-        stubs.push({ stub: { ...entry, grossYtdCents: entry.grossYtdCents }, stubClass, memberId: entry.memberId });
-      }
-    } else if (entry.taxYear !== incomeYear) {
-      ignored.push({ sourceId: entry.sourceId, kind: entry.kind, reason: "different_year", detail: `The document is for ${entry.taxYear}, not ${incomeYear}.` });
-    } else if (entry.kind === "w2") {
-      w2s.push(entry);
-    } else {
-      records.push(entry);
-    }
-  }
-
-  /* The same Form W-2 from two channels is one form. */
-  const possibleDuplicateCents = new Map<string, number>();
-  for (const memberId of unique(w2s.map((w2) => w2.memberId))) {
-    const mine = w2s.filter((w2) => w2.memberId === memberId);
-    const distinct = distinctW2s(mine);
-    w2s.splice(0, w2s.length, ...w2s.filter((w2) => w2.memberId !== memberId), ...distinct.forms);
-    for (const duplicate of distinct.duplicates) {
-      ignored.push({ sourceId: duplicate.sourceId, kind: "w2", reason: "duplicate", detail: "Another copy of the same Form W-2 (same person, employer and box 1 amount) is on file and is counted once." });
-    }
-    if (distinct.possibleDuplicates.length > 0) possibleDuplicateCents.set(memberId, distinct.possibleDuplicates.reduce((total, pair) => total + pair.other.wagesCents, 0));
-  }
-
-  const flag = (code: IncomeFlagCode, severity: IncomeFlagSeverity, message: string, memberIds: string[], sourceIds: string[], itemId: string | null = null): void => {
-    flags.push({ code, severity, message, itemId, memberIds: [...memberIds], sourceIds: unique(sourceIds) });
-  };
-  const sourceFields = (origin: EvidenceOrigin, sourceId: string): Pick<IncomeItemInput, "source" | "documentId" | "railConnectionId"> =>
-    origin === "rail" ? { source: "rail", documentId: null, railConnectionId: sourceId } : { source: "document", documentId: sourceId, railConnectionId: null };
-
-  /* Units: a person alone, or the two spouses a joint record ties together. */
-  const memberIds = unique([...w2s.map((w2) => w2.memberId), ...stubs.map((entry) => entry.memberId), ...records.flatMap((record) => record.memberIds)]).sort();
-  const unitOf = new Map(memberIds.map((memberId) => [memberId, memberId]));
-  const find = (memberId: string): string => {
-    let root = memberId;
-    while (unitOf.get(root) !== root) root = unitOf.get(root)!;
-    return root;
-  };
-  for (const record of records) {
-    for (const memberId of record.memberIds.slice(1)) unitOf.set(find(memberId), find(record.memberIds[0]));
-  }
-  const units = new Map<string, string[]>();
-  for (const memberId of memberIds) units.set(find(memberId), [...(units.get(find(memberId)) ?? []), memberId]);
-
-  const memberWages = (memberId: string): MemberWages => {
-    const own = ranked(records.filter((record): record is WagedRecord => record.wagesCents !== null && sameMembers(record.memberIds, [memberId])));
-    const memberW2s = w2s.filter((w2) => w2.memberId === memberId);
-    const taxable = memberW2s.reduce((total, w2) => total + w2.wagesCents, 0);
-    const medicare = memberW2s.reduce((total, w2) => total + Math.max(w2.wagesCents, w2.medicareWagesCents ?? w2.wagesCents), 0);
-    const latestStubs = latestPerEmployer(stubs.filter((entry) => entry.memberId === memberId));
-    const yearEndGrossCents =
-      latestStubs.length > 0 && latestStubs.every((entry) => entry.stubClass === "year_end") ? latestStubs.reduce((total, entry) => total + entry.stub.grossYtdCents, 0) : null;
-    const conflicts: string[] = [];
-
-    let figure: MemberWages["figure"] = null;
-    if (own.length > 0) {
-      const amounts = own.map((record) => record.wagesCents);
-      let highCents = Math.max(...amounts);
-      const lowCents = Math.min(...amounts);
-      if (highCents - lowCents > tolerance) {
-        conflicts.push(`${own.map((record) => `${FORM_LABEL[record.form]} ${formatUsd(record.wagesCents)}`).join(" against ")}`);
-      }
-      if (memberW2s.length > 0 && taxable > own[0].wagesCents + tolerance) {
-        conflicts.push(`Forms W-2 total ${formatUsd(taxable)}, more than the ${formatUsd(own[0].wagesCents)} on the ${FORM_LABEL[own[0].form]}`);
-        highCents = Math.max(highCents, taxable);
-      }
-      figure = { tier: own[0].form, amountCents: own[0].wagesCents, lowCents, highCents, governingSourceIds: [own[0].sourceId], origin: own[0].origin };
-    } else if (memberW2s.length > 0) {
-      const sorted = [...memberW2s].sort((a, b) => a.sourceId.localeCompare(b.sourceId));
-      const maybeCountedTwice = possibleDuplicateCents.get(memberId) ?? 0;
-      if (maybeCountedTwice > 0) {
-        conflicts.push(`two Forms W-2 show the same amount and only one names its employer, so ${formatUsd(maybeCountedTwice)} may be the same wages counted twice`);
-      }
-      figure = { tier: "w2", amountCents: taxable, lowCents: taxable - maybeCountedTwice, highCents: taxable, governingSourceIds: unique(sorted.map((w2) => w2.sourceId)), origin: sorted[0].origin };
-    }
-
-    const upliftBase = memberW2s.length > 0 ? taxable : (figure?.amountCents ?? 0);
-    const grossLike = Math.max(memberW2s.length > 0 ? medicare : 0, yearEndGrossCents ?? 0);
-    return {
-      memberId,
-      figure,
-      upliftCents: figure ? Math.max(0, grossLike - upliftBase) : 0,
-      yearEndGrossCents,
-      latestStubs,
-      sourceIds: unique([...own.map((record) => record.sourceId), ...memberW2s.map((w2) => w2.sourceId), ...latestStubs.map((entry) => entry.stub.sourceId)]),
-      conflicts,
-    };
-  };
-
-  const pushWageItem = (
-    unit: string[],
-    figure: NonNullable<MemberWages["figure"]>,
-    highCents: number,
-    allSourceIds: string[],
-    conflicts: string[],
-    description: string,
-    lowCents: number = figure.lowCents,
-  ): string => {
-    const itemId = `wages:${unit.join("+")}`;
-    items.push({
-      id: itemId,
-      memberId: unit[0],
-      ...(unit.length > 1 ? { alsoCoversMemberIds: unit.slice(1) } : {}),
-      category: "wages_salary",
-      incomeYear,
-      annualAmountCents: figure.amountCents,
-      lowCents: Math.min(lowCents, figure.amountCents),
-      highCents: Math.max(highCents, figure.amountCents),
-      ...sourceFields(figure.origin, figure.governingSourceIds[0]),
-      description,
-    });
-    wages.push({
-      itemId,
-      memberIds: [...unit],
-      tier: figure.tier,
-      governingSourceIds: figure.governingSourceIds,
-      corroboratingSourceIds: unique(allSourceIds).filter((sourceId) => !figure.governingSourceIds.includes(sourceId)),
-      conflict: conflicts.length > 0,
-    });
-    if (conflicts.length > 0) {
-      flag(
-        "income_figures_conflict",
-        "blocking",
-        `Documents for the same ${incomeYear} wages do not agree: ${conflicts.join("; ")}. The higher figure is in the upper bound of household income; a reviewer must settle which is right.`,
-        unit,
-        allSourceIds,
-        itemId,
-      );
-    }
-    return itemId;
-  };
-
-  const pushMemberWages = (picture: MemberWages): void => {
-    if (picture.figure) {
-      pushWageItem(
-        [picture.memberId],
-        picture.figure,
-        picture.figure.highCents + picture.upliftCents,
-        picture.sourceIds,
-        picture.conflicts,
-        picture.figure.tier === "w2" ? "Wages per Forms W-2 (box 1)" : `Wages per ${FORM_LABEL[picture.figure.tier as TaxRecordForm]}`,
-      );
-      return;
-    }
-    if (picture.latestStubs.length === 0) return;
-
-    // Pay stubs only. Gross pay is the one figure known; taxable wages are not, so nothing is in the lower bound.
-    const total = picture.latestStubs.reduce((sum, entry) => sum + entry.stub.grossYtdCents, 0);
-    const first = picture.latestStubs[0].stub;
-    const stubSourceIds = picture.latestStubs.map((entry) => entry.stub.sourceId);
-    const itemId = pushWageItem(
-      [picture.memberId],
-      { tier: "pay_stub", amountCents: total, lowCents: 0, highCents: total, governingSourceIds: unique(stubSourceIds), origin: first.origin },
-      total,
-      picture.sourceIds,
-      [],
-      "Year-to-date gross pay per pay stub",
-      0,
-    );
-    flag(
-      "wages_from_pay_stub_only",
-      "bounded",
-      "Wages rest on a pay stub alone. Year-to-date gross pay is the upper figure; taxable wages (Form W-2 box 1) are not known, so the lower bound of household income leaves these wages out.",
-      [picture.memberId],
-      stubSourceIds,
-      itemId,
-    );
-    for (const entry of picture.latestStubs.filter((candidate) => candidate.stubClass === "mid_year")) {
-      flag(
-        "pay_stub_projection_only",
-        "blocking",
-        `The latest pay stub on file is dated ${entry.stub.payDate} and does not close ${incomeYear}: it shows ${formatUsd(entry.stub.grossYtdCents)} of gross pay so far. ` +
-          `A straight-line projection to the full year would be ${formatUsd(projectAnnualFromYtd(entry.stub.grossYtdCents, entry.stub.payDate))}; the projection is shown for the reviewer and is not used. ` +
-          "A year-end pay stub, Form W-2, tax return or IRS transcript is needed, or a reviewer must decide.",
-        [picture.memberId],
-        [entry.stub.sourceId],
-        itemId,
-      );
-    }
-  };
-
-  for (const unit of [...units.values()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const unitRecords = records.filter((record) => record.memberIds.some((memberId) => unit.includes(memberId)));
-    const unitSourceIds = (): string[] => [
-      ...unitRecords.map((record) => record.sourceId),
-      ...w2s.filter((w2) => unit.includes(w2.memberId)).map((w2) => w2.sourceId),
-      ...stubs.filter((entry) => unit.includes(entry.memberId)).map((entry) => entry.stub.sourceId),
-    ];
+  for (const unit of groupIntoUnits(pool)) {
+    const unitRecords = pool.records.filter((record) => record.memberIds.some((memberId) => unit.includes(memberId)));
 
     for (const record of unitRecords.filter((candidate) => candidate.wagesCents === null)) {
-      flag("tax_record_incompletely_read", "blocking", `The wages line of a ${FORM_LABEL[record.form]} was not read. A reviewer must read it from the document.`, record.memberIds, [record.sourceId]);
+      addFlag(out, "tax_record_incompletely_read", "blocking", `The wages line of a ${FORM_LABEL[record.form]} was not read. A reviewer must read it from the document.`, record.memberIds, [record.sourceId]);
     }
     const overlapping = unitRecords.filter((record) => record.memberIds.length > 1 && !sameMembers(record.memberIds, unit));
     if (overlapping.length > 0) {
-      flag(
+      addFlag(
+        out,
         "tax_records_overlap",
         "blocking",
         `Tax records for ${incomeYear} cover overlapping but different pairs of household members, so their figures cannot be reconciled automatically.`,
@@ -632,116 +753,16 @@ export function reconcileIncomeEvidence(input: { incomeYear: number; evidence: I
       );
     }
 
-    /* Wages. */
-    const pictures = unit.map(memberWages);
+    const pictures = unit.map((memberId) => memberWages(memberId, pool));
     const joint = unit.length > 1 ? ranked(unitRecords.filter((record): record is WagedRecord => record.wagesCents !== null && sameMembers(record.memberIds, unit))) : [];
     if (joint.length > 0) {
-      const amounts = joint.map((record) => record.wagesCents);
-      const governing = joint[0];
-      let lowCents = Math.min(...amounts);
-      let highCents = Math.max(...amounts);
-      const conflicts = pictures.flatMap((picture) => picture.conflicts);
-      if (highCents - lowCents > tolerance) conflicts.push(joint.map((record) => `${FORM_LABEL[record.form]} ${formatUsd(record.wagesCents)}`).join(" against "));
-
-      const withFigure = pictures.filter((picture) => picture.figure !== null);
-      const memberTotal = withFigure.reduce((total, picture) => total + picture.figure!.amountCents, 0);
-      const memberHigh = withFigure.reduce((total, picture) => total + picture.figure!.highCents, 0);
-      const eachHasOwnRecord = withFigure.length === unit.length && withFigure.every((picture) => picture.figure!.tier !== "w2");
-      if (eachHasOwnRecord && Math.abs(memberTotal - governing.wagesCents) > tolerance) {
-        conflicts.push(`each spouse's own record totals ${formatUsd(memberTotal)} against ${formatUsd(governing.wagesCents)} on the joint ${FORM_LABEL[governing.form]}`);
-        lowCents = Math.min(lowCents, withFigure.reduce((total, picture) => total + picture.figure!.lowCents, 0));
-        highCents = Math.max(highCents, memberHigh);
-      } else if (!eachHasOwnRecord && memberHigh > governing.wagesCents + tolerance) {
-        conflicts.push(`wage statements on file total ${formatUsd(memberHigh)}, more than the ${formatUsd(governing.wagesCents)} on the joint ${FORM_LABEL[governing.form]}`);
-        highCents = Math.max(highCents, memberHigh);
-      }
-
-      const stubsOnly = withFigure.length === 0 && pictures.every((picture) => picture.yearEndGrossCents !== null);
-      const upliftCents = stubsOnly
-        ? Math.max(0, pictures.reduce((total, picture) => total + picture.yearEndGrossCents!, 0) - governing.wagesCents)
-        : withFigure.reduce((total, picture) => total + picture.upliftCents, 0);
-
-      pushWageItem(
-        unit,
-        { tier: governing.form, amountCents: governing.wagesCents, lowCents, highCents, governingSourceIds: [governing.sourceId], origin: governing.origin },
-        highCents + upliftCents,
-        unitSourceIds(),
-        conflicts,
-        `Wages per joint ${FORM_LABEL[governing.form]}`,
-      );
+      const allSourceIds = [...unitRecords.map((record) => record.sourceId), ...pictures.flatMap((picture) => picture.sourceIds)];
+      reconcileJointWages(unit, joint, pictures, allSourceIds, out);
     } else {
-      pictures.forEach(pushMemberWages);
+      for (const picture of pictures) reconcileMemberWages(picture, out);
     }
-
-    /* Other income lines, one set per distinct group of people a record covers. */
-    const groups = new Map<string, TaxRecordEvidence[]>();
-    for (const record of unitRecords) {
-      const key = [...record.memberIds].sort().join("+");
-      groups.set(key, [...(groups.get(key) ?? []), record]);
-    }
-    const coveredByReturn = new Set(unitRecords.filter((record) => record.form !== "irs_wage_income_transcript" && record.otherIncome.status !== "not_read").flatMap((record) => record.memberIds));
-    for (const [key, group] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-      const groupMembers = key.split("+");
-      const returns = ranked(group.filter((record) => record.form !== "irs_wage_income_transcript"));
-      // A return already reports the interest, benefits and other amounts a wage and income transcript lists for the same person.
-      const candidates = returns.length > 0 ? returns : ranked(group).filter((record) => !record.memberIds.some((memberId) => coveredByReturn.has(memberId)));
-      const readable = candidates.filter((record) => record.otherIncome.status !== "not_read");
-      if (candidates.length > 0 && readable.length === 0) {
-        flag(
-          "tax_record_incompletely_read",
-          "blocking",
-          `Only part of a ${FORM_LABEL[candidates[0].form]} was read: its income lines other than wages are not known. A reviewer must read them from the document.`,
-          groupMembers,
-          candidates.map((record) => record.sourceId),
-        );
-        continue;
-      }
-      if (readable.length === 0) continue;
-
-      const totals = readable.map((record) => {
-        const byLine = new Map<TaxRecordLineKey, number>();
-        if (record.otherIncome.status === "itemized") {
-          for (const entry of record.otherIncome.lines) byLine.set(entry.line, (byLine.get(entry.line) ?? 0) + entry.amountCents);
-        }
-        return byLine;
-      });
-      for (const lineKey of TAX_RECORD_LINE_KEYS) {
-        if (!totals.some((byLine) => byLine.has(lineKey))) continue;
-        const rule = TAX_RECORD_LINES[lineKey];
-        const amounts = totals.map((byLine) => byLine.get(lineKey) ?? 0);
-        const recorded = amounts[0];
-        const lowest = Math.min(...amounts);
-        const highest = Math.max(...amounts);
-        if (rule.ignoreLoss && highest <= 0) continue;
-
-        const itemId = `${lineKey}:${key}`;
-        const amountCents = rule.ignoreLoss ? Math.max(0, recorded) : recorded;
-        items.push({
-          id: itemId,
-          memberId: groupMembers[0],
-          ...(groupMembers.length > 1 ? { alsoCoversMemberIds: groupMembers.slice(1) } : {}),
-          category: rule.category,
-          incomeYear,
-          annualAmountCents: amountCents,
-          lowCents: rule.lowIsZero ? Math.min(0, lowest) : Math.min(amountCents, rule.ignoreLoss ? Math.max(0, lowest) : lowest),
-          highCents: Math.max(amountCents, highest),
-          ...sourceFields(readable[0].origin, readable[0].sourceId),
-          description: `${rule.label} per ${FORM_LABEL[readable[0].form]}`,
-        });
-        if (highest - lowest > tolerance) {
-          flag(
-            "income_figures_conflict",
-            "blocking",
-            `Tax records for ${incomeYear} do not agree on "${rule.label}": ${readable.map((record, index) => `${FORM_LABEL[record.form]} ${formatUsd(amounts[index])}`).join(" against ")}. A reviewer must settle which is right.`,
-            groupMembers,
-            readable.map((record) => record.sourceId),
-            itemId,
-          );
-        }
-        if (rule.flag) flag(rule.flag.code, rule.flag.severity, rule.flag.message, groupMembers, [readable[0].sourceId], itemId);
-      }
-    }
+    reconcileOtherIncome(unitRecords, out);
   }
 
-  return { incomeYear, items, flags, wages, ignored };
+  return { incomeYear, items: out.items, flags: out.flags, wages: out.wages, ignored: out.ignored };
 }
