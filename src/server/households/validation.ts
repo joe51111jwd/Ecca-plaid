@@ -48,8 +48,10 @@ export type Relationship = (typeof RELATIONSHIPS)[number];
 /* ------------------------------------------------------------------------------------------- names */
 
 const APOSTROPHES = /[‘’ʼ`´]/g;
-// Letters (any script, any accent) in runs, joined by a single apostrophe, hyphen or space.
-const NAME_PATTERN = /^[\p{L}\p{M}]+(?:['\- ][\p{L}\p{M}]+)*$/u;
+// Letters (any script, any accent) in runs, joined by a single apostrophe, hyphen or space. Each run starts
+// with a letter: a combining mark only ever decorates the letter before it, so a "name" made of bare marks
+// (invisible or stacked "Zalgo" text) is refused.
+const NAME_PATTERN = /^\p{L}[\p{L}\p{M}]*(?:['\- ]\p{L}[\p{L}\p{M}]*)*$/u;
 
 export type NameCheck = { ok: true; value: string } | { ok: false; message: string };
 
@@ -296,19 +298,31 @@ export function validateCustodyInfo(input: unknown): CustodyValidation {
   const flags: CustodyFlag[] = [];
   const flag = (code: CustodyFlagCode, message: string) => flags.push({ code, message });
 
+  const rawMonths = data.monthsInThisHousehold;
+  if (rawMonths !== undefined && rawMonths !== null && (!Number.isInteger(rawMonths) || rawMonths < 0 || rawMonths > MONTHS_IN_YEAR)) {
+    throw invalid("Please check the living-arrangement answers.", { fields: { monthsInThisHousehold: "Enter a whole number of months from 0 to 12." } });
+  }
+
   if (data.livesInMultipleHouseholds === false) {
-    return { custody: { livesInMultipleHouseholds: false, ...(notes ? { notes } : {}) }, flags, needsReview: false, suggestedRelevantHousehold: "this" };
+    // "Only this home" contradicted by fewer than 12 months here or by an equal split is not resolved by
+    // picking one answer: it goes to a reviewer like any other unclear custody answer.
+    const partYear = rawMonths !== undefined && rawMonths !== null && rawMonths < MONTHS_IN_YEAR;
+    if (partYear) flag("months_inconsistent", `The family said the student lived only in this household but gave ${rawMonths} months here.`);
+    if (data.equalTime === true) flag("months_inconsistent", "The family said the student lived only in this household but also that time was split equally between households.");
+    const custody: CustodyInfo = {
+      livesInMultipleHouseholds: false,
+      ...(rawMonths !== undefined && rawMonths !== null ? { monthsInThisHousehold: rawMonths } : {}),
+      ...(notes ? { notes } : {}),
+    };
+    return { custody, flags, needsReview: flags.length > 0, suggestedRelevantHousehold: flags.length > 0 ? "undetermined" : "this" };
   }
 
   flag("shared_custody", "The student lived in more than one household during the year. A reviewer must confirm which household counts.");
   if (data.livesInMultipleHouseholds === "unknown") flag("custody_unknown", "The family did not know whether the student lived in more than one household.");
 
   let months: number | null = null;
-  const rawMonths = data.monthsInThisHousehold;
   if (rawMonths === undefined || rawMonths === null) {
     flag("months_unknown", "The family did not say how many months the student lived in this household.");
-  } else if (!Number.isInteger(rawMonths) || rawMonths < 0 || rawMonths > MONTHS_IN_YEAR) {
-    throw invalid("Please check the living-arrangement answers.", { fields: { monthsInThisHousehold: "Enter a whole number of months from 0 to 12." } });
   } else {
     months = rawMonths;
   }

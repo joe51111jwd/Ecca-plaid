@@ -41,7 +41,7 @@ describe("sandbox test cards", () => {
     expect(formatCardNumber("4242424242424242")).toBe("4242 4242 4242 4242");
     expect(formatCardNumber("378282246310005")).toBe("3782 8224 6310 005");
     expect(passesLuhn("4242424242424241")).toBe(false);
-    expect(passesLuhn("")).toBe(true);
+    expect(passesLuhn("")).toBe(false);
     expect(passesLuhn("4242 4242")).toBe(false);
   });
 

@@ -5,7 +5,7 @@
 import { findDates, parseDocumentDate, type DateParseResult } from "../dates";
 import { findMoneyTokens, parseMoneyCents } from "../money";
 import { redactText } from "../redact";
-import { snippetOf, type DocumentText, type LineRef } from "../text";
+import { nearestItem, nextLine, snippetOf, type DocumentText, type LineRef } from "../text";
 import {
   DEFAULT_DOCUMENT_POLICY,
   PARSER_VERSION,
@@ -153,6 +153,14 @@ export function readLabeledDate(doc: DocumentText, label: RegExp, refs?: readonl
     if (loose && /\d/.test(loose[1])) {
       const r = parseDocumentDate(loose[1].replace(/[,;]$/, ""));
       if (!r.ok && r.reason === "ambiguous") return toDateRead(loose[1], r, ref);
+    }
+    // Boxed forms print the date in the box below its label.
+    if (/^[\s:.]*$/.test(rest) || !/\d/.test(rest)) {
+      const labelItem = ref.line.items.find((it) => label.test(it.text)) ?? ref.line.items[0];
+      const below = nextLine(ref);
+      const item = below ? nearestItem(below.line, labelItem.x, 12) : null;
+      const found = item ? findDates(item.text)[0] : undefined;
+      if (below && found && found.raw.length >= item!.text.trim().length - 2) return toDateRead(found.raw, found.result, below);
     }
   }
   return null;

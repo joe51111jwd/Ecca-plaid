@@ -297,7 +297,7 @@ describe("renderEvidencePdf: pagination", () => {
     }
     const withDocumentHeader = pdf.pages.filter((page) => page.includes("Document File, size, uploaded (UTC) Extraction and raw file SHA-256 of the stored file"));
     expect(withDocumentHeader.length).toBeGreaterThanOrEqual(3);
-    const withIncomeHeader = pdf.pages.filter((page) => page.includes("Category Source Counted Annual amount"));
+    const withIncomeHeader = pdf.pages.filter((page) => page.includes("Category Source Treatment Annual amount"));
     expect(withIncomeHeader.length).toBeGreaterThanOrEqual(2);
     expect(pdf.text).toContain("Documents (40)");
     expect(pdf.text).toContain("Total household cash income counted for 2026 $40,000.00");

@@ -191,15 +191,18 @@ export function valueAfterLabel(
   doc: DocumentText,
   label: RegExp,
   valuePattern: RegExp,
-  opts: { below?: boolean; maxBelow?: number } = {},
+  opts: { below?: boolean; sameLine?: boolean; maxBelow?: number } = {},
 ): { value: string; ref: LineRef } | null {
   for (const ref of findAllLines(doc, label)) {
     const m = label.exec(ref.line.text);
     if (!m) continue;
     const rest = ref.line.text.slice((m.index ?? 0) + m[0].length).replace(/^[\s:.]+/, "");
-    // Same line: try the whole rest, then the first column-separated chunk.
-    for (const candidate of [rest.trim(), rest.split(/\s{2,}/)[0]?.trim() ?? ""]) {
-      if (candidate && valuePattern.test(candidate)) return { value: candidate, ref };
+    // Same line: try the whole rest, then the first column-separated chunk. Boxed forms (W-2) print values
+    // below their label only, where the rest of the line is the next box's label.
+    if (opts.sameLine !== false) {
+      for (const candidate of [rest.trim(), rest.split(/\s{2,}/)[0]?.trim() ?? ""]) {
+        if (candidate && valuePattern.test(candidate)) return { value: candidate, ref };
+      }
     }
     if (opts.below === false) continue;
     const labelItem = ref.line.items.find((it) => label.test(it.text)) ?? ref.line.items[0];

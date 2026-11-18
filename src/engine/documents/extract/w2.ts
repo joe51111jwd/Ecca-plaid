@@ -13,6 +13,8 @@ import { CONF_VERIFIED, ExtractionBuilder, isPlausibleName, money, type ExtractC
 
 const MONEY_CELL = /^\$?(\d{1,3}(,\d{3})+|\d+)(\.\d{2})?$/;
 const NAME_CELL = /^[A-Za-zÀ-ÿ' .-]+$/;
+/** W-2 values sit below their box label; the rest of a label line is the next box's label. */
+const BOXED = { sameLine: false } as const;
 
 const BOXES: ReadonlyArray<{ box: string; label: RegExp }> = [
   { box: "1", label: /\b1\s+Wages, tips, other compensation/i },
@@ -47,18 +49,18 @@ function readStatement(b: ExtractionBuilder, doc: DocumentText, n: number): { am
   const copy = /\bCopy\s+(B|C|2|1|A|D)\b/.exec(text);
   if (copy) b.set(k("copy"), copy[1], CONF_VERIFIED, pageRef(/\bCopy\s+(B|C|2|1|A|D)\b/));
 
-  const ssn = valueAfterLabel(doc, /a\s+Employee's social security number/i, /^[0-9Xx*]{3}[- ]?[0-9Xx*]{2}[- ]?\d{4}$/);
+  const ssn = valueAfterLabel(doc, /a\s+Employee's social security number/i, /^[0-9Xx*]{3}[- ]?[0-9Xx*]{2}[- ]?\d{4}$/, BOXED);
   const last4 = ssn ? ssnLast4(ssn.value) : null;
   if (ssn && last4) b.set(k("employee_ssn_last4"), last4, CONF_VERIFIED, ssn.ref);
 
-  const ein = valueAfterLabel(doc, /b\s+Employer identification number \(EIN\)/i, /^[0-9Xx*]{2}-?[0-9Xx*]{7}$/);
+  const ein = valueAfterLabel(doc, /b\s+Employer identification number \(EIN\)/i, /^[0-9Xx*]{2}-?[0-9Xx*]{7}$/, BOXED);
   if (ein) b.set(k("employer_ein_masked"), `XX-XXX${ein.value.slice(-4)}`, CONF_VERIFIED, ein.ref);
 
-  const employer = valueAfterLabel(doc, /c\s+Employer's name, address, and ZIP code/i, /^[A-Za-z0-9&'.,\- ]{2,80}$/);
+  const employer = valueAfterLabel(doc, /c\s+Employer's name, address, and ZIP code/i, /^[A-Za-z0-9&'.,\- ]{2,80}$/, BOXED);
   if (employer) b.set(k("employer_name"), employer.value, CONF_VERIFIED, employer.ref);
   b.require(k("employer_name"));
 
-  const control = valueAfterLabel(doc, /d\s+Control number/i, /^[A-Za-z0-9-]{1,30}$/);
+  const control = valueAfterLabel(doc, /d\s+Control number/i, /^[A-Za-z0-9-]{1,30}$/, BOXED);
   if (control) b.set(k("control_number_masked"), maskIdentifier(control.value), CONF_VERIFIED, control.ref);
 
   // Box e: first name and initial, then "Last name" in its own column, value below each label.
@@ -82,7 +84,7 @@ function readStatement(b: ExtractionBuilder, doc: DocumentText, n: number): { am
 
   const amounts: IncomeAmount[] = [];
   for (const { box, label } of BOXES) {
-    const v = valueAfterLabel(doc, label, MONEY_CELL);
+    const v = valueAfterLabel(doc, label, MONEY_CELL, BOXED);
     if (!v) continue;
     const cents = money(v.value);
     if (cents === null) {

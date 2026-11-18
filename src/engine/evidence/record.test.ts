@@ -156,7 +156,7 @@ describe("buildEvidenceRecord: the two synthetic samples", () => {
     expect(record.documents).toHaveLength(1);
     expect(record.documents[0]).toMatchObject({ id: "doc_SYNTHETICawardletter01", sha256: syntheticSha256("SNAP award letter"), raw_file_status: "retained", purged_at: null, extracted_by: "parser" });
     expect(record.consent).toMatchObject({ copy_version: "synthetic-consent-copy.v1", granted_at: "2027-01-11T17:55:42.000Z", granted_by: "María Peña", locale: "es" });
-    expect(record.data_minimization).toEqual({ rule_version: EVIDENCE_POLICY.dataMinimizationRuleVersion, ssn_patterns_removed: 0, extracted_fields_removed: 0 });
+    expect(record.data_minimization).toEqual({ rule_version: EVIDENCE_POLICY.dataMinimizationRuleVersion, ssn_patterns_removed: 0, extracted_fields_removed: 0, income_detail_omitted: false });
     expect(record.versions).toEqual({ engine: "synthetic-decision-engine-1.0.0", taxonomy: "synthetic-income-taxonomy-1", rule_set: "25F_STATUTE + REG-117199-25_PROPOSED_2026-10-02" });
   });
 
@@ -417,9 +417,41 @@ describe("buildEvidenceRecord: data minimization", () => {
     expect(hidden.documents[0].filename).toBe("env");
   });
 
-  it("carries no income detail under the categorical method", () => {
-    const input = altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.income = syntheticDirectReviewedInput().income));
-    expectIssue(input, "income", "inconsistent", /categorical method/);
+  it("leaves income detail out of a decided categorical record, and says that it did", () => {
+    const income = { year: 2026, totalCountedCents: 4_200_000, items: [{ id: "inc_SYNTHETICextra00000001", category: "wages", categoryLabel: "Wages and salaries", annualAmountCents: 4_200_000, treatment: "counted" as const, source: "self_reported" as const }] };
+    const record = buildEvidenceRecord(altered(syntheticCategoricalEligibleInput(), (copy) => void (copy.income = income)));
+    expect(record.income).toBeNull();
+    expect(record.data_minimization.income_detail_omitted).toBe(true);
+    expect(JSON.stringify(record)).not.toContain("inc_SYNTHETICextra00000001");
+    // Everything else is the record the same input gives without the income detail.
+    const plain = buildEvidenceRecord(syntheticCategoricalEligibleInput());
+    expect({ ...record, data_minimization: plain.data_minimization }).toEqual(plain);
+  });
+
+  it("leaves categorical detail out of a decided direct record", () => {
+    const record = buildEvidenceRecord(altered(syntheticDirectReviewedInput(), (copy) => void (copy.categorical = { program: "SNAP", letterDate: "2026-08-14", approvalStatus: "unclear" })));
+    expect(record.categorical).toBeNull();
+    expect(record).toEqual(buildEvidenceRecord(syntheticDirectReviewedInput()));
+  });
+
+  it("carries whatever detail exists while a verification is still in review", () => {
+    const input = altered(syntheticDirectReviewedInput(), (copy) => {
+      copy.decision.status = "needs_review";
+      copy.decision.decidedBy = { type: "engine" };
+      copy.decision.reasons = [{ code: "categorical_direct_conflict", message: "The letter and the income documents point different ways.", memberIds: ["hm_SYNTHETICmember000013"], sourceIds: ["doc_SYNTHETICw200000000001"] }];
+      copy.categorical = { program: "SNAP", letterDate: "2026-08-14", approvalStatus: "unclear", namedMemberId: "hm_SYNTHETICmember000013" };
+    });
+    const record = buildEvidenceRecord(input);
+    expect(record.income).not.toBeNull();
+    expect(record.categorical).toMatchObject({ program: "SNAP", approval_status: "unclear" });
+    expect(record.data_minimization.income_detail_omitted).toBe(false);
+    expect(record.decision.reasons).toEqual([{ code: "categorical_direct_conflict", message: "The letter and the income documents point different ways.", member_ids: ["hm_SYNTHETICmember000013"], source_ids: ["doc_SYNTHETICw200000000001"] }]);
+    // In review with nothing at all is also a state a pack can describe.
+    const empty = buildEvidenceRecord(altered(input, (copy) => void ((copy.income = null), (copy.categorical = null))));
+    expect(empty.income).toBeNull();
+    expect(empty.categorical).toBeNull();
+    expect(empty.decision.summary).toBe("Needs review: no eligibility decision has been made. No household income has been recorded yet for calendar year 2026. The reasons are listed in this record.");
+    expect(empty.threshold.relied_on_statement).toBe("No eligibility decision has been made, so no limit has been relied on. No household income has been recorded yet.");
   });
 });
 
@@ -528,8 +560,13 @@ describe("buildEvidenceRecord: refuses input that contradicts itself", () => {
     ["household.members", (copy: Mutable & EvidenceInput) => void (copy.household.members[1].id = copy.household.members[0].id), /more than once/],
     ["decision.incomeYear", (copy: Mutable & EvidenceInput) => void (copy.decision.incomeYear = 2027), /calendar year before the application date \(2026\)/],
     ["income.year", (copy: Mutable & EvidenceInput) => void (copy.income!.year = 2025), /decision\.incomeYear/],
-    ["income.totalCountedCents", (copy: Mutable & EvidenceInput) => void (copy.income!.totalCountedCents += 1), /counted items add up to 8425037 cents/],
-    ["income.totalCountedCents", (copy: Mutable & EvidenceInput) => void (copy.income!.items[3].counted = true), /add up to/],
+    ["income.totalCountedCents", (copy: Mutable & EvidenceInput) => void (copy.income!.totalCountedCents += 1), /counted lines add up to 8425037 cents/],
+    ["income.totalCountedCents", (copy: Mutable & EvidenceInput) => void (copy.income!.items[3].treatment = "counted"), /add up to/],
+    ["income.items[0].counted", (copy: Mutable & EvidenceInput) => void (copy.income!.items[0].counted = false), /contradicts treatment "counted"/],
+    ["income.items[0].treatment", (copy: Mutable & EvidenceInput) => void delete loose(copy.income!.items[0]).treatment, /counted, excluded or review/],
+    ["income.lowerBoundCents", (copy: Mutable & EvidenceInput) => void (copy.income!.lowerBoundCents = 8_425_038), /greater than totalCountedCents/],
+    ["income.upperBoundCents", (copy: Mutable & EvidenceInput) => void (copy.income!.upperBoundCents = 8_425_036), /less than totalCountedCents/],
+    ["threshold.statutoryUpperBoundCents", (copy: Mutable & EvidenceInput) => void (copy.threshold.statutoryUpperBoundCents = 27_119_999), /lower than the largest reading/],
     ["income.items[0].memberId", (copy: Mutable & EvidenceInput) => void (copy.income!.items[0].memberId = "hm_SYNTHETICstranger00001"), /roster/],
     ["threshold.lowerBoundCents", (copy: Mutable & EvidenceInput) => void (copy.threshold.lowerBoundCents = 1), /smallest reading/],
     ["threshold.upperBoundCents", (copy: Mutable & EvidenceInput) => void (copy.threshold.upperBoundCents = 99_999_999), /largest reading/],
@@ -548,7 +585,6 @@ describe("buildEvidenceRecord: refuses input that contradicts itself", () => {
     ["consent.grantedAt", (copy: Mutable & EvidenceInput) => void (copy.consent.grantedAt = "2027-02-04T00:00:00Z"), /consent has to come first/],
     ["decision.decidedAt", (copy: Mutable & EvidenceInput) => void (copy.generatedAt = "2027-02-01T00:00:00Z"), /later than generatedAt/],
     ["decision.expiresAt", (copy: Mutable & EvidenceInput) => void (copy.decision.expiresAt = "2027-02-03T15:12:44Z"), /not later than decidedAt/],
-    ["categorical", (copy: Mutable & EvidenceInput) => void (copy.categorical = syntheticCategoricalEligibleInput().categorical), /direct method/],
     ["documents[0].extractedFields[0]", (copy: Mutable & EvidenceInput) => void (copy.documents[0].extractedFields[0] = { key: "k", label: "L", value: "v", amountCents: 5 }), /exactly one/],
     ["documents[0].extractedFields[0]", (copy: Mutable & EvidenceInput) => void (copy.documents[0].extractedFields[0] = { key: "k", label: "L" }), /exactly one/],
     ["timeline[0].at", (copy: Mutable & EvidenceInput) => void (copy.timeline[0].at = "2029-01-01T00:00:00Z"), /later than generatedAt/],
@@ -679,7 +715,7 @@ describe("buildEvidenceRecord: the decision has to follow from the record", () =
   });
 
   it("refuses eligible above every reading and ineligible at or below every reading", () => {
-    expectIssue(direct("eligible", 27_120_001), "decision.status", "decision_contradicts_record", /greater than the limit under every reading/);
+    expectIssue(direct("eligible", 27_120_001), "decision.status", "decision_contradicts_record", /greater than the statutory limit under every reading/);
     expectIssue(direct("eligible", 27_120_001, "reviewer"), "decision.status", "decision_contradicts_record");
     expectIssue(direct("ineligible", 12_538_800), "decision.status", "decision_contradicts_record", /not greater than the limit under any reading/);
     expectIssue(direct("ineligible", 1, "reviewer"), "decision.status", "decision_contradicts_record");
