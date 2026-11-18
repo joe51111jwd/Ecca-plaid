@@ -16,10 +16,21 @@ Adjustment" and Table 1):
 
 No rounding is applied. The script fails if any limit is not a whole number of cents.
 
+Second reading (Reading B, "section8_vli"): the proposed regulation text says area median gross income is
+"determined ... in accordance with section 8", which can be read as
+
+    limit = 6 x HUD's published very-low-income (50%) limit l50_n for the family size
+
+HUD publishes l50_1..l50_8. Above eight persons this script applies HUD's documented method (FY 2026
+methodology, lines 249-252): the four-person limit times 1.32 + 0.08 per person above eight, rounded UP to the
+nearest $50. The two readings are computed separately here, from the raw workbook columns.
+
 Output: src/engine/ami/__golden__/hud-fy2026-tx-thresholds.csv with the columns
-    fips, county, area_code, median, size, threshold_cents
-one row per Texas county and family size 1..8 (254 x 8 = 2,032 rows), plus sizes 9..12 for a fixed sample
-of counties.
+    fips, county, area_code, metro, median, size, threshold_cents,
+    vli_dollars, vli_basis, section8_vli_cents, readings_agree
+where threshold_cents is Reading A, vli_basis is "published" (l50_n) or "extended" (HUD's method above eight),
+section8_vli_cents is Reading B and readings_agree is 1 when both readings give the same limit. One row per
+Texas county and family size 1..8 (254 x 8 = 2,032 rows), plus sizes 9..12 for a fixed sample of counties.
 
 Usage (from the repository root; -I keeps Python from importing anything but the standard library):
 
@@ -102,6 +113,19 @@ def limit_cents(median_dollars, size):
     if cents.denominator != 1:
         fail("limit for median %d, size %d is not a whole number of cents: %s" % (median_dollars, size, cents))
     return cents.numerator
+
+
+def ceil_to_50(dollars):
+    """Rounds a Fraction of dollars UP to the nearest $50 (HUD's rounding of its income limits)."""
+    steps = -((-dollars) // 50)
+    return int(steps) * 50
+
+
+def section8_vli_dollars(l50, size):
+    """HUD's very-low-income limit for the family size: published for 1..8, HUD's method above eight."""
+    if size <= 8:
+        return l50[size - 1], "published"
+    return ceil_to_50(Fraction(l50[3]) * multiplier(size)), "extended"
 
 
 def column_index(reference):
@@ -191,7 +215,8 @@ def texas_counties(rows):
     for position, name in enumerate(rows[0]):
         if isinstance(name, str):
             header[name.strip().lower()] = position
-    for required in ("fips", "stusps", "state", "county", "county_name", "hud_area_code", MEDIAN_COLUMN):
+    vli_columns = ["l50_%d" % n for n in range(1, 9)]
+    for required in ["fips", "stusps", "state", "county", "county_name", "hud_area_code", "metro", MEDIAN_COLUMN] + vli_columns:
         if required not in header:
             fail("sheet has no %r column" % required)
 
@@ -216,10 +241,19 @@ def texas_counties(rows):
         area_code = value(row, "hud_area_code")
         if not (isinstance(name, str) and name.strip()) or not (isinstance(area_code, str) and area_code.strip()):
             fail("missing county name or area code for fips %s" % fips)
+        metro = value(row, "metro")
+        if metro not in (0, 1) or isinstance(metro, bool):
+            fail("metro flag for fips %s is not 0 or 1: %r" % (fips, metro))
+        l50 = [value(row, column) for column in vli_columns]
+        for column, amount in zip(vli_columns, l50):
+            if not (isinstance(amount, int) and not isinstance(amount, bool) and amount > 0):
+                fail("%s for fips %s is not a positive whole number: %r" % (column, fips, amount))
+        if any(later < earlier for earlier, later in zip(l50, l50[1:])):
+            fail("very-low-income limits for fips %s decrease with family size: %r" % (fips, l50))
         fips5 = fips[:5]
         if fips5 in counties:
             fail("county %s appears more than once" % fips5)
-        counties[fips5] = (name.strip(), area_code.strip(), median)
+        counties[fips5] = (name.strip(), area_code.strip(), median, metro, l50)
     if len(counties) != EXPECTED_COUNTIES:
         fail("expected %d Texas counties, found %d" % (EXPECTED_COUNTIES, len(counties)))
     for fips5 in LARGE_HOUSEHOLD_SAMPLE:
@@ -231,14 +265,19 @@ def texas_counties(rows):
 def render(counties):
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(["fips", "county", "area_code", "median", "size", "threshold_cents"])
+    writer.writerow(
+        ["fips", "county", "area_code", "metro", "median", "size", "threshold_cents", "vli_dollars", "vli_basis", "section8_vli_cents", "readings_agree"]
+    )
     for fips5 in sorted(counties):
-        name, area_code, median = counties[fips5]
+        name, area_code, median, metro, l50 = counties[fips5]
         sizes = list(range(1, 9))
         if fips5 in LARGE_HOUSEHOLD_SAMPLE:
             sizes.extend(LARGE_HOUSEHOLD_SIZES)
         for size in sizes:
-            writer.writerow([fips5, name, area_code, median, size, limit_cents(median, size)])
+            reading_a = limit_cents(median, size)
+            vli, basis = section8_vli_dollars(l50, size)
+            reading_b = vli * 6 * 100
+            writer.writerow([fips5, name, area_code, metro, median, size, reading_a, vli, basis, reading_b, 1 if reading_a == reading_b else 0])
     return output.getvalue()
 
 
@@ -259,6 +298,9 @@ def main():
     # The rule's own worked example must come out of this arithmetic before anything is written.
     if limit_cents(100000, 3) != 27000000 or limit_cents(100000, 4) != 30000000:
         fail("self-test failed: the proposed rule's $100,000 example does not reproduce")
+    # HUD's own example (methodology lines 249-251): the nine-person limit is 140 percent of the four-person limit.
+    if section8_vli_dollars([0, 0, 0, 41850, 0, 0, 0, 0], 9) != (58600, "extended"):
+        fail("self-test failed: HUD's nine-person method does not reproduce (41,850 x 1.40 = 58,590, up to 58,600)")
 
     counties = texas_counties(read_sheet(xlsx_bytes, SHEET_NAME))
     text = render(counties)

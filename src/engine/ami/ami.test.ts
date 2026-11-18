@@ -13,6 +13,10 @@
  *
  * The hand-checkable anchors below can be verified with a calculator: limit = 3 x median x multiplier,
  * multipliers 0.70 0.80 0.90 1.00 1.08 1.16 1.24 1.32 for one to eight persons, +0.08 per person above eight.
+ * The second reading (`section8_vli`) is 6 x HUD's published very-low-income limit l50_n; the golden file
+ * carries it too (columns vli_dollars, vli_basis, section8_vli_cents, readings_agree). The disagreement counts
+ * asserted below (143 / 120 / 23 at four persons, 97 nonmetro counties at $41,850, 55 cells off HUD's method)
+ * reproduce docs/reference/sgo-verification-rules.md F34 and docs/reference/hud-ami-and-annual-income.md F17-F18.
  * These limits are HUD-derived and PROVISIONAL; they are not IRS-published limits.
  */
 import { spawnSync } from "node:child_process";
@@ -28,6 +32,7 @@ import {
   buildTable,
   countiesInArea,
   createTableRegistry,
+  describeReadings,
   describeThresholdSource,
   EXPECTED_COUNTY_COUNT,
   familySizeMultiplierBps,
@@ -42,6 +47,7 @@ import {
   listTables,
   STATUTORY_CAP_PCT,
   THRESHOLD_COPY_VERSION,
+  thresholdReadingLabel,
   thresholdRow,
   thresholdSourceName,
   type AmiTable,
@@ -73,18 +79,30 @@ interface GoldenRow {
   fips: string;
   county: string;
   areaCode: string;
+  metro: boolean;
   medianDollars: number;
   size: number;
+  /** Reading A, `median_product`. */
   thresholdCents: number;
+  vliDollars: number;
+  vliBasis: "published" | "extended";
+  /** Reading B, `section8_vli`. */
+  section8VliCents: number;
+  readingsAgree: boolean;
 }
 
 const goldenRows: GoldenRow[] = parseCsvRecords(readFileSync(GOLDEN_FILE, "utf8")).map((record) => ({
   fips: record.fips,
   county: record.county,
   areaCode: record.area_code,
+  metro: record.metro === "1",
   medianDollars: Number(record.median),
   size: Number(record.size),
   thresholdCents: Number(record.threshold_cents),
+  vliDollars: Number(record.vli_dollars),
+  vliBasis: record.vli_basis as GoldenRow["vliBasis"],
+  section8VliCents: Number(record.section8_vli_cents),
+  readingsAgree: record.readings_agree === "1",
 }));
 
 const goldenByCounty = new Map<string, GoldenRow[]>();
@@ -128,7 +146,7 @@ function syntheticTable(medianIncomeDollars: number): AmiTable {
     effectiveDateCitation: "SYNTHETIC",
     sourceFile: { name: "SYNTHETIC.xlsx", sha256: "0".repeat(64), url: null },
     multipliers: { bySizeBps: [...HUD_FAMILY_SIZE_MULTIPLIERS.bySizeBps], additionalPersonBps: HUD_FAMILY_SIZE_MULTIPLIERS.additionalPersonBps, citation: "SYNTHETIC" },
-    areas: [{ code: "SYNTHETIC-AREA", name: "SYNTHETIC area", metro: true, medianIncomeDollars, hudPublished: { veryLowIncome4PersonDollars: 1, lowIncome4PersonDollars: 1 } }],
+    areas: [{ code: "SYNTHETIC-AREA", name: "SYNTHETIC area", metro: true, medianIncomeDollars, hudPublished: { veryLowIncome4PersonDollars: 1, lowIncome4PersonDollars: 1, veryLowIncomeBySizeDollars: [1, 1, 1, 1, 1, 1, 1, 1] } }],
     counties: [{ fips: "48999", name: "SYNTHETIC County", areaCode: "SYNTHETIC-AREA" }],
   };
   return buildTable(dataset, { requireAllCounties: false });
@@ -184,6 +202,14 @@ describe("every Texas county x household sizes 1-8 matches the independent golde
       expect(result.medianIncomeCents, at).toBe(golden.medianDollars * 100);
       expect(result.exact, at).toBe(true);
       expect(result.householdSize, at).toBe(golden.size);
+      expect(result.readings.map((reading) => reading.id), at).toEqual(["median_product", "section8_vli"]);
+      expect(result.readings[0].thresholdCents, at).toBe(golden.thresholdCents);
+      expect(result.readings[1].thresholdCents, at).toBe(golden.section8VliCents);
+      expect(result.readings[1].statutoryThresholdCents, at).toBe(golden.section8VliCents);
+      expect(result.readings[1].formula.includes("extended by HUD's method"), at).toBe(golden.vliBasis === "extended");
+      expect(result.readingsAgree, at).toBe(golden.readingsAgree);
+      expect(result.lowerBoundCents, at).toBe(Math.min(golden.thresholdCents, golden.section8VliCents));
+      expect(result.upperBoundCents, at).toBe(Math.max(golden.thresholdCents, golden.section8VliCents));
     }
     // The 1-8 row helper must agree with the single lookups.
     expect(thresholdRow(fips, { table: hud }).thresholds.map((entry) => entry.thresholdCents)).toEqual(rows.slice(0, 8).map((row) => row.thresholdCents));
@@ -222,6 +248,25 @@ describe("hand-checkable anchors", () => {
       method: "hud_median_x_cap_pct_x_family_size_multiplier_v1",
       formula: "300% x $104,000 area median income x 1.00 family-size multiplier (4 persons) = $312,000.00",
       exact: true,
+      readings: [
+        {
+          id: "median_product",
+          label: "Area median income x family-size multiplier (the worked example in the proposed rule's economic analysis)",
+          thresholdCents: 31_200_000,
+          statutoryThresholdCents: 31_200_000,
+          formula: "300% x $104,000 area median income x 1.00 family-size multiplier (4 persons) = $312,000.00",
+        },
+        {
+          id: "section8_vli",
+          label: "6 x HUD's Section 8 very-low-income limit (a reading of the proposed regulation text)",
+          thresholdCents: 31_200_000,
+          statutoryThresholdCents: 31_200_000,
+          formula: "6 x $52,000 HUD very-low-income limit (4 persons) = $312,000.00",
+        },
+      ],
+      lowerBoundCents: 31_200_000,
+      upperBoundCents: 31_200_000,
+      readingsAgree: true,
     });
   });
 
@@ -341,9 +386,13 @@ describe("structure of the Texas table", () => {
     expect(new Set(counties.map((county) => getArea(county.areaCode, hud)!.medianIncomeCents)).size).toBe(174);
   });
 
-  it("keeps HUD's published four-person limits for reference only, and does not derive the limit from them", () => {
+  it("keeps HUD's published limits out of thresholdCents (they feed only the section8_vli reading)", () => {
     const houston = getArea("METRO26420M26420", hud)!;
-    expect(houston.hudPublished).toEqual({ veryLowIncome4PersonCents: 5_200_000, lowIncome4PersonCents: 8_320_000 });
+    expect(houston.hudPublished).toEqual({
+      veryLowIncome4PersonCents: 5_200_000,
+      lowIncome4PersonCents: 8_320_000,
+      veryLowIncomeBySizeCents: [3_640_000, 4_160_000, 4_680_000, 5_200_000, 5_620_000, 6_035_000, 6_450_000, 6_865_000],
+    });
     // Where HUD's 50% limit is exactly half the median, 6 x l50 happens to equal the 300% limit...
     expect(6 * houston.hudPublished!.veryLowIncome4PersonCents).toBe(limit("48201", 4));
     // ...but HUD floors, caps and rounds its limits, so in Starr County 6 x l50 would be $251,100, not $116,100.
@@ -359,6 +408,173 @@ describe("structure of the Texas table", () => {
     expect(limit("48201", 1, 50)).toBe(3_640_000);
     expect(limit("48201", 4, 50)).toBe(5_200_000);
     expect(limit("48201", 4, 80)).toBe(8_320_000);
+  });
+});
+
+describe("two readings of the proposed rule (provisional HUD-derived table)", () => {
+  const fourPerson = goldenRows.filter((row) => row.size === 4);
+
+  it("the golden file's Reading B is 6 x HUD's published l50_n for sizes 1-8, read independently from the workbook", () => {
+    for (const row of goldenRows.filter((r) => r.size <= 8)) {
+      const area = getArea(row.areaCode, hud)!;
+      expect(row.vliBasis, `${row.fips} size ${row.size}`).toBe("published");
+      expect(area.hudPublished!.veryLowIncomeBySizeCents[row.size - 1], `${row.fips} size ${row.size}`).toBe(row.vliDollars * 100);
+      expect(row.section8VliCents).toBe(row.vliDollars * 600);
+    }
+  });
+
+  it("the four-person readings differ in 143 of 254 counties: Reading B higher in 120, lower in 23 (reference F34)", () => {
+    expect(fourPerson).toHaveLength(254);
+    const results = fourPerson.map((row) => getThreshold({ countyFips: row.fips, householdSize: 4, table: hud }));
+    const differ = results.filter((r) => !r.readingsAgree);
+    expect(differ).toHaveLength(143);
+    expect(differ.filter((r) => r.readings[1].thresholdCents > r.readings[0].thresholdCents)).toHaveLength(120);
+    expect(differ.filter((r) => r.readings[1].thresholdCents < r.readings[0].thresholdCents)).toHaveLength(23);
+    expect(fourPerson.filter((row) => !row.readingsAgree)).toHaveLength(143);
+  });
+
+  it("anchors: Starr County $116,100 vs $251,100 at four persons (the largest gap); Harris $312,000 under both", () => {
+    const starr = getThreshold({ countyFips: "48427", householdSize: 4, table: hud });
+    expect(starr.thresholdCents).toBe(11_610_000);
+    expect(starr.readings[1].thresholdCents).toBe(25_110_000);
+    expect(starr.readings[1].formula).toBe("6 x $41,850 HUD very-low-income limit (4 persons) = $251,100.00");
+    expect([starr.lowerBoundCents, starr.upperBoundCents, starr.readingsAgree]).toEqual([11_610_000, 25_110_000, false]);
+    const gaps = fourPerson.map((row) => Math.abs(row.section8VliCents - row.thresholdCents));
+    expect(Math.max(...gaps)).toBe(13_500_000);
+    expect(fourPerson[gaps.indexOf(Math.max(...gaps))].fips).toBe("48427");
+
+    const harris = getThreshold({ countyFips: "48201", householdSize: 4, table: hud });
+    expect([harris.thresholdCents, harris.readings[1].thresholdCents, harris.lowerBoundCents, harris.upperBoundCents, harris.readingsAgree]).toEqual([
+      31_200_000, 31_200_000, 31_200_000, 31_200_000, true,
+    ]);
+    // Other sizes differ by a few hundred dollars because HUD rounds each l50_n up to $50: 6 x 56,200 vs 3 x 104,000 x 1.08.
+    const harris5 = getThreshold({ countyFips: "48201", householdSize: 5, table: hud });
+    expect([harris5.readings[0].thresholdCents, harris5.readings[1].thresholdCents, harris5.readingsAgree]).toEqual([33_696_000, 33_720_000, false]);
+  });
+
+  it("97 of the 168 nonmetropolitan counties share the $41,850 four-person very-low-income limit (half the $83,700 state nonmetro median)", () => {
+    const nonmetro = listCounties(hud).filter((county) => getArea(county.areaCode, hud)!.metro === false);
+    expect(nonmetro).toHaveLength(168);
+    const at41850 = nonmetro.filter((county) => getArea(county.areaCode, hud)!.hudPublished!.veryLowIncome4PersonCents === 4_185_000);
+    expect(at41850).toHaveLength(97);
+    for (const county of at41850) expect(getThreshold({ countyFips: county.fips, householdSize: 4, table: hud }).readings[1].thresholdCents).toBe(25_110_000);
+    expect(fourPerson.filter((row) => !row.metro && row.vliDollars === 41_850)).toHaveLength(97);
+  });
+
+  it("lower <= upper, both bounds are readings, and thresholdCents stays Reading A, for every county, size 1-12 and several caps", () => {
+    for (const county of listCounties(hud)) {
+      for (const size of [...SIZES_1_TO_8, 9, 12]) {
+        for (const capPct of [300, 250, 185, 100, 1]) {
+          const r = getThreshold({ countyFips: county.fips, householdSize: size, capPct, table: hud });
+          const limits = r.readings.map((reading) => reading.thresholdCents);
+          expect(r.lowerBoundCents).toBeLessThanOrEqual(r.upperBoundCents);
+          expect(r.lowerBoundCents).toBe(Math.min(...limits));
+          expect(r.upperBoundCents).toBe(Math.max(...limits));
+          expect(r.thresholdCents).toBe(r.readings[0].thresholdCents);
+          expect(r.readingsAgree).toBe(limits[0] === limits[1]);
+        }
+      }
+    }
+  });
+
+  it("scales both readings by the cap: Reading B at cap c is l50_n x 6 x c / 300, exact to the cent", () => {
+    const starr250 = getThreshold({ countyFips: "48427", householdSize: 4, capPct: 250, table: hud });
+    expect(starr250.readings[0].thresholdCents).toBe(9_675_000); // 2.5 x 38,700
+    expect(starr250.readings[1].thresholdCents).toBe(20_925_000); // 41,850 x 6 x 250 / 300 = 209,250
+    expect(starr250.readings[1].statutoryThresholdCents).toBe(25_110_000);
+    expect(starr250.readings[1].formula).toBe(
+      "6 x $41,850 HUD very-low-income limit (4 persons) x 250/300 = $209,250.00 (stricter cap; the limit at the statutory 300% is $251,100.00)",
+    );
+    const starr185 = getThreshold({ countyFips: "48427", householdSize: 4, capPct: 185, table: hud });
+    expect(starr185.readings[1].thresholdCents).toBe(15_484_500); // 41,850 x 6 x 1.85/3 = 154,845
+    expect([starr185.lowerBoundCents, starr185.upperBoundCents]).toEqual([7_159_500, 15_484_500]);
+    for (const golden of goldenRows) {
+      for (const capPct of [1, 7, 185, 250, 299]) {
+        const r = getThreshold({ countyFips: golden.fips, householdSize: golden.size, capPct, table: hud });
+        expect(r.readings[1].thresholdCents).toBe(golden.vliDollars * 2 * capPct);
+      }
+    }
+  });
+
+  it("above eight persons extends HUD's l50 by HUD's method (four-person limit x multiplier, rounded up to $50) and says so", () => {
+    const harris9 = getThreshold({ countyFips: "48201", householdSize: 9, table: hud });
+    expect(harris9.readings[1].thresholdCents).toBe(43_680_000); // 52,000 x 1.40 = 72,800 (already a multiple of $50) x 6
+    expect(harris9.readings[1].formula).toBe(
+      "6 x $72,800 HUD very-low-income limit (9 persons, extended by HUD's method: $52,000 four-person limit x 1.40, rounded up to the nearest $50) = $436,800.00",
+    );
+    const starr9 = getThreshold({ countyFips: "48427", householdSize: 9, table: hud });
+    expect(starr9.readings[1].thresholdCents).toBe(35_160_000); // 41,850 x 1.40 = 58,590 -> 58,600 x 6 = 351,600
+    const harris10 = getThreshold({ countyFips: "48201", householdSize: 10, table: hud });
+    expect(harris10.readings[1].thresholdCents).toBe(46_200_000); // 52,000 x 1.48 = 76,960 -> 77,000 x 6
+    expect(harris10.readingsAgree).toBe(false);
+    for (const size of SIZES_1_TO_8) expect(getThreshold({ countyFips: "48201", householdSize: size, table: hud }).readings[1].formula).not.toMatch(/extended/);
+    // Very large households stay exact integers.
+    const huge = getThreshold({ countyFips: "48201", householdSize: 1_000_000, table: hud });
+    expect(Number.isSafeInteger(huge.readings[1].thresholdCents)).toBe(true);
+    expect(huge.lowerBoundCents).toBeLessThanOrEqual(huge.upperBoundCents);
+  });
+
+  it("HUD's published l50_n (n != 4) follows HUD's own method from l50_4 except in 55 cells of 21 counties, each by $50; the published figure is used", () => {
+    const pct = [70, 80, 90, 100, 108, 116, 124, 132];
+    const deviations: Array<{ fips: string; size: number; delta: number }> = [];
+    for (const county of listCounties(hud)) {
+      const vli = getArea(county.areaCode, hud)!.hudPublished!.veryLowIncomeBySizeCents.map((cents) => cents / 100);
+      for (const size of SIZES_1_TO_8) {
+        if (size === 4) continue;
+        const byMethod = Math.ceil((vli[3] * pct[size - 1]) / 100 / 50) * 50;
+        if (byMethod !== vli[size - 1]) deviations.push({ fips: county.fips, size, delta: vli[size - 1] - byMethod });
+        expect(getThreshold({ countyFips: county.fips, householdSize: size, table: hud }).readings[1].statutoryThresholdCents).toBe(vli[size - 1] * 600);
+      }
+    }
+    expect(deviations).toHaveLength(55);
+    expect(new Set(deviations.map((d) => d.fips)).size).toBe(21);
+    expect(deviations.filter((d) => d.delta === -50)).toHaveLength(48);
+    expect(deviations.filter((d) => d.delta === 50)).toHaveLength(7);
+    expect(getArea(getCounty("48201", hud)!.areaCode, hud)!.hudPublished!.veryLowIncomeBySizeCents).toEqual(
+      [36_400, 41_600, 46_800, 52_000, 56_200, 60_350, 64_500, 68_650].map((dollars) => dollars * 100),
+    );
+  });
+
+  it("thresholdRow carries the readings for sizes 1-8", () => {
+    const row = thresholdRow("48427", { table: hud, capPct: 250 });
+    expect(row.thresholds.map((t) => t.readings.map((reading) => reading.id))).toEqual(SIZES_1_TO_8.map(() => ["median_product", "section8_vli"]));
+    for (const entry of row.thresholds) {
+      const single = getThreshold({ countyFips: "48427", householdSize: entry.householdSize, capPct: 250, table: hud });
+      expect(entry).toMatchObject({ readings: single.readings, lowerBoundCents: single.lowerBoundCents, upperBoundCents: single.upperBoundCents, readingsAgree: single.readingsAgree });
+    }
+  });
+
+  it("describeReadings gives the exact sentences for differing and agreeing readings", () => {
+    const starr = describeReadings(getThreshold({ countyFips: "48427", householdSize: 4, table: hud }));
+    expect(starr.status).toBe("differ");
+    expect(starr.copyVersion).toBe(THRESHOLD_COPY_VERSION);
+    expect(starr.summary).toBe(
+      "Provisional. Two readings of the proposed rule give different limits for this county and household size: $116,100.00 and $251,100.00. " +
+        "Automatic decisions use the lower figure to approve and the higher figure to decline; incomes in between are reviewed by a person.",
+    );
+    expect(starr.readingLines).toEqual([
+      "Area median income x family-size multiplier (the worked example in the proposed rule's economic analysis): 300% x $38,700 area median income x 1.00 family-size multiplier (4 persons) = $116,100.00",
+      "6 x HUD's Section 8 very-low-income limit (a reading of the proposed regulation text): 6 x $41,850 HUD very-low-income limit (4 persons) = $251,100.00",
+    ]);
+    const harris = describeReadings(getThreshold({ countyFips: "48201", householdSize: 4, table: hud }));
+    expect(harris.status).toBe("agree");
+    expect(harris.summary).toBe("Provisional. Both readings of the proposed rule give the same limit for this county and household size: $312,000.00.");
+    const es = describeReadings(getThreshold({ countyFips: "48427", householdSize: 4, table: hud }), "es");
+    expect(es.summary).toContain("$116,100.00 y $251,100.00");
+    expect(es.summary).toMatch(/^Provisional\./);
+  });
+
+  it("no reading label or sentence implies the IRS has adopted a provisional reading", () => {
+    const texts = [
+      thresholdReadingLabel("median_product"),
+      thresholdReadingLabel("section8_vli"),
+      thresholdReadingLabel("median_product", "es"),
+      thresholdReadingLabel("section8_vli", "es"),
+      describeThresholdSource(hud).readingsNote!,
+      describeReadings(getThreshold({ countyFips: "48427", householdSize: 4, table: hud })).summary,
+    ].join(" ");
+    expect(texts).not.toMatch(/IRS (formula|method|rule|limit)|official|approved by|adopted|endorse/i);
+    expect(texts).not.toMatch(/IRS-published/);
   });
 });
 
@@ -411,7 +627,7 @@ describe("SGO stricter caps", () => {
     const capped = getThreshold({ countyFips: "48201", householdSize: 5, capPct: 185, table: hud });
     expect(capped).toMatchObject({ capPct: 185, thresholdCents: 20_779_200, statutoryThresholdCents: 33_696_000, multiplierBps: 10_800, exact: true, provisional: true });
     expect(capped.formula).toBe("185% x $104,000 area median income x 1.08 family-size multiplier (5 persons) = $207,792.00 (stricter cap; the limit at the statutory 300% is $336,960.00)");
-    expect(thresholdRow("48201", { capPct: 250, table: hud })).toMatchObject({ capPct: 250, thresholds: expect.arrayContaining([{ householdSize: 4, thresholdCents: 26_000_000, statutoryThresholdCents: 31_200_000, multiplierBps: 10_000 }]) });
+    expect(thresholdRow("48201", { capPct: 250, table: hud })).toMatchObject({ capPct: 250, thresholds: expect.arrayContaining([expect.objectContaining({ householdSize: 4, thresholdCents: 26_000_000, statutoryThresholdCents: 31_200_000, multiplierBps: 10_000, lowerBoundCents: 26_000_000, upperBoundCents: 26_000_000, readingsAgree: true })]) });
   });
 
   it("is exact for every county, size and whole-percent cap, and never exceeds the statutory limit", () => {
@@ -434,6 +650,7 @@ describe("SGO stricter caps", () => {
       capOnPublishedLimit: "proportional",
       aboveEightWithoutPublishedIncrement: "refuse",
       irsLimitsMustNotDecreaseWithFamilySize: true,
+      section8VliAboveEight: "four_person_x_multiplier_round_up_50",
     });
     expect(Object.isFrozen(AMI_POLICY)).toBe(true);
   });
@@ -553,6 +770,21 @@ describe("table registry", () => {
     if (EXPECTED_ACTIVE_SOURCE !== "hud_provisional") return;
     expect(getThreshold({ countyFips: "48201", householdSize: 4 })).toMatchObject({ provisional: true, source: "hud_provisional", thresholdCents: 31_200_000, effectiveDate: "2026-05-01" });
     expect(describeThresholdSource(getActiveTable()).badge).toBe("Provisional");
+  });
+
+  it("the active table carries two readings while provisional and exactly one once IRS-published (swap-in check)", () => {
+    const active = getActiveTable();
+    const expectedIds = active.provisional ? ["median_product", "section8_vli"] : ["irs_published"];
+    expect(describeThresholdSource(active).readingIds).toEqual(expectedIds);
+    expect(describeThresholdSource(active).readingsNote === null).toBe(!active.provisional);
+    for (const county of listCounties(active)) {
+      for (const entry of thresholdRow(county.fips).thresholds) {
+        expect(entry.readings.map((reading) => reading.id), `${county.fips} size ${entry.householdSize}`).toEqual(expectedIds);
+        if (!active.provisional) {
+          expect([entry.lowerBoundCents, entry.upperBoundCents, entry.readingsAgree]).toEqual([entry.thresholdCents, entry.thresholdCents, true]);
+        }
+      }
+    }
   });
 
   it("lists installed tables and flags exactly one as active", () => {
@@ -676,6 +908,17 @@ describe("dataset validation", () => {
     expect(() => buildTable(null)).toThrow(/AMI dataset \(unknown version\) is not valid/);
   });
 
+  it("rejects missing, short, inconsistent or decreasing very-low-income limits in a HUD-derived dataset", () => {
+    type Mutable = { hudPublished: { veryLowIncomeBySizeDollars?: number[]; veryLowIncome4PersonDollars: number } };
+    const area0 = (dataset: ReturnType<typeof clone>) => dataset.areas[0] as unknown as Mutable;
+    expect(problems((dataset) => void delete area0(dataset).hudPublished.veryLowIncomeBySizeDollars)).toMatch(/veryLowIncomeBySizeDollars/);
+    expect(problems((dataset) => void area0(dataset).hudPublished.veryLowIncomeBySizeDollars!.pop())).toMatch(/veryLowIncomeBySizeDollars/);
+    expect(problems((dataset) => void (area0(dataset).hudPublished.veryLowIncomeBySizeDollars![0] = 0))).toMatch(/veryLowIncomeBySizeDollars/);
+    expect(problems((dataset) => void (area0(dataset).hudPublished.veryLowIncomeBySizeDollars![2] = 32250.5))).toMatch(/veryLowIncomeBySizeDollars/);
+    expect(problems((dataset) => void (area0(dataset).hudPublished.veryLowIncomeBySizeDollars![3] += 50))).toMatch(/four-person very-low-income limit .* differs from veryLowIncome4PersonDollars/);
+    expect(problems((dataset) => void (area0(dataset).hudPublished.veryLowIncomeBySizeDollars![7] = 1))).toMatch(/very-low-income limit for 8 persons is lower than for 7 persons/);
+  });
+
   it("validates calendar dates", () => {
     expect(isIsoCalendarDate("2026-05-01")).toBe(true);
     expect(isIsoCalendarDate("2028-02-29")).toBe(true);
@@ -688,8 +931,8 @@ describe("dataset validation", () => {
 describe("source labels", () => {
   const en = describeThresholdSource(hud);
   const es = describeThresholdSource(hud, "es");
-  const allEnglish = [en.badge, en.limitLabel, en.sourceLine, en.explanation, en.familyNote].join(" ");
-  const allSpanish = [es.badge, es.limitLabel, es.sourceLine, es.explanation, es.familyNote].join(" ");
+  const allEnglish = [en.badge, en.limitLabel, en.sourceLine, en.explanation, en.familyNote, en.readingsNote].join(" ");
+  const allSpanish = [es.badge, es.limitLabel, es.sourceLine, es.explanation, es.familyNote, es.readingsNote].join(" ");
 
   it("labels the HUD-derived table provisional, with its source, effective date and table version", () => {
     expect(en).toEqual({
@@ -710,8 +953,14 @@ describe("source labels", () => {
       familyNote:
         "This income limit is provisional. It is based on the median income HUD publishes for your area and on your household size. " +
         "The IRS has said it expects to publish official limits; when those are in use, they replace this number.",
+      readingIds: ["median_product", "section8_vli"],
+      readingsNote:
+        "The proposed rule can be read two ways: 300 percent of HUD's area median income times the family-size multiplier, " +
+        "or six times HUD's Section 8 very-low-income limit for the family size. Which one the IRS will use is not yet known. " +
+        "Where the two give different limits, automatic decisions use the lower figure to approve and the higher figure to decline; " +
+        "incomes in between are reviewed by a person.",
     });
-    expect(THRESHOLD_COPY_VERSION).toBe("threshold-source-copy.v1");
+    expect(THRESHOLD_COPY_VERSION).toBe("threshold-source-copy.v2");
   });
 
   it("never says or implies that the IRS table has been published", () => {

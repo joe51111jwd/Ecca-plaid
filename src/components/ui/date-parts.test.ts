@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkDateParts, daysInMonth, digitsOnly, isoFromParts, partsFromIso } from "./date-parts";
+import { checkDateParts, daysInMonth, digitsOnly, isoFromParts, parsePastedDate, partsFromIso } from "./date-parts";
 
 describe("digitsOnly", () => {
   it("keeps ASCII digits and truncates", () => {
@@ -100,5 +100,27 @@ describe("isoFromParts / partsFromIso", () => {
     const a = partsFromIso(null);
     a.month = "5";
     expect(partsFromIso(null).month).toBe("");
+  });
+});
+
+describe("parsePastedDate", () => {
+  it("reads ISO and month-first dates with common separators", () => {
+    expect(parsePastedDate("2015-03-09")).toEqual({ month: "3", day: "9", year: "2015" });
+    expect(parsePastedDate("3/9/2015")).toEqual({ month: "3", day: "9", year: "2015" });
+    expect(parsePastedDate("03-09-2015")).toEqual({ month: "3", day: "9", year: "2015" });
+    expect(parsePastedDate("03.09.2015")).toEqual({ month: "3", day: "9", year: "2015" });
+    expect(parsePastedDate("  12 / 31 / 1999 ")).toEqual({ month: "12", day: "31", year: "1999" });
+  });
+
+  it("keeps an impossible date as typed so validation can flag it, rather than swapping day and month", () => {
+    const parts = parsePastedDate("31/12/2015");
+    expect(parts).toEqual({ month: "31", day: "12", year: "2015" });
+    expect(checkDateParts(parts!)).toMatchObject({ ok: false, problem: "invalid_month" });
+  });
+
+  it("does not guess: partial dates, two-digit years and other text are not dates", () => {
+    for (const text of ["", "2015", "3/9", "3/9/15", "03092015", "March 9, 2015", "2015-03-09T10:00:00Z", "1/2/3/2015", "482913"]) {
+      expect(parsePastedDate(text), text).toBeNull();
+    }
   });
 });

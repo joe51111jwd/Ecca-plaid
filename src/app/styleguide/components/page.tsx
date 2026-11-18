@@ -848,9 +848,10 @@ export default async function StyleGuideComponents({ searchParams }: { searchPar
           </Example>
         </Specimen>
 
-        <Specimen id="section" name="Section · PageHeader" importLine='import { Section, PageHeader } from "@/components/ui"' note={<p><C>PageHeader</C> is the page’s single h1 with its trail, status and actions. <C>Section</C> is a titled region (not a box) that holds Cards.</p>}>
+        <Specimen id="section" name="Section · PageHeader" importLine='import { Section, PageHeader } from "@/components/ui"' note={<p><C>PageHeader</C> is the page’s single h1 with its trail, status and actions (the examples here pass <C>{"level={4}"}</C> only because this guide already has an h1). <C>Section</C> is a titled region (not a box) that holds Cards.</p>}>
           <Example label="PageHeader — dashboard (default)" surface="canvas">
             <PageHeader
+              level={4}
               breadcrumbs={[{ label: "Verifications", href: "/styleguide/shells/dashboard" }, { label: "APP-1042" }]}
               title="Maria Alvarez"
               meta={<StatusBadge kind="verification" status="needs_review" />}
@@ -866,10 +867,10 @@ export default async function StyleGuideComponents({ searchParams }: { searchPar
             />
           </Example>
           <Example label='PageHeader — variant="display" with a back link (family and donor pages)' surface="canvas">
-            <PageHeader variant="display" back={{ href: "/styleguide/shells/focus", label: "Back" }} title="Who lives in your home?" description="Count everyone who lives with the student, including the student." />
+            <PageHeader level={4} variant="display" back={{ href: "/styleguide/shells/focus", label: "Back" }} title="Who lives in your home?" description="Count everyone who lives with the student, including the student." />
           </Example>
           <Example label="Section" surface="canvas">
-            <Section title="Evidence" description="What the decision was based on. Raw files are deleted 30 days after the decision; the hashes stay." actions={<Button size="sm" variant="secondary" leadingIcon={<Download />}>Download pack</Button>}>
+            <Section level={3} title="Evidence" description="What the decision was based on. Raw files are deleted 30 days after the decision; the hashes stay." actions={<Button size="sm" variant="secondary" leadingIcon={<Download />}>Download pack</Button>}>
               <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                   <p className="text-sm font-semibold text-fg">w2-2025-alvarez.pdf</p>

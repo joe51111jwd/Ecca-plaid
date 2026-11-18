@@ -1,3 +1,4 @@
+import { invalid } from "@/lib/errors";
 import { formatCalendarDate, formatMoney } from "./format";
 import { METHOD_CITATIONS, PROPOSED_RULE_ID } from "./policy";
 import type {
@@ -182,6 +183,10 @@ export function decisionSummary(facts: SummaryFacts): string {
           ? `Written documentation${dated} shows that an individual in the student's household currently is approved for ${program}.`
           : `Written documentation${dated} names an individual in the student's household in connection with ${program}. The approval status read from the document was unclear, and a reviewer made the decision; see the review trail.`;
       return `Eligible: the household income requirement is met under the categorical eligibility verification method of the proposed regulations (${PROPOSED_RULE_ID}), which are not final. ${finding}`;
+    }
+    if (facts.status === "ineligible") {
+      // buildEvidenceRecord refuses this combination before any sentence is written (docs/architecture.md, rule 2).
+      throw invalid("A categorical verification cannot be ineligible: missing or unusable documentation is not evidence of income over the limit");
     }
     const submitted = program ? ` for ${program}` : "";
     return `Needs review: no eligibility decision has been made. Documentation${submitted} was submitted under the categorical eligibility verification method of the proposed regulations (${PROPOSED_RULE_ID}), which are not final. The reasons are listed in this record.`;

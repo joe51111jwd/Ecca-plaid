@@ -54,10 +54,14 @@ export interface HudAreaRecord {
   /** HUD area median family income (four-person basis), whole dollars, not adjusted for family size. */
   medianIncomeDollars: number;
   /**
-   * HUD's own published four-person limits, kept for reference and cross-checks only. They are capped,
-   * floored and rounded by HUD and are NOT inputs to the section 25F limit.
+   * HUD's own published limits for the area. They are capped, floored and rounded up to $50 by HUD.
+   *  - `veryLowIncome4PersonDollars` / `lowIncome4PersonDollars`: `l50_4` / `l80_4`, reference only.
+   *  - `veryLowIncomeBySizeDollars`: `l50_1` .. `l50_8` (index 0 is one person), the input of the
+   *    `section8_vli` reading of the limit (6 x HUD's very-low-income limit for the family size). Its
+   *    four-person entry always equals `veryLowIncome4PersonDollars`.
+   * None of them is an input to the `median_product` reading, which is `thresholdCents`.
    */
-  hudPublished: { veryLowIncome4PersonDollars: number; lowIncome4PersonDollars: number };
+  hudPublished: { veryLowIncome4PersonDollars: number; lowIncome4PersonDollars: number; veryLowIncomeBySizeDollars: readonly number[] };
 }
 
 export interface IrsAreaRecord {
@@ -127,8 +131,11 @@ export interface AmiArea {
   medianIncomeCents: number | null;
   /** FIPS codes of the counties in this area, ascending. */
   countyFips: string[];
-  /** HUD's own published four-person limits in cents (reference only); null for IRS tables. */
-  hudPublished: { veryLowIncome4PersonCents: number; lowIncome4PersonCents: number } | null;
+  /**
+   * HUD's own published limits in cents; null for IRS tables. `veryLowIncomeBySizeCents` holds `l50_1`..`l50_8`
+   * (index 0 is one person), the input of the `section8_vli` reading.
+   */
+  hudPublished: { veryLowIncome4PersonCents: number; lowIncome4PersonCents: number; veryLowIncomeBySizeCents: number[] } | null;
 }
 
 /** A validated, indexed table. Obtain one from the registry (`getActiveTable`, `getTable`) or `buildTable`. */
@@ -185,6 +192,29 @@ export type ThresholdErrorReason =
   | "invalid_cap_pct"
   | "household_size_not_published";
 
+/**
+ * Candidate readings of the section 25F limit.
+ *  - `median_product`: 300% x HUD area median family income x HUD family-size multiplier (the worked example
+ *    in the economic analysis of the proposed regulations). This is what `thresholdCents` has always been.
+ *  - `section8_vli`: 6 x HUD's published Section 8 very-low-income (50%) limit for the family size (the
+ *    proposed regulation text: AMGI is "determined ... in accordance with section 8").
+ *  - `irs_published`: the figure from an IRS-published table; once one is in use it is the only reading.
+ * Which of the first two the IRS will adopt is not stated in any source (docs/reference/sgo-verification-rules.md F34).
+ */
+export type ThresholdReadingId = "median_product" | "section8_vli" | "irs_published";
+
+export interface ThresholdReading {
+  id: ThresholdReadingId;
+  /** Plain-English name of the reading. Never implies the IRS has adopted it. */
+  label: string;
+  /** The limit under this reading at the requested cap, in cents. */
+  thresholdCents: number;
+  /** The limit under this reading at the statutory 300 percent, in cents. */
+  statutoryThresholdCents: number;
+  /** The arithmetic with the actual numbers, ready to print. */
+  formula: string;
+}
+
 export interface ThresholdResult {
   /** The limit at `capPct`, in cents. A household passes when its income is less than or equal to this. */
   thresholdCents: number;
@@ -212,6 +242,17 @@ export interface ThresholdResult {
    * Always true for HUD-derived tables at the statutory 300 percent.
    */
   exact: boolean;
+  /**
+   * Every candidate reading of the limit, at `capPct`. HUD-derived tables: `median_product` (equal to
+   * `thresholdCents`) then `section8_vli`. IRS-published tables: exactly one, `irs_published`.
+   */
+  readings: ThresholdReading[];
+  /** Lowest limit across `readings`, at `capPct`. Income at or below it passes under every reading. */
+  lowerBoundCents: number;
+  /** Highest limit across `readings`, at `capPct`. Income above it fails under every reading. */
+  upperBoundCents: number;
+  /** True when every reading gives the same limit (always true for an IRS-published table). */
+  readingsAgree: boolean;
 }
 
 export interface ThresholdRow {
@@ -225,7 +266,16 @@ export interface ThresholdRow {
   provisional: boolean;
   method: ThresholdMethod;
   /** One entry per household size 1..8, in order. */
-  thresholds: Array<{ householdSize: number; thresholdCents: number; statutoryThresholdCents: number; multiplierBps: number | null }>;
+  thresholds: Array<{
+    householdSize: number;
+    thresholdCents: number;
+    statutoryThresholdCents: number;
+    multiplierBps: number | null;
+    readings: ThresholdReading[];
+    lowerBoundCents: number;
+    upperBoundCents: number;
+    readingsAgree: boolean;
+  }>;
 }
 
 export type ThresholdCopyLocale = "en" | "es";
@@ -248,4 +298,23 @@ export interface ThresholdSourceDescription {
   explanation: string;
   /** Plain-language sentence for family-facing screens. */
   familyNote: string;
+  /** Readings every result from this table carries, in order: two for HUD-derived tables, one for IRS tables. */
+  readingIds: ThresholdReadingId[];
+  /**
+   * HUD-derived tables: the sentence explaining that the proposed rule can be read two ways and how automatic
+   * decisions treat the gap. IRS-published tables: null (there is one reading).
+   */
+  readingsNote: string | null;
+}
+
+/** The wording a surface shows for one result's readings (`describeReadings`). Render verbatim. */
+export interface ThresholdReadingsDescription {
+  copyVersion: string;
+  locale: ThresholdCopyLocale;
+  /** `single`: IRS-published table. `agree`: provisional, both readings equal. `differ`: provisional, readings differ. */
+  status: "single" | "agree" | "differ";
+  /** The sentence(s) to show next to the limit. */
+  summary: string;
+  /** One line per reading: label, amount and arithmetic. */
+  readingLines: string[];
 }

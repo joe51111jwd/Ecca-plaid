@@ -98,3 +98,8 @@ export function isExpired(expiry: CardExpiry, today: Date): boolean {
 export function isValidSecurityCode(input: string): boolean {
   return /^\d{3,4}$/.test(input.trim());
 }
+
+/** An expiry date that is safely in the future for the given day, as MM/YY: what the "use this number" buttons fill in. */
+export function sandboxTestExpiry(today: Date): string {
+  return `12/${String((today.getUTCFullYear() + 4) % 100).padStart(2, "0")}`;
+}

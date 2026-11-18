@@ -75,7 +75,23 @@ export const AMI_POLICY = Object.freeze({
    * only if the IRS really publishes such a table.
    */
   irsLimitsMustNotDecreaseWithFamilySize: true,
+  /**
+   * The `section8_vli` reading needs HUD's very-low-income limit for the family size, and HUD publishes
+   * `l50_1`..`l50_8` only. Above eight persons the engine applies HUD's documented method: "For each person
+   * over eight-persons, the four-person income limit should be multiplied by an additional 8 percent. [...]
+   * HUD rounds income limits up to the nearest $50." (HUD, Methodology for Determining FY 2026 Section 8
+   * Income Limits, lines 249-252; docs/reference/sgo-verification-rules.md F35). HUD also lets local agencies
+   * use the unrounded figure for nine or more persons (same document, lines 252-253); this module rounds up,
+   * and the reading's formula says "extended by HUD's method".
+   */
+  section8VliAboveEight: "four_person_x_multiplier_round_up_50",
 } as const);
 
+/** Factor between HUD's 50% very-low-income limit and a 300% limit under the `section8_vli` reading. */
+export const SECTION8_VLI_FACTOR = 6;
+
+/** HUD rounds its income limits up to this many dollars (methodology, lines 249-252). */
+export const HUD_LIMIT_ROUNDING_DOLLARS = 50;
+
 /** Version of the wording returned by `describeThresholdSource`. Bump when any sentence changes. */
-export const THRESHOLD_COPY_VERSION = "threshold-source-copy.v1";
+export const THRESHOLD_COPY_VERSION = "threshold-source-copy.v2";

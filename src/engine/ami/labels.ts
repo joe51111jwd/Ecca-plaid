@@ -1,6 +1,14 @@
 import { PROPOSED_RULE_ID, STATUTORY_CAP_PCT, THRESHOLD_COPY_VERSION } from "./constants";
-import { formatLongDate } from "./format";
-import type { AmiTable, ThresholdCopyLocale, ThresholdSource, ThresholdSourceDescription } from "./types";
+import { formatExactUsd, formatLongDate } from "./format";
+import type {
+  AmiTable,
+  ThresholdCopyLocale,
+  ThresholdReadingId,
+  ThresholdReadingsDescription,
+  ThresholdResult,
+  ThresholdSource,
+  ThresholdSourceDescription,
+} from "./types";
 
 /**
  * The exact words every surface (API, dashboard, evidence PDF, family screen) shows next to a threshold.
@@ -11,6 +19,8 @@ import type { AmiTable, ThresholdCopyLocale, ThresholdSource, ThresholdSourceDes
  *    HUD-derived. The provisional wording describes only what this figure is and what the IRS has said it
  *    anticipates doing, so it stays true on the day the IRS publishes and before the swap-in is deployed.
  *  - The calculation is attributed to the notice of proposed rulemaking and the rules are called not final.
+ *  - While the table is HUD-derived, neither reading of the proposed rule is presented as the IRS's choice;
+ *    no source says which one the IRS will use (docs/reference/sgo-verification-rules.md F34).
  *
  * Components must render these strings as they are. To change a sentence, change it here and bump
  * `THRESHOLD_COPY_VERSION`.
@@ -26,6 +36,23 @@ export function thresholdSourceName(source: ThresholdSource, locale: ThresholdCo
   return SOURCE_NAME[locale][source];
 }
 
+const READINGS_NOTE: Record<ThresholdCopyLocale, string> = {
+  en:
+    "The proposed rule can be read two ways: 300 percent of HUD's area median income times the family-size multiplier, " +
+    "or six times HUD's Section 8 very-low-income limit for the family size. Which one the IRS will use is not yet known. " +
+    "Where the two give different limits, automatic decisions use the lower figure to approve and the higher figure to decline; " +
+    "incomes in between are reviewed by a person.",
+  es:
+    "La regla propuesta admite dos lecturas: el 300 por ciento del ingreso medio del área de HUD multiplicado por el factor por tamaño de la familia, " +
+    "o seis veces el límite de ingresos muy bajos de la Sección 8 de HUD para el tamaño de la familia. Todavía no se sabe cuál usará el IRS. " +
+    "Cuando las dos dan límites distintos, las decisiones automáticas usan la cifra menor para aprobar y la mayor para rechazar; " +
+    "los ingresos que quedan entre ambas los revisa una persona.",
+};
+
+function readingIdsOf(table: AmiTable): ThresholdReadingId[] {
+  return table.dataset.source === "hud_provisional" ? ["median_product", "section8_vli"] : ["irs_published"];
+}
+
 export function describeThresholdSource(table: AmiTable, locale: ThresholdCopyLocale = "en"): ThresholdSourceDescription {
   const dataset = table.dataset;
   const date = formatLongDate(dataset.effectiveDate, locale);
@@ -36,6 +63,8 @@ export function describeThresholdSource(table: AmiTable, locale: ThresholdCopyLo
     provisional: table.provisional,
     tableVersion: dataset.version,
     effectiveDate: dataset.effectiveDate,
+    readingIds: readingIdsOf(table),
+    readingsNote: dataset.source === "hud_provisional" ? READINGS_NOTE[locale] : null,
   };
 
   if (dataset.source === "hud_provisional") {
@@ -95,4 +124,55 @@ export function describeThresholdSource(table: AmiTable, locale: ThresholdCopyLo
       `for the household's geographic area and family size. Table version: ${dataset.version}.`,
     familyNote: "This income limit comes from the table the IRS publishes for your area and household size.",
   };
+}
+
+const READING_NAME: Record<ThresholdCopyLocale, Record<ThresholdReadingId, string>> = {
+  en: {
+    median_product: "Area median income x family-size multiplier (the worked example in the proposed rule's economic analysis)",
+    section8_vli: "6 x HUD's Section 8 very-low-income limit (a reading of the proposed regulation text)",
+    irs_published: "IRS-published limit",
+  },
+  es: {
+    median_product: "Ingreso medio del área x factor por tamaño de la familia (el ejemplo del análisis económico de la regla propuesta)",
+    section8_vli: "6 x el límite de ingresos muy bajos de la Sección 8 de HUD (una lectura del texto de la regla propuesta)",
+    irs_published: "Límite publicado por el IRS",
+  },
+};
+
+/** Plain-language name of a reading. Never implies the IRS has adopted a provisional reading. */
+export function thresholdReadingLabel(id: ThresholdReadingId, locale: ThresholdCopyLocale = "en"): string {
+  return READING_NAME[locale][id];
+}
+
+/**
+ * The exact sentences a surface shows next to one result's limit, including the review band when the two
+ * provisional readings differ. `readingLines` carry each reading's arithmetic (written in English figures).
+ */
+export function describeReadings(result: ThresholdResult, locale: ThresholdCopyLocale = "en"): ThresholdReadingsDescription {
+  const readingLines = result.readings.map((reading) => `${READING_NAME[locale][reading.id]}: ${reading.formula}`);
+  const lower = formatExactUsd(result.lowerBoundCents);
+  const upper = formatExactUsd(result.upperBoundCents);
+  const base = { copyVersion: THRESHOLD_COPY_VERSION, locale, readingLines };
+
+  if (!result.provisional) {
+    const summary =
+      locale === "es"
+        ? `Límite publicado por el IRS para este condado y tamaño del hogar: ${lower}.`
+        : `IRS-published limit for this county and household size: ${lower}.`;
+    return { ...base, status: "single", summary };
+  }
+  if (result.readingsAgree) {
+    const summary =
+      locale === "es"
+        ? `Provisional. Las dos lecturas de la regla propuesta dan el mismo límite para este condado y tamaño del hogar: ${lower}.`
+        : `Provisional. Both readings of the proposed rule give the same limit for this county and household size: ${lower}.`;
+    return { ...base, status: "agree", summary };
+  }
+  const summary =
+    locale === "es"
+      ? `Provisional. Dos lecturas de la regla propuesta dan límites distintos para este condado y tamaño del hogar: ${lower} y ${upper}. ` +
+        "Las decisiones automáticas usan la cifra menor para aprobar y la mayor para rechazar; los ingresos que quedan entre ambas los revisa una persona."
+      : `Provisional. Two readings of the proposed rule give different limits for this county and household size: ${lower} and ${upper}. ` +
+        "Automatic decisions use the lower figure to approve and the higher figure to decline; incomes in between are reviewed by a person.";
+  return { ...base, status: "differ", summary };
 }

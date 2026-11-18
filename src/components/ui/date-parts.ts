@@ -63,3 +63,18 @@ export function isoFromParts(parts: DateParts, bounds: { min?: string; max?: str
   const result = checkDateParts(parts, bounds);
   return result.ok ? result.iso : null;
 }
+
+/**
+ * Recognises a whole date pasted into one of the three fields: ISO "2015-03-09", or month-first
+ * "3/9/2015", "03-09-2015", "03.09.2015" (the order printed above the fields). Returns the parts as
+ * pasted — validation still decides whether it is a real date — or null when the text is not a full date.
+ * Two-digit years are not recognised: a year is never guessed.
+ */
+export function parsePastedDate(text: string): DateParts | null {
+  const clean = text.normalize("NFKC").trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(clean);
+  if (iso) return { month: String(Number(iso[2])), day: String(Number(iso[3])), year: iso[1] };
+  const us = /^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{4})$/.exec(clean);
+  if (us) return { month: String(Number(us[1])), day: String(Number(us[2])), year: us[3] };
+  return null;
+}

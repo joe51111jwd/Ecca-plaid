@@ -11,7 +11,7 @@ import { enqueue } from "@/server/jobs";
 import { applyProcessorEvent } from "./events";
 import { readPaymentMeta, type InvoiceLineRow, type InvoiceRow, type PaymentLine, type PaymentRow } from "./metadata";
 import { MAX_CHARGE_CENTS, MIN_CHARGE_CENTS, SANDBOX_ASYNC_SETTLE_DELAY_MS } from "./policy";
-import { isExpired, isValidSecurityCode, normalizeCardNumber, parseExpiry, resolveSandboxCard, SANDBOX_FAILURE_MESSAGES, SANDBOX_TEST_CARDS, type SandboxTestCard } from "./sandbox-cards";
+import { isExpired, isValidSecurityCode, normalizeCardNumber, parseExpiry, resolveSandboxCard, SANDBOX_FAILURE_MESSAGES, SANDBOX_TEST_CARDS, sandboxTestExpiry, type SandboxTestCard } from "./sandbox-cards";
 import type {
   CreateInvoiceInput,
   CreatePaymentInput,
@@ -211,6 +211,8 @@ export interface SandboxPaymentView {
   /** The organization the payment is for, when known. */
   payeeName: string | null;
   testCards: readonly SandboxTestCard[];
+  /** A future expiry date (MM/YY) for the form's "use this number" buttons. */
+  testExpiry: string;
 }
 
 /** What the hosted sandbox pay page shows. Throws not_found unless `key` is the payment's sandbox secret. */
@@ -235,6 +237,7 @@ export async function getSandboxPaymentView(paymentId: string, key: string | nul
     failureReason: row.payment.failureReason,
     payeeName: row.payeeName ?? null,
     testCards: SANDBOX_TEST_CARDS,
+    testExpiry: sandboxTestExpiry(now()),
   };
 }
 

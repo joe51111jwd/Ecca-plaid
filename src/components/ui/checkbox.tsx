@@ -24,10 +24,10 @@ export function Checkbox({ label, description, error, variant = "plain", classNa
       <label
         htmlFor={inputId}
         className={cn(
-          "flex items-start gap-3 in-data-[density=touch]:min-h-11",
+          "flex min-h-6 items-start gap-3 in-data-[density=touch]:min-h-11 pointer-coarse:min-h-11",
           variant === "card"
             ? "rounded-card border bg-surface p-4 transition-colors has-checked:border-action has-checked:bg-brand-surface has-checked:shadow-[inset_0_0_0_1px_var(--action)] has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus"
-            : "in-data-[density=touch]:py-2",
+            : "in-data-[density=touch]:py-2 pointer-coarse:py-2",
           // One border colour at a time: two colour utilities on one element do not resolve by order of appearance.
           variant === "card" && (error ? "border-danger-600" : "border-line-strong"),
           disabled && "cursor-not-allowed opacity-60",
@@ -101,7 +101,7 @@ export function Switch({ label, description, align = "start", className, id, dis
     <label
       htmlFor={inputId}
       className={cn(
-        "flex items-start gap-3 in-data-[density=touch]:min-h-11 in-data-[density=touch]:py-2",
+        "flex min-h-6 items-start gap-3 in-data-[density=touch]:min-h-11 in-data-[density=touch]:py-2 pointer-coarse:min-h-11 pointer-coarse:py-2",
         align === "end" && "justify-between",
         disabled && "cursor-not-allowed opacity-60",
         className,

@@ -1,6 +1,16 @@
 import { invalid } from "@/lib/errors";
-import { BASIS_POINTS, HUD_FAMILY_SIZE_MULTIPLIERS, MAX_TABULATED_FAMILY_SIZE, MIN_CAP_PCT, STATE_NAME, STATUTORY_CAP_PCT } from "./constants";
+import {
+  BASIS_POINTS,
+  HUD_FAMILY_SIZE_MULTIPLIERS,
+  HUD_LIMIT_ROUNDING_DOLLARS,
+  MAX_TABULATED_FAMILY_SIZE,
+  MIN_CAP_PCT,
+  SECTION8_VLI_FACTOR,
+  STATE_NAME,
+  STATUTORY_CAP_PCT,
+} from "./constants";
 import { formatExactUsd, formatMultiplier, formatWholeUsd } from "./format";
+import { thresholdReadingLabel } from "./labels";
 import type {
   AmiArea,
   AmiCounty,
@@ -10,6 +20,7 @@ import type {
   HudAreaRecord,
   IrsAreaRecord,
   ThresholdErrorReason,
+  ThresholdReading,
   ThresholdResult,
   ThresholdRow,
 } from "./types";
@@ -31,8 +42,21 @@ import type {
  * NO ROUNDING IS APPLIED to the product. That is deliberate:
  *  - the proposed rule states the product and shows unrounded examples; it states no rounding step;
  *  - HUD rounds its own published Section 8 limits UP to the nearest $50 (and caps and floors them year over
- *    year), so HUD's `l50` columns are not the area median times a multiplier. That is why this engine
+ *    year), so HUD's `l50` columns are not the area median times a multiplier. That is why `thresholdCents`
  *    multiplies the median itself and does not reuse `l50 x 6`.
+ *
+ * TWO READINGS. The proposed regulation text says area median gross income "means the income limit determined
+ * based on area median gross income and family size in accordance with section 8" (PROP L5494-5499), and HUD's
+ * Section 8 limits are floored, capped and rounded. So the limit can also be read as 6 x HUD's published
+ * very-low-income (50%) limit for the family size (`section8_vli`). At four persons the two readings differ in
+ * 143 of 254 Texas counties (F34 of docs/reference/sgo-verification-rules.md); which one the IRS will publish is
+ * in no source. HUD-derived results therefore carry both readings and their lower and upper bound;
+ * `thresholdCents` stays the `median_product` reading.
+ *  - `section8_vli` at cap c: l50_n x 6 x c / 300 dollars = l50_n x 2c cents, a whole number of cents for
+ *    HUD's whole-dollar limits (floored to the cent otherwise, like every other limit here).
+ *  - Above eight persons HUD publishes no `l50_n`; the engine extends it by HUD's own method (four-person limit
+ *    x family-size multiplier, rounded up to $50; `AMI_POLICY.section8VliAboveEight`) and says so in the
+ *    reading's formula.
  * At the statutory 300 percent the product is always a whole number of cents for any whole-dollar median,
  * because every multiplier is a whole number of hundredths. HUD publishes its medians in whole hundreds of
  * dollars, so for HUD data the product is a whole number of dollars at 300 percent and a whole number of
@@ -202,6 +226,60 @@ function compute(table: AmiTable, area: HudAreaRecord | IrsAreaRecord, household
   return computeIrsPublished(area as IrsAreaRecord, householdSize, capPct);
 }
 
+/**
+ * HUD's very-low-income (50%) limit for a household size, in whole dollars: the published `l50_n` for one to
+ * eight persons; above eight, HUD's method applied to the published four-person limit.
+ */
+function section8VeryLowIncome(area: HudAreaRecord, multipliers: FamilySizeMultipliers, householdSize: number): { dollars: bigint; detail: string } {
+  if (householdSize <= MAX_TABULATED_FAMILY_SIZE) {
+    const dollars = area.hudPublished.veryLowIncomeBySizeDollars[householdSize - 1];
+    return { dollars: BigInt(dollars), detail: `${formatWholeUsd(dollars)} HUD very-low-income limit (${persons(householdSize)})` };
+  }
+  const fourPerson = area.hudPublished.veryLowIncome4PersonDollars;
+  const bps = familySizeMultiplierBps(householdSize, multipliers);
+  // ceil(fourPerson x bps / 10,000 / 50) x 50, in integers.
+  const step = BigInt(BASIS_POINTS) * BigInt(HUD_LIMIT_ROUNDING_DOLLARS);
+  const dollars = ((BigInt(fourPerson) * BigInt(bps) + step - 1n) / step) * BigInt(HUD_LIMIT_ROUNDING_DOLLARS);
+  const shown = formatWholeUsd(toSafeNumber(dollars, "householdSize"));
+  return {
+    dollars,
+    detail:
+      `${shown} HUD very-low-income limit (${persons(householdSize)}, extended by HUD's method: ` +
+      `${formatWholeUsd(fourPerson)} four-person limit x ${formatMultiplier(bps)}, rounded up to the nearest $${HUD_LIMIT_ROUNDING_DOLLARS})`,
+  };
+}
+
+function section8VliReading(area: HudAreaRecord, multipliers: FamilySizeMultipliers, householdSize: number, capPct: number): ThresholdReading {
+  const vli = section8VeryLowIncome(area, multipliers, householdSize);
+  const statutoryCents = vli.dollars * 100n * BigInt(SECTION8_VLI_FACTOR);
+  const numerator = statutoryCents * BigInt(capPct);
+  const divisor = BigInt(STATUTORY_CAP_PCT);
+  const thresholdCents = numerator / divisor;
+  const exact = numerator % divisor === 0n;
+  const scale = capPct === STATUTORY_CAP_PCT ? "" : ` x ${capPct}/${STATUTORY_CAP_PCT}`;
+  const result = formatExactUsd(toSafeNumber(thresholdCents, "householdSize"));
+  return {
+    id: "section8_vli",
+    label: thresholdReadingLabel("section8_vli"),
+    thresholdCents: toSafeNumber(thresholdCents, "householdSize"),
+    statutoryThresholdCents: toSafeNumber(statutoryCents, "householdSize"),
+    formula: `${SECTION8_VLI_FACTOR} x ${vli.detail}${scale} = ${result}${capNote(capPct, statutoryCents, exact)}`,
+  };
+}
+
+function readingsOf(table: AmiTable, area: HudAreaRecord | IrsAreaRecord, householdSize: number, capPct: number, computed: Computed): ThresholdReading[] {
+  const hudDerived = table.dataset.source === "hud_provisional";
+  const primary: ThresholdReading = {
+    id: hudDerived ? "median_product" : "irs_published",
+    label: thresholdReadingLabel(hudDerived ? "median_product" : "irs_published"),
+    thresholdCents: toSafeNumber(computed.thresholdCents, "householdSize"),
+    statutoryThresholdCents: toSafeNumber(computed.statutoryCents, "householdSize"),
+    formula: computed.formula,
+  };
+  if (table.dataset.source !== "hud_provisional") return [primary];
+  return [primary, section8VliReading(area as HudAreaRecord, table.dataset.multipliers, householdSize, capPct)];
+}
+
 function areaMetro(area: HudAreaRecord | IrsAreaRecord): boolean | null {
   return "metro" in area ? area.metro : null;
 }
@@ -230,6 +308,8 @@ export function computeThreshold(table: AmiTable, input: ComputeThresholdInput):
   const county = resolveCounty(table, input.countyFips);
   const area = requireArea(table, county.areaCode);
   const computed = compute(table, area, input.householdSize, capPct);
+  const readings = readingsOf(table, area, input.householdSize, capPct, computed);
+  const limits = readings.map((reading) => reading.thresholdCents);
 
   return {
     thresholdCents: toSafeNumber(computed.thresholdCents, "householdSize"),
@@ -248,6 +328,10 @@ export function computeThreshold(table: AmiTable, input: ComputeThresholdInput):
     method: table.method,
     formula: computed.formula,
     exact: computed.exact,
+    readings,
+    lowerBoundCents: Math.min(...limits),
+    upperBoundCents: Math.max(...limits),
+    readingsAgree: limits.every((cents) => cents === limits[0]),
   };
 }
 
@@ -273,6 +357,10 @@ export function computeThresholdRow(table: AmiTable, countyFips: string, capPct:
       thresholdCents: r.thresholdCents,
       statutoryThresholdCents: r.statutoryThresholdCents,
       multiplierBps: r.multiplierBps,
+      readings: r.readings,
+      lowerBoundCents: r.lowerBoundCents,
+      upperBoundCents: r.upperBoundCents,
+      readingsAgree: r.readingsAgree,
     })),
   };
 }
@@ -304,6 +392,7 @@ export function tableArea(table: AmiTable, areaCode: string): AmiArea | null {
         ? {
             veryLowIncome4PersonCents: area.hudPublished.veryLowIncome4PersonDollars * 100,
             lowIncome4PersonCents: area.hudPublished.lowIncome4PersonDollars * 100,
+            veryLowIncomeBySizeCents: area.hudPublished.veryLowIncomeBySizeDollars.map((dollars) => dollars * 100),
           }
         : null,
   };

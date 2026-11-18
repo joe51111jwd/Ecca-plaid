@@ -9,10 +9,10 @@ import { listXlsxSheets, readXlsxSheet, type XlsxCell, type XlsxRow } from "./xl
  *
  * What is taken from HUD: the county-to-area mapping, the area names, the metro flag, the area median family
  * income (`median<year>`, four-person basis, not adjusted for family size) and, for reference only, HUD's
- * own published four-person very-low (50%) and low (80%) limits.
- *
- * What is NOT taken: HUD's per-size limit columns as inputs. Those are capped, floored and rounded up to $50
- * by HUD; the section 25F limit in the proposed rule is the area median times a multiplier.
+ * own published four-person very-low (50%) and low (80%) limits, and HUD's very-low-income limits for family
+ * sizes 1 to 8 (`l50_1`..`l50_8`). The latter are the input of the `section8_vli` reading of the limit
+ * (6 x HUD's very-low-income limit; see `compute.ts`); they are capped, floored and rounded up to $50 by HUD
+ * and are never inputs to the `median_product` reading (the area median times a multiplier).
  *
  * Validation is all-or-nothing. Any problem in the state's rows fails the ingest with every problem listed.
  */
@@ -70,7 +70,8 @@ function pickSheet(workbook: Uint8Array, requested: string | undefined): string 
   return candidates[0];
 }
 
-const REQUIRED_COLUMNS = ["fips", "stusps", "state", "state_name", "hud_area_code", "hud_area_name", "county", "county_name", "county_town_name", "metro", "l50_4", "l80_4"] as const;
+const VLI_COLUMNS = ["l50_1", "l50_2", "l50_3", "l50_4", "l50_5", "l50_6", "l50_7", "l50_8"] as const;
+const REQUIRED_COLUMNS = ["fips", "stusps", "state", "state_name", "hud_area_code", "hud_area_name", "county", "county_name", "county_town_name", "metro", ...VLI_COLUMNS, "l80_4"] as const;
 type RequiredColumn = (typeof REQUIRED_COLUMNS)[number];
 
 interface ColumnMap {
@@ -125,6 +126,8 @@ interface ParsedRow {
   median: number;
   l50_4: number;
   l80_4: number;
+  /** `l50_1`..`l50_8`, whole dollars. */
+  l50: number[];
 }
 
 export function buildHudDataset(input: HudIngestInput): HudIngestResult {
@@ -219,14 +222,18 @@ export function buildHudDataset(input: HudIngestInput): HudIngestResult {
     if (metro !== 0 && metro !== 1) rowProblems.push(`metro must be 0 or 1, found ${describeCell(metro)}`);
 
     const median = expectPositiveInteger(map.median, map.medianHeader);
-    const l50_4 = expectPositiveInteger(col.l50_4, "l50_4");
+    const l50 = VLI_COLUMNS.map((name) => expectPositiveInteger(col[name], name));
+    const l50_4 = l50[3];
     const l80_4 = expectPositiveInteger(col.l80_4, "l80_4");
+    for (let i = 1; i < l50.length; i++) {
+      if (l50[i] > 0 && l50[i - 1] > 0 && l50[i] < l50[i - 1]) rowProblems.push(`${VLI_COLUMNS[i]} (${l50[i]}) is lower than ${VLI_COLUMNS[i - 1]} (${l50[i - 1]}); very-low-income limits must not decrease with family size`);
+    }
 
     if (rowProblems.length > 0) {
       problems.push(...rowProblems.map((problem) => `${at}${countyName ? ` (${countyName})` : ""}: ${problem}`));
       continue;
     }
-    parsed.push({ rowNumber: row.rowNumber, fips5: fips.slice(0, 5), countyName, areaCode, areaName, metro: metro === 1, median, l50_4, l80_4 });
+    parsed.push({ rowNumber: row.rowNumber, fips5: fips.slice(0, 5), countyName, areaCode, areaName, metro: metro === 1, median, l50_4, l80_4, l50 });
   }
 
   const byFips = new Map<string, ParsedRow>();
@@ -247,7 +254,7 @@ export function buildHudDataset(input: HudIngestInput): HudIngestResult {
       name: row.areaName,
       metro: row.metro,
       medianIncomeDollars: row.median,
-      hudPublished: { veryLowIncome4PersonDollars: row.l50_4, lowIncome4PersonDollars: row.l80_4 },
+      hudPublished: { veryLowIncome4PersonDollars: row.l50_4, lowIncome4PersonDollars: row.l80_4, veryLowIncomeBySizeDollars: row.l50 },
     };
     const existing = areas.get(row.areaCode);
     if (!existing) {
@@ -260,7 +267,9 @@ export function buildHudDataset(input: HudIngestInput): HudIngestResult {
     if (a.name !== record.name) differences.push("hud_area_name");
     if (a.metro !== record.metro) differences.push("metro");
     if (a.medianIncomeDollars !== record.medianIncomeDollars) differences.push(map.medianHeader);
-    if (a.hudPublished.veryLowIncome4PersonDollars !== record.hudPublished.veryLowIncome4PersonDollars) differences.push("l50_4");
+    VLI_COLUMNS.forEach((name, i) => {
+      if (a.hudPublished.veryLowIncomeBySizeDollars[i] !== record.hudPublished.veryLowIncomeBySizeDollars[i]) differences.push(name);
+    });
     if (a.hudPublished.lowIncome4PersonDollars !== record.hudPublished.lowIncome4PersonDollars) differences.push("l80_4");
     if (differences.length > 0) {
       problems.push(`row ${row.rowNumber} (${row.countyName}): area ${row.areaCode} has a different ${differences.join(", ")} than on row ${existing.firstRow}; counties in one area must share one set of figures`);

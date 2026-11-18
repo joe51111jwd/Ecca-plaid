@@ -22,7 +22,7 @@ export function Disclosure({ summary, children, defaultOpen, name, variant = "ca
       <summary
         className={cn(
           "flex items-center justify-between gap-3 font-medium text-fg",
-          variant === "card" ? "min-h-12 rounded-card px-4 py-3 text-base hover:bg-canvas" : "inline-flex min-h-6 justify-start gap-1.5 rounded-sm text-sm text-link hover:text-link-hover",
+          variant === "card" ? "min-h-12 rounded-card px-4 py-3 text-base hover:bg-canvas" : "inline-flex min-h-6 justify-start gap-1.5 rounded-sm text-sm text-link hover:text-link-hover in-data-[density=touch]:min-h-11 pointer-coarse:min-h-11",
         )}
       >
         <span>{summary}</span>

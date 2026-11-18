@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { cn } from "./cn";
-import { checkDateParts, digitsOnly, isoFromParts, partsFromIso, type DateParts } from "./date-parts";
+import { checkDateParts, digitsOnly, isoFromParts, parsePastedDate, partsFromIso, type DateParts } from "./date-parts";
 import { CONTROL_BOX, CONTROL_SIZE, type ControlSize } from "./input";
 import { uiStrings, type UiLocale, type UiStrings } from "./locale";
 
@@ -60,13 +60,13 @@ export function DateInput({ name, value, defaultValue, onChange, min, max, autoC
   // Highlight the specific field only once all three are filled in, so a half-typed date is never shown as wrong.
   const badField = touched && !check.ok ? check.field : null;
 
-  const update = (key: keyof DateParts, raw: string, maxLength: number) => {
-    const next = { ...parts, [key]: digitsOnly(raw, maxLength) };
+  const commit = (next: DateParts) => {
     setParts(next);
     const iso = isoFromParts(next, { min, max });
     if (controlled) setLastSeen(iso);
     onChange?.(iso, next);
   };
+  const update = (key: keyof DateParts, raw: string, maxLength: number) => commit({ ...parts, [key]: digitsOnly(raw, maxLength) });
 
   return (
     <div role="group" aria-labelledby={aria["aria-labelledby"]} aria-describedby={aria["aria-describedby"]} className={cn("flex flex-wrap gap-3", className)}>
@@ -82,7 +82,7 @@ export function DateInput({ name, value, defaultValue, onChange, min, max, autoC
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              maxLength={field.maxLength}
+              // No maxLength attribute: it would truncate a paste before the digits are picked out of it.
               autoComplete={autoComplete === "bday" ? field.auto : "off"}
               placeholder={t[`${field.key}Placeholder`]}
               value={parts[field.key]}
@@ -90,6 +90,13 @@ export function DateInput({ name, value, defaultValue, onChange, min, max, autoC
               required={required}
               aria-invalid={groupInvalid || badField === field.key || (touched && !check.ok && check.field === null) || undefined}
               onChange={(event) => update(field.key, event.target.value, field.maxLength)}
+              onPaste={(event) => {
+                // A whole date pasted into any one field fills all three.
+                const pasted = parsePastedDate(event.clipboardData.getData("text"));
+                if (!pasted) return;
+                event.preventDefault();
+                commit(pasted);
+              }}
               className={cn(CONTROL_BOX, CONTROL_SIZE[size], "block w-full text-center nums")}
             />
           </div>

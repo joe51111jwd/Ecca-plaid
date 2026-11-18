@@ -104,7 +104,7 @@ export function RadioGroup({ name, options, value, defaultValue, onChange, varia
         return (
           <label
             key={option.value}
-            className={cn("flex items-start gap-3 py-1.5 in-data-[density=touch]:min-h-11 in-data-[density=touch]:py-2.5", isDisabled && "cursor-not-allowed opacity-60")}
+            className={cn("flex items-start gap-3 py-1.5 in-data-[density=touch]:min-h-11 in-data-[density=touch]:py-2.5 pointer-coarse:min-h-11 pointer-coarse:py-2.5", isDisabled && "cursor-not-allowed opacity-60")}
           >
             {input}
             <span className="min-w-0 text-sm in-data-[density=touch]:text-base">

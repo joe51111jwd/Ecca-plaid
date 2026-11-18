@@ -133,18 +133,26 @@ export interface EvidenceThresholdLabelInput {
   limitLabel: string;
   sourceLine: string;
   explanation: string;
+  /** The sentence that explains why there is more than one reading and how decisions treat the gap, when the table has one. */
+  readingsNote?: string | null;
 }
 
-/** One way of computing the limit from the table in use. */
+/** One way of computing the limit from the table in use. `ThresholdReading` from src/engine/ami can be passed as is. */
 export interface EvidenceThresholdReadingInput {
   id: string;
   label: string;
   /** The limit under this reading at `capPct`, in cents. */
   thresholdCents: number;
+  /** The limit under this reading at the statutory 300 percent, in cents, when known. */
+  statutoryThresholdCents?: number | null;
   /** The arithmetic in words and numbers. */
   formula: string;
 }
 
+/**
+ * The limit and where it comes from. A `ThresholdResult` from src/engine/ami plus
+ * `label: describeThresholdSource(table)` satisfies this type; fields this type does not declare are ignored.
+ */
 export interface EvidenceThresholdInput {
   /** The limit the decision reports, in cents, at `capPct`. Must equal the limit of one of `readings`. */
   thresholdCents: number;
@@ -480,8 +488,8 @@ export interface EvidenceRecord {
     method: string | null;
     formula: string;
     provisional: boolean;
-    label: { copy_version: string; badge: string; limit_label: string; source_line: string; explanation: string };
-    readings: Array<{ id: string; label: string; limit_cents: number; formula: string }>;
+    label: { copy_version: string; badge: string; limit_label: string; source_line: string; explanation: string; readings_note: string | null };
+    readings: Array<{ id: string; label: string; limit_cents: number; statutory_limit_cents: number | null; formula: string }>;
     lower_bound_cents: number;
     upper_bound_cents: number;
     readings_agree: boolean;

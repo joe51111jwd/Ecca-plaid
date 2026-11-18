@@ -134,8 +134,11 @@ export function DefinitionTooltip({ term, definition, children, side = "bottom",
         ref={button}
         type="button"
         popoverTarget={id}
+        // Marks a target that sits inside a sentence (WCAG 2.5.8 inline exception) for automated size checks.
+        data-inline-target="true"
         aria-label={t.definitionOf(term)}
-        className={cn("inline rounded-sm text-left underline decoration-fg-subtle decoration-dotted decoration-1 underline-offset-4 hover:decoration-fg hover:decoration-solid", className)}
+        // Vertical padding on an inline box widens the tap area without moving the line.
+        className={cn("inline rounded-sm py-1 text-left underline decoration-fg-subtle decoration-dotted decoration-1 underline-offset-4 hover:decoration-fg hover:decoration-solid", className)}
       >
         {children ?? term}
       </button>

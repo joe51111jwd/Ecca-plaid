@@ -20,13 +20,13 @@ export { RadioGroup, type RadioGroupProps, type RadioOption } from "./radio-grou
 export { MoneyInput, type MoneyInputProps } from "./money-input";
 export { formatMoneyText, parseMoneyText, sanitizeMoneyText } from "./money-format";
 export { DateInput, type DateInputProps } from "./date-input";
-export { checkDateParts, isoFromParts, partsFromIso, type DateParts, type DatePartsProblem, type DatePartsResult } from "./date-parts";
+export { checkDateParts, isoFromParts, parsePastedDate, partsFromIso, type DateParts, type DatePartsProblem, type DatePartsResult } from "./date-parts";
 export { OtpInput, type OtpInputProps } from "./otp-input";
 export { FileDropzone, type DropzoneFile, type DropzoneFileStatus, type FileDropzoneProps } from "./file-dropzone";
 export { formatBytes, matchesAccept, partitionFiles, type FileRejection, type FileRejectionReason, type FileRules } from "./file-rules";
 
 // Forms with server actions
-export { FormActions, FormError, SubmitButton, type FormActionsProps, type FormErrorProps, type SubmitButtonProps } from "./form";
+export { Form, FormActions, FormError, SubmitButton, type FormActionsProps, type FormErrorProps, type FormProps, type SubmitButtonProps } from "./form";
 export { fieldError, formMessage, hasFormError, type FormState } from "./form-helpers";
 
 // Layout and content

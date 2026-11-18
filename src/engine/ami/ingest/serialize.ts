@@ -63,6 +63,7 @@ export function serializeDataset(dataset: AmiDataset): string {
         hudPublished: {
           veryLowIncome4PersonDollars: area.hudPublished.veryLowIncome4PersonDollars,
           lowIncome4PersonDollars: area.hudPublished.lowIncome4PersonDollars,
+          veryLowIncomeBySizeDollars: [...area.hudPublished.veryLowIncomeBySizeDollars],
         },
       }));
     fields.push(["areas", recordLines(areas)]);

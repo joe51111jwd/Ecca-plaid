@@ -49,7 +49,7 @@ export interface TableProps<T> {
   empty?: ReactNode;
   /** `compact` for long operational lists. */
   density?: "comfortable" | "compact";
-  /** Turn rows into stacked cards when the table's container is narrow. Default true. */
+  /** Turn rows into stacked cards when the table's container is narrow (the header row, and with it sorting, is hidden there). Default true. */
   stack?: boolean;
   /** Highlights one row (the record open in a Drawer). */
   selectedKey?: string | null;
@@ -88,7 +88,7 @@ export function Table<T>({ columns, rows, rowKey, caption, showCaption, rowHref,
                     <SortIcon aria-hidden="true" className={cn("size-3.5 shrink-0", active ? "text-fg" : "text-fg-disabled group-hover/sort:text-fg-muted")} />
                   </>
                 );
-                const sortClasses = cn("group/sort -mx-1 inline-flex items-center gap-1 rounded-sm px-1 py-0.5 hover:text-fg", align === "right" && "flex-row-reverse", active && "text-fg");
+                const sortClasses = cn("group/sort -mx-1 inline-flex min-h-6 items-center gap-1 rounded-sm px-1 hover:text-fg", align === "right" && "flex-row-reverse", active && "text-fg");
                 return (
                   <th
                     key={column.key}

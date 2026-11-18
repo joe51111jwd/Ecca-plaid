@@ -70,10 +70,10 @@ export default async function FocusShellDemo({ searchParams }: { searchParams: P
       secureNote="family"
       footer={
         <>
-          <TextLink href="/styleguide/shells" tone="quiet">
+          <TextLink href="/styleguide/shells" tone="quiet" standalone>
             {t.help}
           </TextLink>
-          <TextLink href="/styleguide/shells" tone="quiet">
+          <TextLink href="/styleguide/shells" tone="quiet" standalone>
             {t.privacy}
           </TextLink>
         </>

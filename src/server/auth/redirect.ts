@@ -30,7 +30,7 @@ export function sanitizeRedirect(input: unknown): string | null {
   if (input[1] === "/") return null;
   if (input.includes("\\")) return null;
   // Any control character or whitespace: browsers strip tabs/newlines inside URLs, which can turn "/\t/evil" into "//evil".
-  if (/[\u0000- \u007f-   ]/.test(input)) return null;
+  if (/[\u0000-\u0020\u007f-\u00a0\u2028\u2029]/.test(input)) return null;
   // Percent-encoded slash/backslash right after the leading slash would decode to "//" or "/\" in some routers.
   if (/^\/%(2f|5c)/i.test(input)) return null;
 

@@ -1,12 +1,62 @@
 "use client";
 
 import { CircleAlert } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useTransition, type ComponentProps, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { Button, type ButtonProps } from "./button";
 import { cn } from "./cn";
 import type { FormState } from "./form-helpers";
 import { uiStrings, type UiLocale } from "./locale";
+
+export interface FormProps extends Omit<ComponentProps<"form">, "action"> {
+  /** The dispatcher from `useActionState`, or a server action that takes FormData. */
+  action: (formData: FormData) => void | Promise<void>;
+  /**
+   * Clear the fields when the action finishes (what a bare `<form action>` does in React 19). Default
+   * false: everything the person typed, chose and ticked is still there when the action comes back with
+   * validation errors.
+   */
+  resetOnSubmit?: boolean;
+}
+
+/**
+ * `<form>` for server actions that does not throw away what the person entered.
+ *
+ * React 19 resets a form's fields as soon as its action returns — including when it returns validation
+ * errors — and un-ticks checkboxes even when they are controlled. This component submits the same
+ * FormData inside a transition instead, so nothing is reset; `SubmitButton` and `useFormStatus` still see
+ * the pending state. Before the page hydrates it behaves like a plain `<form action>`.
+ */
+export function Form({ action, resetOnSubmit = false, onSubmit, children, ...rest }: FormProps) {
+  const [, startTransition] = useTransition();
+  if (resetOnSubmit) {
+    return (
+      <form {...rest} action={action} onSubmit={onSubmit}>
+        {children}
+      </form>
+    );
+  }
+  return (
+    <form
+      {...rest}
+      action={action}
+      onSubmit={(event) => {
+        onSubmit?.(event);
+        if (event.defaultPrevented) return;
+        // Preventing the default submit and starting a transition in the same event is the path on which
+        // React keeps the form's pending status but skips its automatic reset.
+        event.preventDefault();
+        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const formData = new FormData(event.currentTarget, submitter);
+        startTransition(async () => {
+          await action(formData);
+        });
+      }}
+    >
+      {children}
+    </form>
+  );
+}
 
 export interface FormErrorProps {
   /** The state returned by a server action (`ActionResult`). Nothing renders while it is null or ok. */

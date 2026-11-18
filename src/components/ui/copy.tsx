@@ -146,7 +146,7 @@ export function CopyField({ label, value, secret, hint, locale = "en", className
   const [revealed, setRevealed] = useState(!secret);
   const masked = "•".repeat(Math.min(Math.max(value.length, 8), 32));
   return (
-    <div className={className}>
+    <div className={cn("min-w-0", className)}>
       <p className="mb-1.5 text-sm font-medium text-fg">{label}</p>
       <div className="flex items-stretch gap-2">
         <div className="flex min-h-control-md min-w-0 flex-1 items-center rounded-control border border-line-strong bg-sunken px-3">

@@ -15,10 +15,12 @@ export {
   METHOD_IRS_PUBLISHED,
   MIN_CAP_PCT,
   STATUTORY_CAP_PCT,
+  HUD_LIMIT_ROUNDING_DOLLARS,
+  SECTION8_VLI_FACTOR,
   THRESHOLD_COPY_VERSION,
 } from "./constants";
 export { buildTable, isIsoCalendarDate, type BuildTableOptions } from "./dataset";
-export { describeThresholdSource, thresholdSourceName } from "./labels";
+export { describeReadings, describeThresholdSource, thresholdReadingLabel, thresholdSourceName } from "./labels";
 export { createTableRegistry, getActiveTable, getTable, listTables, type AmiTableRegistry, type CreateTableRegistryInput } from "./registry";
 export { familySizeMultiplierBps } from "./compute";
 export { countiesInArea, getArea, getCounty, getThreshold, listCounties, thresholdRow } from "./threshold";
@@ -40,6 +42,9 @@ export type {
   ThresholdCopyLocale,
   ThresholdErrorReason,
   ThresholdMethod,
+  ThresholdReading,
+  ThresholdReadingId,
+  ThresholdReadingsDescription,
   ThresholdResult,
   ThresholdRow,
   ThresholdSource,

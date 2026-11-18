@@ -3,7 +3,7 @@ import { getDb, schema, type DbOrTx } from "@/db/client";
 import type { InvoiceStatus, PaymentStatus } from "@/db/schema";
 import { now } from "@/lib/clock";
 import { conflict } from "@/lib/errors";
-import { audit, type AuditActor } from "@/server/audit";
+import { audit, type AuditActor, type AuditRequestInfo } from "@/server/audit";
 import { enqueue } from "@/server/jobs";
 import { META, readPaymentMeta, type InvoiceRow, type PaymentRow } from "./metadata";
 import { PAID_AT_BASIS } from "./policy";
@@ -263,6 +263,7 @@ export interface InvoiceChange {
   actor: AuditActor;
   /** Extra context for the audit entry (who marked it, why). */
   note?: Record<string, unknown>;
+  request?: AuditRequestInfo | null;
 }
 
 /**
@@ -282,6 +283,7 @@ export async function changeInvoiceStatus(tx: DbOrTx, invoice: InvoiceRow, chang
       action: change.to === "paid" ? "invoice.paid" : "invoice.voided",
       target: { type: "business_invoice", id: invoice.id },
       metadata: { number: invoice.number, from: invoice.status, to: change.to, totalCents: invoice.totalCents, ...change.note },
+      request: change.request,
     },
     tx,
   );

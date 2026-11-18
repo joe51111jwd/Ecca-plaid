@@ -90,7 +90,9 @@ function sanitizeEntries(entries: Array<[string, unknown]>, depth: number, seen:
       omitted++;
       continue;
     }
-    out[sanitizeString(key)] = v;
+    // defineProperty, not assignment: a "__proto__" key (e.g. from parsed JSON) must be recorded as data,
+    // not swap the prototype of the output and vanish from the stored entry.
+    Object.defineProperty(out, sanitizeString(key), { value: v, enumerable: true, writable: true, configurable: true });
     kept++;
   }
   if (omitted > 0) out["[omitted keys]"] = omitted;

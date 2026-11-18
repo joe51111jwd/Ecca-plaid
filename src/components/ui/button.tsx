@@ -17,7 +17,7 @@ const VARIANT: Record<ButtonVariant, string> = {
   secondary: "rounded-control border border-line-strong bg-surface text-fg shadow-xs hover:bg-sunken active:bg-sunken",
   ghost: "rounded-control text-fg hover:bg-sunken active:bg-sunken",
   danger: "rounded-control bg-danger-solid text-danger-solid-fg shadow-xs hover:bg-danger-700 active:bg-danger-800",
-  link: "min-h-6 rounded-sm text-link underline decoration-1 underline-offset-4 hover:text-link-hover hover:decoration-2",
+  link: "min-h-6 rounded-sm text-link underline decoration-1 underline-offset-4 hover:text-link-hover hover:decoration-2 in-data-[density=touch]:min-h-11 pointer-coarse:min-h-11",
 };
 
 const SIZE: Record<ButtonSize, string> = {
@@ -180,13 +180,16 @@ export interface TextLinkProps extends Omit<ComponentProps<"a">, "href"> {
   href: string;
   /** `quiet` drops the underline until hover; use only where the surrounding layout makes it obviously a link (nav, table cells). */
   tone?: "default" | "quiet";
+  /** For a link that stands on its own line (footers, sidebars) rather than inside a sentence: gives it a full-size tap target and lines up an icon. */
+  standalone?: boolean;
 }
 
 /** An inline text link. In-app paths use next/link; external URLs open as plain anchors. */
-export function TextLink({ href, tone = "default", className, children, target, rel, ...rest }: TextLinkProps) {
+export function TextLink({ href, tone = "default", standalone, className, children, target, rel, ...rest }: TextLinkProps) {
   const classes = cn(
     "rounded-sm text-link decoration-1 underline-offset-[3px] hover:text-link-hover hover:underline hover:decoration-2",
     tone === "default" && "underline",
+    standalone && "inline-flex min-h-6 items-center gap-2 in-data-[density=touch]:min-h-11 pointer-coarse:min-h-11",
     className,
   );
   if (isExternalHref(href)) {

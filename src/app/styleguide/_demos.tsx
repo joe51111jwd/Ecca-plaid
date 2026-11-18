@@ -14,6 +14,7 @@ import {
   Field,
   Fieldset,
   FileDropzone,
+  Form,
   FormActions,
   FormError,
   Input,
@@ -345,12 +346,9 @@ export function PathChoiceDemo() {
   );
 }
 
-/** The canonical server-action form: useActionState + FormError + Field errors + SubmitButton. */
+/** The canonical server-action form: useActionState + Form + FormError + Field errors + SubmitButton. Nothing is controlled. */
 export function ServerFormDemo() {
   const [state, formAction] = useActionState<ActionResult<{ email: string }> | null, FormData>(demoApplyAction, null);
-  // React resets uncontrolled inputs after an action; keep what the person typed by controlling the plain inputs.
-  const [email, setEmail] = useState("");
-  const [agree, setAgree] = useState(false);
 
   if (state?.ok) {
     return (
@@ -363,10 +361,10 @@ export function ServerFormDemo() {
   }
 
   return (
-    <form action={formAction} noValidate className="max-w-lg space-y-5">
+    <Form action={formAction} noValidate className="max-w-lg space-y-5">
       <FormError state={state} fieldLabels={{ email: "Email", amountCents: "Gift amount", dob: "Date of birth", agree: "Agreement" }} fieldIds={{ email: "demo-email", amountCents: "demo-amount", dob: "demo-dob", agree: "demo-agree" }} />
       <Field id="demo-email" label="Email" hint="We send your receipt here." error={fieldError(state, "email")} required>
-        <Input type="email" name="email" autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <Input type="email" name="email" autoComplete="email" inputMode="email" />
       </Field>
       <Field id="demo-amount" label="Gift amount" error={fieldError(state, "amountCents")} required>
         <MoneyInput name="amountCents" />
@@ -374,12 +372,12 @@ export function ServerFormDemo() {
       <Fieldset id="demo-dob" label="Date of birth" error={fieldError(state, "dob")} required>
         <DateInput name="dob" autoComplete="bday" />
       </Fieldset>
-      <Checkbox id="demo-agree" name="agree" variant="card" label="I agree to receive my acknowledgment by email" description="You can ask for a paper copy at any time." checked={agree} onChange={(event) => setAgree(event.target.checked)} error={fieldError(state, "agree")} />
+      <Checkbox id="demo-agree" name="agree" variant="card" label="I agree to receive my acknowledgment by email" description="You can ask for a paper copy at any time." error={fieldError(state, "agree")} />
       <FormActions align="start">
         <SubmitButton size="lg" pendingText="Checking…" leadingIcon={<FileText />}>
           Submit (try it empty first)
         </SubmitButton>
       </FormActions>
-    </form>
+    </Form>
   );
 }

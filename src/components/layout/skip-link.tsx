@@ -22,7 +22,8 @@ export function SkipLink({ children }: { children: ReactNode }) {
     <a
       href={`#${MAIN_CONTENT_ID}`}
       onClick={onClick}
-      className="sr-only rounded-control bg-surface px-4 py-3 text-sm font-semibold text-link shadow-lg focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:z-toast"
+      // Parked above the viewport rather than clipped, so it keeps its size and padding when focus reveals it.
+      className="fixed top-3 left-3 z-toast inline-flex min-h-11 -translate-y-[200%] items-center rounded-control bg-surface px-4 text-sm font-semibold text-link shadow-lg focus-visible:translate-y-0"
     >
       {children}
     </a>

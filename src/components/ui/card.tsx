@@ -30,7 +30,7 @@ export interface CardProps {
 /** A bordered surface that groups related content. Borders, not shadows, carry the structure. */
 export function Card({ as: Tag = "div", padding = "md", tone = "default", interactive, href, className, children, ...rest }: CardProps) {
   const classes = cn(
-    "block rounded-card border",
+    "block min-w-0 rounded-card border",
     TONE[tone],
     PADDING[padding],
     (interactive || href) && "transition-[border-color,box-shadow] hover:border-ink-400 hover:shadow-md",
@@ -74,7 +74,7 @@ export function CardHeader({ title, description, eyebrow, actions, level = 2, di
         <Heading id={id} className="text-base font-semibold text-fg">
           {title}
         </Heading>
-        {description ? <p className="mt-1 text-sm text-fg-muted">{description}</p> : null}
+        {description ? <p className="mt-1 text-sm wrap-anywhere text-fg-muted">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -141,11 +141,14 @@ export interface PageHeaderProps {
   actions?: ReactNode;
   /** `display` sets the title in the serif display face — donor and family pages. `default` is the compact dashboard title. */
   variant?: "default" | "display";
+  /** Heading level of the title. Leave at 1 for a page; lower it only when the header sits inside a Drawer or another page's content. */
+  level?: 1 | 2 | 3 | 4;
   className?: string;
 }
 
-/** The h1 of a page, with its trail, status and actions. Every page has exactly one. */
-export function PageHeader({ title, description, breadcrumbs, back, meta, actions, variant = "default", className }: PageHeaderProps) {
+/** The h1 of a page, with its trail, status and actions. Every page has exactly one (see `level` for the exceptions). */
+export function PageHeader({ title, description, breadcrumbs, back, meta, actions, variant = "default", level = 1, className }: PageHeaderProps) {
+  const Title = `h${level}` as "h1" | "h2" | "h3" | "h4";
   return (
     <header className={cn("space-y-3", className)}>
       {breadcrumbs && breadcrumbs.length > 0 ? (
@@ -155,7 +158,7 @@ export function PageHeader({ title, description, breadcrumbs, back, meta, action
               <li key={index} className="flex items-center gap-1">
                 {index > 0 ? <ChevronRight aria-hidden="true" className="size-4 text-fg-disabled" /> : null}
                 {crumb.href ? (
-                  <Link href={crumb.href} className="rounded-sm hover:text-fg hover:underline">
+                  <Link href={crumb.href} className="inline-flex min-h-6 items-center rounded-sm hover:text-fg hover:underline">
                     {crumb.label}
                   </Link>
                 ) : (
@@ -175,7 +178,7 @@ export function PageHeader({ title, description, breadcrumbs, back, meta, action
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h1 className={cn("text-fg", variant === "display" ? "font-display text-display-sm sm:text-display-md" : "text-2xl font-semibold tracking-tight")}>{title}</h1>
+            <Title className={cn("text-fg", variant === "display" ? "font-display text-display-sm sm:text-display-md" : "text-2xl font-semibold tracking-tight")}>{title}</Title>
             {meta ? <div className="flex flex-wrap items-center gap-2">{meta}</div> : null}
           </div>
           {description ? <p className={cn("mt-2 max-w-reading text-fg-muted", variant === "display" ? "text-lg" : "text-sm")}>{description}</p> : null}

@@ -8,6 +8,13 @@ import * as auditModule from "./index";
 import { AUDIT_METADATA_LIMITS, audit, listAuditLogs, normalizeIp, requestInfoFromHeaders, sanitizeAuditMetadata, SYSTEM_ACTOR } from "./index";
 
 describe("sanitizeAuditMetadata", () => {
+  it("records a __proto__ key from parsed JSON as data instead of swapping the output's prototype", () => {
+    const out = sanitizeAuditMetadata(JSON.parse('{"__proto__": {"note": "x", "token": "secret"}, "a": 1}'))!;
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(JSON.parse(JSON.stringify(out))).toEqual(JSON.parse('{"__proto__": {"note": "x"}, "a": 1}'));
+    expect(JSON.stringify(out)).not.toContain("secret");
+  });
+
   it("returns null for missing metadata and rejects non-objects", () => {
     expect(sanitizeAuditMetadata(undefined)).toBeNull();
     expect(sanitizeAuditMetadata(null)).toBeNull();

@@ -74,7 +74,11 @@ const hudDatasetSchema = z.strictObject({
         name: nonEmptyText,
         metro: z.boolean(),
         medianIncomeDollars: wholeDollars,
-        hudPublished: z.strictObject({ veryLowIncome4PersonDollars: wholeDollars, lowIncome4PersonDollars: wholeDollars }),
+        hudPublished: z.strictObject({
+          veryLowIncome4PersonDollars: wholeDollars,
+          lowIncome4PersonDollars: wholeDollars,
+          veryLowIncomeBySizeDollars: z.array(wholeDollars).length(MAX_TABULATED_FAMILY_SIZE),
+        }),
       }),
     )
     .min(1),
@@ -144,6 +148,15 @@ function crossFieldProblems(dataset: AmiDataset, requireAllCounties: boolean): s
     const bps = dataset.multipliers.bySizeBps;
     for (let i = 1; i < bps.length; i++) {
       if (!(bps[i] > bps[i - 1])) problems.push(`family-size multipliers must increase with family size (size ${i + 1})`);
+    }
+    for (const area of dataset.areas) {
+      const vli = area.hudPublished.veryLowIncomeBySizeDollars;
+      if (vli[3] !== area.hudPublished.veryLowIncome4PersonDollars) {
+        problems.push(`area ${area.code}: the four-person very-low-income limit (${vli[3]}) differs from veryLowIncome4PersonDollars (${area.hudPublished.veryLowIncome4PersonDollars})`);
+      }
+      for (let i = 1; i < vli.length; i++) {
+        if (vli[i] < vli[i - 1]) problems.push(`area ${area.code}: the very-low-income limit for ${i + 1} persons is lower than for ${i} persons`);
+      }
     }
   } else if (AMI_POLICY.irsLimitsMustNotDecreaseWithFamilySize) {
     for (const area of dataset.areas) {

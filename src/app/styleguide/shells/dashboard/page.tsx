@@ -118,14 +118,14 @@ export default async function DashboardShellDemo({ searchParams }: { searchParam
         </div>
       }
       sidebarFooter={
-        <ul className="space-y-2">
+        <ul className="space-y-1">
           <li>
-            <TextLink href="/docs" tone="quiet" className="inline-flex items-center gap-2">
+            <TextLink href="/docs" tone="quiet" standalone>
               <BookOpen aria-hidden="true" className="size-4" /> API reference
             </TextLink>
           </li>
           <li>
-            <TextLink href="/styleguide" tone="quiet" className="inline-flex items-center gap-2">
+            <TextLink href="/styleguide" tone="quiet" standalone>
               <LifeBuoy aria-hidden="true" className="size-4" /> Help
             </TextLink>
           </li>

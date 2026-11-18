@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppError } from "@/lib/errors";
 import { runAmiIngest } from "../../../../scripts/ami-ingest";
-import { buildTable, createTableRegistry, describeThresholdSource, getTable, getThreshold, thresholdRow, type AmiTable, type HudDerivedDataset, type IrsPublishedDataset } from "../index";
+import { buildTable, createTableRegistry, describeReadings, describeThresholdSource, getTable, getThreshold, thresholdRow, type AmiTable, type HudDerivedDataset, type IrsPublishedDataset } from "../index";
 import { transcriptionMismatches } from "../transcription-check";
 import {
   buildHudDataset,
@@ -191,7 +191,7 @@ describe("HUD ingest validation (synthetic workbooks)", () => {
       name: "Synthetic Metro Area A, TX",
       metro: true,
       medianIncomeDollars: 90000,
-      hudPublished: { veryLowIncome4PersonDollars: 45000, lowIncome4PersonDollars: 72000 },
+      hudPublished: { veryLowIncome4PersonDollars: 45000, lowIncome4PersonDollars: 72000, veryLowIncomeBySizeDollars: [31500, 36000, 40500, 45000, 48600, 52200, 55800, 59400] },
     });
     expect(dataset.multipliers).toEqual({ bySizeBps: [7000, 8000, 9000, 10000, 10800, 11600, 12400, 13200], additionalPersonBps: 800, citation: expect.stringContaining("REG-117199-25") });
     expect(JSON.stringify(dataset)).not.toMatch(/threshold|limitCents/i);
@@ -325,6 +325,39 @@ describe("HUD ingest validation (synthetic workbooks)", () => {
     expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.county_town_name] = "Some town")))[0]).toMatch(/county_town_name "Some town" differs from County_Name/);
     expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_4] = null)))[0]).toMatch(/l50_4 must be a positive whole number, found empty/);
     expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l80_4] = "n/a")))[0]).toMatch(/l80_4 must be a positive whole number, found "n\/a"/);
+  });
+
+  it("carries l50_1..l50_8 per area and fails loudly on missing, non-positive, fractional or decreasing very-low-income limits", () => {
+    const { dataset } = ingestSyntheticHud();
+    expect(dataset.areas.every((area) => area.hudPublished.veryLowIncomeBySizeDollars.length === 8)).toBe(true);
+    expect(dataset.areas.every((area) => area.hudPublished.veryLowIncomeBySizeDollars[3] === area.hudPublished.veryLowIncome4PersonDollars)).toBe(true);
+    expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_1] = null)))[0]).toMatch(/l50_1 must be a positive whole number, found empty/);
+    expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_8] = 0)))[0]).toMatch(/l50_8 must be a positive whole number, found 0/);
+    expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_6] = 52200.5)))[0]).toMatch(/l50_6 must be a positive whole number, found 52200.5/);
+    expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_6] = -1)))[0]).toMatch(/l50_6 must be a positive whole number, found -1/);
+    expect(problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(7)][HUD_COLUMN.l50_6] = 1)))[0]).toMatch(/l50_6 \(1\) is lower than l50_5 .*must not decrease with family size/);
+    // Equal neighbouring limits are allowed (non-decreasing).
+    expect(() =>
+      ingestSyntheticHud((rows) => {
+        rows[texasRowIndex(7)][HUD_COLUMN.l50_6] = rows[texasRowIndex(7)][HUD_COLUMN.l50_5];
+      }),
+    ).not.toThrow();
+  });
+
+  it("fails when the l50_1..l50_8 columns are missing from the header", () => {
+    for (const name of ["l50_1", "l50_7"]) {
+      const problems = problemsOf(() =>
+        ingestSyntheticHud((_rows, header) => {
+          header[HUD_COLUMN[name]] = `${name}_renamed`;
+        }),
+      );
+      expect(problems).toContain(`required column "${name}" is missing`);
+    }
+  });
+
+  it("fails when counties of one area disagree about any very-low-income limit", () => {
+    const problems = problemsOf(() => ingestSyntheticHud((rows) => void (rows[texasRowIndex(1)][HUD_COLUMN.l50_2] = 36050)));
+    expect(problems).toEqual([`row 4 (Synthetic County 003): area ${SYNTHETIC_AREA_A} has a different l50_2 than on row 3; counties in one area must share one set of figures`]);
   });
 
   it("fails when the state columns of a row disagree", () => {
@@ -550,8 +583,19 @@ describe("IRS limitation table ingest (synthetic transcription)", () => {
     expect(BigInt(floored.thresholdCents)).toBe(exactNumerator / 300n);
     expect(floored.exact).toBe(exactNumerator % 300n === 0n);
 
+    // Once an IRS table is in use the two provisional readings disappear: one reading, lower = upper = threshold.
+    for (const result of [four, eleven, capped, floored]) {
+      expect(result.readings).toEqual([
+        { id: "irs_published", label: "IRS-published limit", thresholdCents: result.thresholdCents, statutoryThresholdCents: result.statutoryThresholdCents, formula: result.formula },
+      ]);
+      expect([result.lowerBoundCents, result.upperBoundCents, result.readingsAgree]).toEqual([result.thresholdCents, result.thresholdCents, true]);
+    }
+    expect(thresholdRow("48201", { table }).thresholds.every((entry) => entry.readings.length === 1 && entry.readingsAgree)).toBe(true);
+    expect(describeReadings(four)).toMatchObject({ status: "single", readingLines: [`IRS-published limit: ${four.formula}`] });
+    expect(describeReadings(four).summary).toBe(`IRS-published limit for this county and household size: $${syntheticIrsLimitDollars(index, 4).toLocaleString("en-US")}.00.`);
+
     const description = describeThresholdSource(table);
-    expect(description).toMatchObject({ source: "irs_published", provisional: false, badge: "IRS-published", tableVersion: "irs-2099" });
+    expect(description).toMatchObject({ source: "irs_published", provisional: false, badge: "IRS-published", tableVersion: "irs-2099", readingIds: ["irs_published"], readingsNote: null });
     expect(`${description.sourceLine} ${description.explanation} ${description.familyNote} ${description.limitLabel}`).not.toMatch(/provisional|HUD/i);
     expect(description.sourceLine).toBe("IRS-published limit (SYNTHETIC citation, not a real Internal Revenue Bulletin item), effective January 1, 2099.");
   });
@@ -821,7 +865,7 @@ describe("activation comparison report", () => {
 
     // SYNTHETIC change: move Waller County out of the Houston area into an area of its own.
     const moved = variant((dataset) => {
-      dataset.areas.push({ code: "SYNTHETIC-WALLER", name: "SYNTHETIC Waller area", metro: false, medianIncomeDollars: 104000, hudPublished: { veryLowIncome4PersonDollars: 52000, lowIncome4PersonDollars: 83200 } });
+      dataset.areas.push({ code: "SYNTHETIC-WALLER", name: "SYNTHETIC Waller area", metro: false, medianIncomeDollars: 104000, hudPublished: { veryLowIncome4PersonDollars: 52000, lowIncome4PersonDollars: 83200, veryLowIncomeBySizeDollars: [36400, 41600, 46800, 52000, 56200, 60350, 64500, 68650] } });
       dataset.areas.sort((a, b) => (a.code < b.code ? -1 : 1));
       dataset.counties.find((county) => county.fips === "48473")!.areaCode = "SYNTHETIC-WALLER";
     });

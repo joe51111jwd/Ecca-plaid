@@ -360,21 +360,21 @@ export default function StyleGuideForms() {
         <Specimen
           id="server-form"
           name="Forms with server actions"
-          importLine='import { FormError, SubmitButton, FormActions, fieldError } from "@/components/ui"'
+          importLine='import { Form, FormError, SubmitButton, FormActions, fieldError } from "@/components/ui"'
           note={
             <div className="space-y-2">
               <p>
-                The standard form: a server action that returns <C>ActionResult</C> (from <C>@/lib/errors</C>), <C>useActionState</C> in a small client component, <C>FormError</C> at the top, <C>fieldError(state, name)</C> on each
-                Field, and <C>SubmitButton</C> for the pending state. Source: <C>src/app/styleguide/_demos.tsx</C> (ServerFormDemo) and <C>_actions.ts</C>.
+                The standard form: a server action that returns <C>ActionResult</C> (from <C>@/lib/errors</C>), <C>useActionState</C> in a small client component, <C>{"<Form action={formAction}>"}</C>, <C>FormError</C> at the top,{" "}
+                <C>fieldError(state, name)</C> on each Field, and <C>SubmitButton</C> for the pending state. Source: <C>src/app/styleguide/_demos.tsx</C> (ServerFormDemo) and <C>_actions.ts</C>.
               </p>
               <p>
-                After an action returns, React resets <em>uncontrolled</em> native inputs. Either control them (as the demo does) or have the action return the submitted values and pass them to <C>defaultValue</C>. MoneyInput,
-                DateInput and OtpInput keep their own state.
+                Use <C>Form</C>, not a bare <C>{"<form action>"}</C>: React 19 clears a form’s fields as soon as its action returns — even when it returns validation errors — and un-ticks checkboxes. <C>Form</C> keeps everything the
+                person entered. Pass <C>resetOnSubmit</C> for the rare form that should clear (a “add another” row).
               </p>
             </div>
           }
         >
-          <Example label="Live — submit it empty, then fix the fields">
+          <Example label="Live — fill in one or two fields, submit, and note that nothing you entered is lost">
             <ServerFormDemo />
           </Example>
           <Example label="FormError — static rendering of the summary">

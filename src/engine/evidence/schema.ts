@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EMPTY_SHA256, EVIDENCE_POLICY } from "./policy";
-import { ID_PATTERN, normalizeText } from "./text";
+import { containsSsnPattern, ID_PATTERN, normalizeText } from "./text";
 
 /**
  * Shape and format validation of `EvidenceInput`. Parsing also normalizes: text to its canonical spelling,
@@ -41,11 +41,21 @@ function optionalText(max: number) {
     });
 }
 
+const NOT_AN_IDENTIFIER = `is not a valid identifier (letters, digits, "_", "-", "." and ":" only, at most ${L.id} characters)`;
+/* An identifier that is nothing but nine digits, with or without separators, is refused: free text is scrubbed
+   of such tokens, identifiers cannot be without breaking references, so they must not carry one. */
+const SSN_SHAPED_ID = /^\d{3}[-.:]?\d{2}[-.:]?\d{4}$/;
+
+function checkId(value: string, ctx: Ctx): string {
+  if (value.length > L.id || !ID_PATTERN.test(value)) return fail(ctx, NOT_AN_IDENTIFIER);
+  if (SSN_SHAPED_ID.test(value)) return fail(ctx, "is shaped like a Social Security number; identifiers must not carry one");
+  return value;
+}
+
 function id(what: string) {
   return z.string({ error: (issue) => (issue.input === undefined ? `is required: ${what}` : `must be text: ${what}`) }).transform((value, ctx) => {
     if (value.length === 0) return fail(ctx, `is required: ${what}`);
-    if (value.length > L.id || !ID_PATTERN.test(value)) return fail(ctx, `is not a valid identifier (letters, digits, "_", "-", "." and ":" only, at most ${L.id} characters)`);
-    return value;
+    return checkId(value, ctx);
   });
 }
 
@@ -54,26 +64,31 @@ function optionalId() {
     .string({ error: "must be an identifier or null" })
     .nullish()
     .transform((value, ctx) => {
-    if (value === null || value === undefined || value === "") return null;
-    if (value.length > L.id || !ID_PATTERN.test(value)) return fail(ctx, `is not a valid identifier (letters, digits, "_", "-", "." and ":" only, at most ${L.id} characters)`);
-    return value;
-  });
+      if (value === null || value === undefined || value === "") return null;
+      return checkId(value, ctx);
+    });
 }
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const ISO_UTC_LENGTH = "2026-11-18T15:04:05.000Z".length;
 
 function parseTimestamp(value: unknown, ctx: Ctx, what: string): string {
   if (value === undefined || value === null) return fail(ctx, `is required: ${what}`);
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return fail(ctx, "is not a valid date");
-    return value.toISOString();
+    const iso = value.toISOString();
+    // Years outside 0000-9999 serialize with a sign and six digits, which would break ordering by string.
+    if (iso.length !== ISO_UTC_LENGTH) return fail(ctx, "is outside the supported range of dates");
+    return iso;
   }
   if (typeof value !== "string" || !ISO_TIMESTAMP.test(value)) {
     return fail(ctx, "must be a Date or an ISO 8601 timestamp with an explicit offset, for example 2026-11-18T15:04:05Z");
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return fail(ctx, "is not a real point in time");
-  return parsed.toISOString();
+  const iso = parsed.toISOString();
+  if (iso.length !== ISO_UTC_LENGTH) return fail(ctx, "is outside the supported range of dates");
+  return iso;
 }
 
 /** Required instant, normalized to `YYYY-MM-DDTHH:mm:ss.sssZ`. */
@@ -249,6 +264,7 @@ const thresholdLabelSchema = z.object(
     limitLabel: text(L.shortText, "the field label of the limit"),
     sourceLine: text(L.longText, "the one-line description of the source of the limit"),
     explanation: text(L.notes, "the full explanation of where the limit comes from"),
+    readingsNote: optionalText(L.notes),
   },
   { error: "is required: the exact wording shown next to the limit" },
 );
@@ -257,6 +273,11 @@ const readingSchema = z.object({
   id: id("the reading id"),
   label: text(L.shortText, "the reading's label"),
   thresholdCents: positiveCents("the limit under this reading"),
+  statutoryThresholdCents: z
+    .int({ error: "must be a whole number of cents or null" })
+    .min(1, { error: "must be greater than zero" })
+    .nullish()
+    .transform((value) => value ?? null),
   formula: text(L.longText, "the arithmetic of this reading"),
 });
 
@@ -370,6 +391,7 @@ function parseScopeValue(value: unknown, ctx: Ctx, depth: number, path: string):
     for (const [key, entry] of entries) {
       const cleanKey = normalizeText(key);
       if (cleanKey === "" || cleanKey.length > L.shortText) return fail(ctx, `${path} has an empty or overlong key`);
+      if (containsSsnPattern(cleanKey)) return fail(ctx, `${path} has a key shaped like a Social Security number`);
       // Assigning "__proto__" would set the prototype instead of a property; defineProperty keeps it data.
       Object.defineProperty(out, cleanKey, { value: parseScopeValue(entry, ctx, depth + 1, `${path}.${cleanKey}`), enumerable: true, writable: true, configurable: true });
     }

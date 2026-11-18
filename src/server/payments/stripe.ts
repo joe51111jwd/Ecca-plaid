@@ -88,7 +88,7 @@ export function parseWebhookSecrets(value: string | undefined): string[] {
 /** Builds the processor from the environment. Throws not_available when Stripe is selected but not configured. */
 export function createStripeProcessorFromEnv(): StripeProcessor {
   const e = env();
-  if (!e.STRIPE_SECRET_KEY) throw new AppError("not_available", "Stripe is selected as the payment processor but STRIPE_SECRET_KEY is not set");
+  if (!e.STRIPE_SECRET_KEY) throw new AppError("not_available", "Stripe is not configured: STRIPE_SECRET_KEY is not set");
   const client = new Stripe(e.STRIPE_SECRET_KEY, {
     apiVersion: STRIPE_API_VERSION,
     maxNetworkRetries: 2,
@@ -135,17 +135,12 @@ export function paymentStatusOf(intent: Pick<Stripe.PaymentIntent, "status" | "l
   }
 }
 
+const INVOICE_STATUSES: readonly InvoiceStatus[] = ["draft", "open", "paid", "void", "uncollectible"];
+
 function invoiceStatusOf(status: Stripe.Invoice["status"]): InvoiceStatus {
-  switch (status) {
-    case "open":
-    case "paid":
-    case "void":
-    case "uncollectible":
-    case "draft":
-      return status;
-    default:
-      throw new AppError("internal", `Stripe returned an invoice in an unexpected state (${String(status)})`);
-  }
+  const known = INVOICE_STATUSES.find((s) => s === status);
+  if (!known) throw new AppError("internal", `Stripe returned an invoice in an unexpected state (${String(status)})`);
+  return known;
 }
 
 /**
@@ -234,16 +229,17 @@ export class StripeProcessor implements PaymentProcessor {
       },
     };
 
+    if (settlement.settlementMode === "direct" && serviceFeeOnTopCents > 0) {
+      // Everything in a direct charge lands in the SGO's account, which may hold designated gifts only.
+      throw new AppError(
+        "not_available",
+        "A donor service fee cannot be added to a gift that is charged directly on the organization's account. It must be its own charge on the platform account.",
+      );
+    }
+
     let intent: Stripe.PaymentIntent;
     try {
       if (settlement.settlementMode === "direct") {
-        if (serviceFeeOnTopCents > 0) {
-          // Everything in a direct charge lands in the SGO's account, which may hold designated gifts only.
-          throw new AppError(
-            "not_available",
-            "A donor service fee cannot be added to a gift that is charged directly on the organization's account. It must be its own charge on the platform account.",
-          );
-        }
         intent = await this.client.paymentIntents.create(params, { idempotencyKey: input.idempotencyKey, stripeAccount: settlement.connectedAccountId });
       } else {
         intent = await this.client.paymentIntents.create(

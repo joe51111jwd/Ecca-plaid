@@ -12,6 +12,14 @@ limit is a wrong scholarship decision. Nothing in this procedure may be skipped 
 
 Nothing below changes what the application uses until step 7. Ingesting never activates.
 
+**Two provisional readings until then.** While the active table is HUD-derived, every result carries two
+candidate readings of the proposed rule: `median_product` (300% x HUD area median x family-size multiplier;
+this is `thresholdCents`) and `section8_vli` (6 x HUD's published very-low-income limit for the family size),
+with `lowerBoundCents`, `upperBoundCents` and `readingsAgree`. No source says which one the IRS will publish
+(`docs/reference/sgo-verification-rules.md` F31-F37), so automatic decisions approve only at or below the lower
+figure and decline only above the higher one. An IRS-published table has exactly one reading
+(`irs_published`), so this two-reading logic disappears by itself at step 7; section 8 says how to confirm it.
+
 | Step | What | Command |
 | --- | --- | --- |
 | 1 | Get the published table and read its text | (manual) |
@@ -158,10 +166,14 @@ Read it before going on. Things to look for:
 - **Differences that are uniform and small** (for example every limit rounded to a multiple of $50) point to
   a rounding rule in the IRS table. Expected; note it.
 - **Large differences concentrated in low-median and high-median counties** point to the IRS having built
-  its limits from HUD's adjusted income limits rather than from the raw area median. In the HUD FY 2026
-  data that reading differs from the provisional table in 143 of 254 Texas counties, by up to $135,000 for
-  a family of four (Starr County); see `docs/reference/hud-ami-and-annual-income.md`, fact F38 and open
-  question 1. It would not be an error, but it changes many decisions: tell the founder before activating.
+  its limits from HUD's adjusted income limits rather than from the raw area median. The comparison is
+  against the active table's `thresholdCents`, which is the `median_product` reading only. The other
+  provisional reading is in each result's `readings` (`section8_vli`); in the HUD FY 2026 data it differs at
+  four persons in 143 of 254 Texas counties, by up to $135,000 (Starr County: $116,100 versus $251,100).
+  Spot-check a few such counties: if the IRS figures match `section8_vli`, the IRS chose that reading. See
+  `docs/reference/hud-ami-and-annual-income.md` (F38, open question 1) and
+  `docs/reference/sgo-verification-rules.md` (F34). It would not be an error, but it changes many
+  decisions: tell the founder before activating.
 - **A handful of isolated differences** are more likely transcription errors. Go back to the PDF.
 - **Any decrease.** A household that was eligible under the provisional table may not be under the
   published one. Note the counties and sizes for whoever handles decisions already made (section 10).
@@ -179,8 +191,12 @@ comparison again, then writes `data/ami/active.json` and refreshes the generated
 command that changes which table the application uses.
 
 From here on, in this working tree, `getThreshold` returns the IRS limits with `source: "irs_published"`
-and `provisional: false`, and `describeThresholdSource` returns the IRS wording with the citation. No other
-code changes are needed for that.
+and `provisional: false`, and `describeThresholdSource` returns the IRS wording with the citation. The two
+provisional readings disappear at the same moment: every result has exactly one reading (`irs_published`),
+`lowerBoundCents` = `upperBoundCents` = `thresholdCents`, `readingsAgree` is true, `describeReadings` returns
+status `single`, and `describeThresholdSource` returns `readingIds: ["irs_published"]` and
+`readingsNote: null`. Downstream code that sends incomes between the two bounds to a person therefore stops
+doing so without a change. No other code changes are needed for any of this.
 
 ## 8. Re-run the full Texas suite on the new numbers
 
@@ -201,12 +217,15 @@ code changes are needed for that.
    For the IRS table it checks, with code that does not share the ingest's parser: every Texas county and
    household size 1 to 8 returns exactly the amount in the archived transcription; the archive's SHA-256 is
    the one recorded in the table; the per-person increment is applied above eight; all 254 counties are
-   covered; limits never fall as the household grows; the labels no longer say "provisional". It also
+   covered; limits never fall as the household grows; the labels no longer say "provisional"; and (test
+   "the active table carries two readings while provisional and exactly one once IRS-published") every
+   county and size 1 to 8 of the active table has the single `irs_published` reading with equal bounds. That
+   test passing is the confirmation that the two-reading logic is gone. It also
    re-checks the HUD table against its golden file, which must still pass unchanged: the provisional table
    stays installed so old decisions can be re-derived.
 
 3. Run everything: `npm test`, `npm run typecheck`, `npm run lint`. Tests in other modules that assert
-   provisional labels or HUD-derived amounts for the *active* table will fail; each such failure is a place
+   provisional labels, HUD-derived amounts, two readings or a review band for the *active* table will fail; each such failure is a place
    that shows thresholds to people. Update the expectation only after confirming the screen, API field or
    PDF now shows the IRS wording from `describeThresholdSource`.
 
@@ -301,7 +320,7 @@ keep the provisional table active, and bring the exact rows to the founder.
 - Arithmetic and its documentation: `src/engine/ami/compute.ts`.
 - CSV contract and validation: `src/engine/ami/ingest/irs.ts`. Command: `scripts/ami-ingest.ts`
   (`npm run ami:ingest -- --help`).
-- Wording shown with thresholds: `src/engine/ami/labels.ts` (`describeThresholdSource`).
+- Wording shown with thresholds: `src/engine/ami/labels.ts` (`describeThresholdSource`, `describeReadings`).
 - The suite: `src/engine/ami/ami.test.ts`, `src/engine/ami/ingest/ingest.test.ts`. Owned by the founder.
 
 ### A new HUD fiscal year before the IRS table exists
@@ -311,6 +330,7 @@ HUD publishes new Section 8 income limits each spring. The same command ingests 
 the comparison, activate explicitly, re-run the suite. Before that: verify the file against huduser.gov and
 pin its SHA-256, URL and effective date in `src/engine/ami/ingest/hud-releases.ts` (the effective date is
 stated on the HUD User income-limits page, not in the file); point `scripts/ami-golden.py` at the new file
-and produce a new golden CSV; add the new table's golden tests beside the FY 2026 ones. Which fiscal year's
+and produce a new golden CSV (both readings); re-count the counties where the two readings differ and update
+the counts asserted in the suite only after the founder has reviewed them; add the new table's golden tests beside the FY 2026 ones. Which fiscal year's
 median applies to an application is not settled by the proposed rules, so when to activate a new HUD year
 is the founder's decision.
