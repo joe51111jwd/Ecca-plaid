@@ -24,7 +24,9 @@ Nothing below changes what the application uses until step 7. Ingesting never ac
 | 8 | Re-run the full Texas suite on the new numbers | `npx vitest run src/engine/ami` then `npm test` |
 | 9 | Commit, review, deploy | (pull request) |
 
-The examples use `irs-2027` as the version id. Use the year the publication itself gives.
+The examples use `irs-2027` as the version id; use the year the publication itself gives. `work/` in the
+examples stands for any scratch folder for the transcription sheets and reports. Do not commit it: the
+ingest archives the one file that belongs in the repository.
 
 ---
 
@@ -49,8 +51,10 @@ The examples use `irs-2027` as the version id. Use the year the publication itse
 ## 2. Create the transcription sheet
 
 ```bash
-npm run ami:ingest -- --irs-template work/irs-2027-a.csv                   # one row per area (215 rows)
-npm run ami:ingest -- --irs-template work/irs-2027-a.csv --layout county   # or one row per county (254 rows)
+# either: one row per area (215 rows)
+npm run ami:ingest -- --irs-template work/irs-2027-a.csv
+# or: one row per county (254 rows)
+npm run ami:ingest -- --irs-template work/irs-2027-a.csv --layout county
 ```
 
 The sheet has the Texas geography filled in from the installed HUD table (area codes and names, county FIPS
