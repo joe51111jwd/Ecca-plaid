@@ -58,20 +58,29 @@ export function finishAward(b: ExtractionBuilder, draft: AwardDraft): AwardLette
 }
 
 /** Reads the document's own date after `label` into `letter_date`, reporting missing and ambiguous dates. */
-export function readLetterDate(ctx: ExtractContext, b: ExtractionBuilder, label: RegExp, confidence = CONF_VERIFIED, refs?: readonly LineRef[]): void {
+export function readLetterDate(
+  ctx: ExtractContext,
+  b: ExtractionBuilder,
+  label: RegExp,
+  confidence = CONF_VERIFIED,
+  refs?: readonly LineRef[],
+  required = true,
+): void {
   const d = readLabeledDate(ctx.doc, label, refs);
-  b.require("letter_date");
+  // A document that can never be accepted does not need a reviewer just because its date is unreadable.
+  const problem = (code: "date_missing" | "date_ambiguous", message: string) => (required ? b.review(code, message) : b.warn(message));
+  if (required) b.require("letter_date");
   if (!d) {
-    b.review("date_missing", "The document date could not be found.");
+    problem("date_missing", "The document date could not be found.");
     return;
   }
   if (d.ambiguous) {
     b.set("letter_date", null, 0, d.ref);
-    b.review("date_ambiguous", `The document date "${d.raw}" can be read more than one way; a person must confirm it.`);
+    problem("date_ambiguous", `The document date "${d.raw}" can be read more than one way; a person must confirm it.`);
     return;
   }
   if (!d.date) {
-    b.review("date_missing", `The document date "${d.raw}" is not a valid date.`);
+    problem("date_missing", `The document date "${d.raw}" is not a valid date.`);
     return;
   }
   b.set("letter_date", d.date, confidence, d.ref);
