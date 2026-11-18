@@ -33,6 +33,11 @@ describe("identity helpers", () => {
   it("builds case- and diacritic-insensitive name keys", () => {
     expect(nameKey("Niños de Texas, Inc.")).toBe("ninos de texas inc");
     expect(nameKey("A & B")).toBe(nameKey("a and b"));
+    expect(nameKey("Søren Æble STRASSE")).toBe(nameKey("Soren aeble straße"));
+    expect(nameKey("Łódź Ðorđe")).toBe("lodz dorde");
+    expect(nameKey("合成奖学金基金")).toBe("合成奖学金基金");
+    expect(nameKey("合成奖学金基金")).not.toBe(nameKey("合成教育基金"));
+    expect(nameKey("!!! ---")).toBe("");
   });
 
   it("formats calendar dates without a time-zone shift", () => {

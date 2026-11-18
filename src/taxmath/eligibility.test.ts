@@ -80,14 +80,14 @@ const STATE_TIME_ZONES = [
 ];
 
 describe("the gift that passes every gate", () => {
-  it("is credit-eligible, with no blockers, warnings or headline", () => {
+  it("is credit-eligible, with no blockers or warnings, and a headline that promises nothing", () => {
     const result = assess();
     expect(result).toEqual({
       creditEligible: true,
       blockers: [],
       warnings: [],
       onlyBlockedBySandbox: false,
-      headline: null,
+      headline: { copyId: "eligibility.credit_eligible", message: renderCopy("eligibility.credit_eligible") },
       ineligibleReason: null,
       beforeCreditStart: false,
       creditStartInstant: "2027-01-01T10:00:00.000Z",
@@ -97,6 +97,7 @@ describe("the gift that passes every gate", () => {
       copyVersion: COPY_VERSION,
     });
     expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+    expect(result.headline.message).toMatch(/depends on your own tax return/);
   });
 });
 
@@ -191,7 +192,7 @@ describe("gates 2, 7 and 8: the SGO list", () => {
         message: renderCopy("eligibility.sgo_list_provisional"),
       },
     ]);
-    expect(result.headline?.message).toContain("provisional list");
+    expect(result.headline.message).toContain("provisional list");
   });
 
   it("blocks an organization that is not on the list in use, whichever list that is", () => {
@@ -383,7 +384,7 @@ describe("sandbox mode", () => {
     const result = assess({ paidAt: new Date("2026-12-10T15:00:00Z") });
     expect(result.blockers.map((blocker) => blocker.code)).toEqual(["before_credit_start"]);
     expect(result.onlyBlockedBySandbox).toBe(false);
-    expect(result.headline?.copyId).toBe("eligibility.before_credit_start");
+    expect(result.headline.copyId).toBe("eligibility.before_credit_start");
   });
 });
 

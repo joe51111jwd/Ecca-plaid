@@ -159,9 +159,9 @@ export interface CreditEligibilityResult {
   warnings: EligibilityWarning[];
   /** True when the sandbox is the only thing keeping this gift off the credit-eligible path. */
   onlyBlockedBySandbox: boolean;
-  /** One sentence for the donor that sums up why the gift is not credit-eligible; null when it is. */
-  headline: { copyId: CopyId; message: string } | null;
-  /** `headline.message`, for `donations.credit_ineligible_reason`. */
+  /** One sentence for the donor that sums up the outcome: the leading reason when blocked, a cautious confirmation when not. */
+  headline: { copyId: CopyId; message: string };
+  /** `headline.message` when the gift is not credit-eligible (for `donations.credit_ineligible_reason`); null when it is. */
   ineligibleReason: string | null;
   beforeCreditStart: boolean;
   /** The instant the credit-eligible path opens for `creditStartDate`, ISO 8601 UTC. */
@@ -288,23 +288,24 @@ export function assessCreditEligibility(input: CreditEligibilityInput): CreditEl
   const taxYear = parsed.donorTimeZone ? determineTaxYear(paidAt, parsed.donorTimeZone) : null;
   if (taxYear?.yearBoundaryAmbiguous) warn("tax_year_boundary_ambiguous", "eligibility.warning.year_boundary");
 
-  let headline: CreditEligibilityResult["headline"] = null;
-  if (blockers.length > 0) {
-    if (!parsed.liveMode && beforeCreditStart) {
-      const copyId: CopyId = "eligibility.before_credit_start_sandbox";
-      headline = { copyId, message: renderCopyDynamic(copyId, { creditStartDate: startDateText }, renderOptions) };
-    } else {
-      headline = { copyId: blockers[0].copyId, message: blockers[0].message };
-    }
+  const creditEligible = blockers.length === 0;
+  let headline: CreditEligibilityResult["headline"];
+  if (creditEligible) {
+    headline = { copyId: "eligibility.credit_eligible", message: renderCopyDynamic("eligibility.credit_eligible", {}, renderOptions) };
+  } else if (!parsed.liveMode && beforeCreditStart) {
+    const copyId: CopyId = "eligibility.before_credit_start_sandbox";
+    headline = { copyId, message: renderCopyDynamic(copyId, { creditStartDate: startDateText }, renderOptions) };
+  } else {
+    headline = { copyId: blockers[0].copyId, message: blockers[0].message };
   }
 
   return {
-    creditEligible: blockers.length === 0,
+    creditEligible,
     blockers,
     warnings,
     onlyBlockedBySandbox: blockers.length === 1 && blockers[0].code === "sandbox_mode",
     headline,
-    ineligibleReason: headline?.message ?? null,
+    ineligibleReason: creditEligible ? null : headline.message,
     beforeCreditStart,
     creditStartInstant: startInstant.toISOString(),
     paymentMethodClass,

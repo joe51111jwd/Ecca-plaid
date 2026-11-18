@@ -96,6 +96,16 @@ describe("parseSgoListCsv (synthetic data only)", () => {
     ]);
   });
 
+  it("keys names in every script, and refuses names with no letters or digits", () => {
+    const { rows, errors } = parseSgoListCsv(csv("TX,合成奖学金基金,,listed,,", "TX,合成教育基金,,listed,,", "TX,Synthetic Straße Fund,,listed,,", "TX,Synthetic Strasse Fund,,listed,,", "TX,!!!,,listed,,", "TX,???,,listed,,"), "provisional_curated");
+    expect(rows.map((r) => r.line)).toEqual([2, 3, 4]);
+    expect(errors).toEqual([
+      { line: 5, message: "Duplicate of line 4 (same state and name)." },
+      { line: 6, message: "name has no letters or digits." },
+      { line: 7, message: "name has no letters or digits." },
+    ]);
+  });
+
   it("collapses whitespace in names and does not treat formula-looking text specially", () => {
     const { rows } = parseSgoListCsv(csv('TX,"  Spaced    Out   Fund ",12-3456789,listed,,', "TX,=HYPERLINK(1),12-3456780,listed,,"), "provisional_curated");
     expect(rows.map((r) => r.name)).toEqual(["Spaced Out Fund", "=HYPERLINK(1)"]);

@@ -289,8 +289,8 @@ describe("households", () => {
   describe("second adult", () => {
     async function invited() {
       const m = await addMember(householdId, { kind: "adult", firstName: "Luis", lastName: "Peña", relationship: "parent" }, ownerActor);
-      const res = await inviteAdult(householdId, { email: " Second.Adult@Example.com ", memberId: m.id }, ownerActor);
-      return { member: m, ...res, actor: { userId: res.user.id } as HouseholdActor };
+      const { user, isNewUser } = await inviteAdult(householdId, { email: " Second.Adult@Example.com ", memberId: m.id }, ownerActor);
+      return { member: m, user, isNewUser, actor: { userId: user.id } as HouseholdActor };
     }
 
     it("links the sign-in to the member row and sends an invitation in the household's language", async () => {

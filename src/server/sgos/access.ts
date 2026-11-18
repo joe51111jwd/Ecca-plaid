@@ -4,6 +4,7 @@ import type { MemberRole } from "@/db/schema";
 import { forbidden, notFound } from "@/lib/errors";
 import type { AuditActor, AuditRequestInfo } from "@/server/audit";
 import { isPlatformAdmin, roleAtLeast, type Organization } from "@/server/auth";
+import { isSafeId } from "./identity";
 
 /**
  * Who is acting on an SGO.
@@ -58,10 +59,10 @@ export async function authorize(db: DbOrTx, actor: SgoActor, permission: SgoPerm
     if (typeof actor.reason !== "string" || actor.reason.trim() === "") throw forbidden();
     return { platformAdmin: true, role: null };
   }
-  if (typeof actor.userId !== "string" || actor.userId.length === 0) throw forbidden();
+  if (!isSafeId(actor.userId)) throw forbidden();
   const platformAdmin = await isPlatformAdmin(actor.userId, db);
   if (platformAdmin) return { platformAdmin, role: null };
-  if (permission === "platform" || !orgId) throw forbidden();
+  if (permission === "platform" || !isSafeId(orgId)) throw forbidden();
   const [m] = await db
     .select({ role: schema.memberships.role })
     .from(schema.memberships)
@@ -76,7 +77,7 @@ export type SgoProfile = typeof schema.sgoProfiles.$inferSelect;
 
 /** The SGO organization and its profile. `not_found` for a missing org, a non-SGO org or a missing profile. */
 export async function loadSgo(db: DbOrTx, orgId: string, opts: { forUpdate?: boolean } = {}): Promise<{ org: Organization; profile: SgoProfile }> {
-  if (typeof orgId !== "string" || orgId.length === 0) throw notFound("SGO");
+  if (!isSafeId(orgId)) throw notFound("SGO");
   const q = db
     .select({ org: schema.organizations, profile: schema.sgoProfiles })
     .from(schema.sgoProfiles)

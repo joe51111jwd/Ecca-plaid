@@ -69,7 +69,6 @@ export function readLetterDate(
   const d = readLabeledDate(ctx.doc, label, refs);
   // A document that can never be accepted does not need a reviewer just because its date is unreadable.
   const problem = (code: "date_missing" | "date_ambiguous", message: string) => (required ? b.review(code, message) : b.warn(message));
-  if (required) b.require("letter_date");
   if (!d) {
     problem("date_missing", "The document date could not be found.");
     return;
@@ -84,6 +83,8 @@ export function readLetterDate(
     return;
   }
   b.set("letter_date", d.date, confidence, d.ref);
+  // Required only once read: a missing or ambiguous date already carries its own reason above.
+  if (required) b.require("letter_date");
 }
 
 /** Negative wording that, found anywhere in the evidence region, is recorded as a signal. */

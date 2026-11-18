@@ -38,7 +38,19 @@ export interface PublicSgo {
   website: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
-  list: { status: ListStatus; source: SgoListSource; label: string; listedFrom: string | null; removedOn: string | null };
+  list: {
+    status: ListStatus;
+    source: SgoListSource;
+    label: string;
+    /**
+     * The name and EIN exactly as the list entry carries them. `displayName` is the SGO's own choice; show this next
+     * to it so a donor can check the organization against the list they rely on.
+     */
+    listedName: string;
+    listedEin: string | null;
+    listedFrom: string | null;
+    removedOn: string | null;
+  };
 }
 
 function toPublic(org: { id: string; slug: string }, profile: SgoProfile, list: PublicSgo["list"]): PublicSgo {
@@ -110,7 +122,7 @@ export async function searchSgos(input: SearchSgosInput, dbOrTx?: DbOrTx): Promi
     const keys = [r.profile.displayName, r.profile.legalName, entry.name].filter((v): v is string => Boolean(v)).map(nameKey);
     const matches = qEin ? r.profile.ein === qEin || entry.ein === qEin : q === "" || keys.some((k) => k.includes(q));
     if (!matches) continue;
-    const list = { status: listing.status, source, label: listing.label, listedFrom: listing.listedFrom, removedOn: listing.removedOn };
+    const list = { status: listing.status, source, label: listing.label, listedName: entry.name, listedEin: entry.ein, listedFrom: listing.listedFrom, removedOn: listing.removedOn };
     hits.push({ sgo: toPublic(r.org, r.profile, list), key: keys[0], prefix: q !== "" && keys.some((k) => k.startsWith(q)) });
   }
   hits.sort((a, b) => Number(b.prefix) - Number(a.prefix) || a.key.localeCompare(b.key) || a.sgo.orgId.localeCompare(b.sgo.orgId));
@@ -126,13 +138,21 @@ export async function searchSgos(input: SearchSgosInput, dbOrTx?: DbOrTx): Promi
 export async function getPublicSgo(slug: string, dbOrTx?: DbOrTx): Promise<PublicSgo | null> {
   if (typeof slug !== "string") return null;
   const clean = slug.trim().toLowerCase();
-  if (clean.length === 0 || clean.length > 100) return null;
+  if (!/^[a-z0-9-]{1,100}$/.test(clean)) return null;
   const db = dbOrTx ?? (await getDb());
   const [row] = await candidates(db, { slug: clean });
   if (!row) return null;
   const source = await getActiveListSource(db);
   const entry = (await resolveEntries(db, [row.profile], source)).get(row.profile) ?? null;
   const listing = describeListing(entry, source, now());
-  if (!isGiftableStatus(listing.status) && listing.status !== "removed") return null;
-  return toPublic(row.org, row.profile, { status: listing.status, source, label: listing.label, listedFrom: listing.listedFrom, removedOn: listing.removedOn });
+  if (!entry || (!isGiftableStatus(listing.status) && listing.status !== "removed")) return null;
+  return toPublic(row.org, row.profile, {
+    status: listing.status,
+    source,
+    label: listing.label,
+    listedName: entry.name,
+    listedEin: entry.ein,
+    listedFrom: listing.listedFrom,
+    removedOn: listing.removedOn,
+  });
 }

@@ -16,9 +16,11 @@
  *    birth date or an identity or account number, and removes any text shaped like a Social Security number.
  *  - Geography is the county, the income-limit area and the 5-digit ZIP code: what is needed to check that
  *    the right limit was applied.
- *  - Under the categorical method no income detail is carried. Proposed rules (REG-117199-25, preamble): the
+ *  - A decided verification carries only the detail its method rests on. Under the categorical method income
+ *    detail is left out even when the caller supplies it (proposed rules, REG-117199-25, preamble: the
  *    categorical method is intended to avoid collecting "more sensitive household-income information than is
- *    necessary".
+ *    necessary"); the record says that it was left out. A verification still in review carries whatever
+ *    detail exists, because nothing has been decided yet.
  *
  * VALUES. Every leaf of an `EvidenceRecord` is a string, a safe integer, a boolean or null. There are no
  * floats: money is integer cents, the family-size multiplier is a decimal string, timestamps are ISO 8601
@@ -51,6 +53,12 @@ export type EvidenceDocumentKind = "award_letter" | "tax_return" | "irs_transcri
 export type EvidenceExtractor = "parser" | "model" | "reviewer" | "none";
 export type EvidenceRailKind = "payroll" | "bank" | "transcript";
 export type EvidenceIncomeSource = "document" | "rail" | "self_reported" | "reviewer";
+/**
+ * How a line of income was treated (the vocabulary of `IncomeLine.treatment` in src/engine/income).
+ * `counted`: part of household income. `excluded`: kept for the audit trail, not part of it. `review`: the
+ * sources leave its treatment open, so it is part of the upper bound of household income only.
+ */
+export type EvidenceIncomeTreatment = "counted" | "excluded" | "review";
 /** The closed program list of the proposed categorical method. */
 export type EvidenceProgram = "SNAP" | "TANF" | "WIC" | "SECTION_8" | "SSI";
 export type EvidenceApprovalStatus = "current" | "not_current" | "unclear";
@@ -61,6 +69,10 @@ export type EvidenceActorType = "engine" | "system" | "reviewer" | "user" | "fam
 export interface EvidenceReason {
   code: string;
   message: string;
+  /** Household members the reason is about. */
+  memberIds?: string[] | null;
+  /** Documents or data connections the reason is about. */
+  sourceIds?: string[] | null;
 }
 
 export type EvidenceDecidedByInput =
@@ -70,6 +82,7 @@ export type EvidenceDecidedByInput =
 
 export interface EvidenceDecisionInput {
   status: EvidenceStatus;
+  /** The method the decision rests on. For a verification still in review: the method it is being evaluated under. */
   method: EvidenceMethod;
   reasons: EvidenceReason[];
   /** When the decision (or, for `needs_review`, the routing to review) was made. */
@@ -99,6 +112,8 @@ export interface EvidenceCustodyInput {
   equalTime?: boolean | null;
   thisHouseholdHasHigherIncome?: "yes" | "no" | "unknown" | null;
   notes?: string | null;
+  /** How the facts were resolved (`CustodyDetermination.outcome` in src/engine/decision), when a determination was made. */
+  outcome?: string | null;
 }
 
 export interface EvidenceHouseholdInput {
@@ -185,6 +200,11 @@ export interface EvidenceThresholdInput {
   upperBoundCents: number;
   /** True when every reading gives the same limit. */
   readingsAgree: boolean;
+  /**
+   * The largest reading at the statutory 300 percent. Only differs from `upperBoundCents` under an SGO's
+   * stricter cap. When omitted it is taken from the readings' `statutoryThresholdCents`.
+   */
+  statutoryUpperBoundCents?: number | null;
 }
 
 export interface EvidenceIncomeItemInput {
@@ -195,10 +215,13 @@ export interface EvidenceIncomeItemInput {
   description?: string | null;
   /** Household member the income belongs to. */
   memberId?: string | null;
+  /** The amount this line accounts for, in cents. */
   annualAmountCents: number;
-  /** False for items kept for the audit trail but left out of the total (non-cash or disregarded). */
-  counted: boolean;
-  /** Short reason or citation for counting or not counting the item. */
+  /** How the line was treated. Give this, or `counted` when a yes or no is all the caller has. */
+  treatment?: EvidenceIncomeTreatment | null;
+  /** Shorthand for `treatment`: true is `counted`, false is `excluded`. */
+  counted?: boolean | null;
+  /** Short reason or citation for the treatment. */
   basis?: string | null;
   source: EvidenceIncomeSource;
   /** Required when `source` is `document`; must be the id of an entry in `documents`. */
@@ -207,11 +230,17 @@ export interface EvidenceIncomeItemInput {
   railId?: string | null;
 }
 
+/** Household income for the income year. `HouseholdIncomeResult` from src/engine/income supplies the three figures. */
 export interface EvidenceIncomeInput {
   /** Must equal `decision.incomeYear`. */
   year: number;
-  /** Must equal the sum of the items with `counted: true`. */
+  /** The recorded household income: must equal the sum of the `counted` lines. */
   totalCountedCents: number;
+  /** The least household income can be when a line can be read more than one way. Defaults to `totalCountedCents`. */
+  lowerBoundCents?: number | null;
+  /** The most it can be. Defaults to `totalCountedCents` plus the `review` lines. */
+  upperBoundCents?: number | null;
+  /** One entry per line. An item that is partly counted appears as two lines with the same id. */
   items: EvidenceIncomeItemInput[];
 }
 
@@ -330,9 +359,12 @@ export interface EvidenceInput {
   household: EvidenceHouseholdInput;
   geography: EvidenceGeographyInput;
   threshold: EvidenceThresholdInput;
-  /** Required for the direct method; must be null or omitted for the categorical method. */
+  /**
+   * Required for a decided direct verification. For a decided categorical verification it is left out of the
+   * record (see the data-minimization rule above).
+   */
   income?: EvidenceIncomeInput | null;
-  /** Required for the categorical method; must be null or omitted for the direct method. */
+  /** Required for a decided categorical verification. For a decided direct verification it is left out of the record. */
   categorical?: EvidenceCategoricalInput | null;
   documents: EvidenceDocumentInput[];
   rails: EvidenceRailInput[];
@@ -349,8 +381,11 @@ export interface EvidenceInput {
 
 /* ------------------------------------------------------------------------------------------ record */
 
-/** Which figure a decided verification compared household income with. */
-export type EvidenceReliedOn = "single_limit" | "lower_bound" | "upper_bound" | "none";
+/**
+ * Which figure a decided verification compared household income with. `statutory_limit`: the limit at the
+ * statutory 300 percent, when a reviewer found a household within it although above the SGO's stricter cap.
+ */
+export type EvidenceReliedOn = "single_limit" | "lower_bound" | "upper_bound" | "statutory_limit" | "none";
 
 /** How the direct or categorical method was satisfied. */
 export type EvidenceMethodBasis =
@@ -421,7 +456,7 @@ export interface EvidenceRecordIncomeItem {
   description: string | null;
   member_id: string | null;
   annual_amount_cents: number;
-  counted: boolean;
+  treatment: EvidenceIncomeTreatment;
   basis: string | null;
   source: EvidenceIncomeSource;
   document_id: string | null;
@@ -447,7 +482,7 @@ export interface EvidenceRecord {
     method_citation: string;
     /** The decision in words. The PDF prints this sentence unchanged. */
     summary: string;
-    reasons: EvidenceReason[];
+    reasons: Array<{ code: string; message: string; member_ids: string[]; source_ids: string[] }>;
     application_date: string;
     income_year: number;
     decided_at: string;
@@ -465,6 +500,7 @@ export interface EvidenceRecord {
       equal_time: boolean | null;
       this_household_has_higher_income: "yes" | "no" | "unknown" | null;
       notes: string | null;
+      outcome: string | null;
     } | null;
   };
   geography: {
@@ -493,12 +529,14 @@ export interface EvidenceRecord {
     lower_bound_cents: number;
     upper_bound_cents: number;
     readings_agree: boolean;
+    /** The largest reading at the statutory 300 percent. */
+    statutory_upper_bound_cents: number;
     relied_on: EvidenceReliedOn;
     /** The figure household income was compared with; null when no comparison decided the outcome. */
     relied_on_limit_cents: number | null;
     relied_on_statement: string;
   };
-  income: { year: number; total_counted_cents: number; items: EvidenceRecordIncomeItem[] } | null;
+  income: { year: number; total_counted_cents: number; lower_bound_cents: number; upper_bound_cents: number; items: EvidenceRecordIncomeItem[] } | null;
   categorical: {
     program: EvidenceProgram | null;
     program_label: string | null;
@@ -521,6 +559,8 @@ export interface EvidenceRecord {
     ssn_patterns_removed: number;
     /** Extracted fields dropped because their key names a birth date or an identity or account number. */
     extracted_fields_removed: number;
+    /** True when income detail was supplied for a decided categorical verification and left out. */
+    income_detail_omitted: boolean;
   };
   versions: { engine: string; taxonomy: string; rule_set: string | null };
 }

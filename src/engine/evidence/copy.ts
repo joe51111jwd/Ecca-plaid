@@ -8,6 +8,7 @@ import type {
   EvidenceDocumentKind,
   EvidenceExtractor,
   EvidenceIncomeSource,
+  EvidenceIncomeTreatment,
   EvidenceMemberRole,
   EvidenceMethod,
   EvidenceMethodBasis,
@@ -103,6 +104,27 @@ export const INCOME_SOURCE_LABEL: Readonly<Record<EvidenceIncomeSource, string>>
   reviewer: "Keyed by a reviewer",
 });
 
+export const INCOME_TREATMENT_LABEL: Readonly<Record<EvidenceIncomeTreatment, string>> = Object.freeze({
+  counted: "Counted",
+  excluded: "Not counted",
+  review: "Open: in the upper figure only",
+});
+
+/* Outcomes of the shared-custody rule as the decision engine names them. The proposed rule looks to the
+   household where the student resided longest in the year and, when time is equal, to the one with the
+   higher income (spec, "household intake screens"; docs/reference/sgo-verification-rules.md). */
+const CUSTODY_OUTCOME_LABEL: Readonly<Record<string, string>> = Object.freeze({
+  not_answered: "The shared-custody question has not been answered.",
+  single_household: "The student lives in one household.",
+  this_household_longest: "Under the proposed rules this is the student's household: the student resided here longest during the income year.",
+  this_household_equal_time_higher_income: "Under the proposed rules this is the student's household: time was equal and this household has the higher income.",
+  needs_review: "The shared-custody answers need review.",
+});
+
+export function custodyOutcomeLabel(outcome: string): string | null {
+  return CUSTODY_OUTCOME_LABEL[outcome] ?? null;
+}
+
 export const MEMBER_ROLE_LABEL: Readonly<Record<EvidenceMemberRole, string>> = Object.freeze({
   student: "Student",
   adult: "Adult",
@@ -142,6 +164,32 @@ export function methodCitation(method: EvidenceMethod): string {
 
 /* --------------------------------------------------------------------------- generated sentences */
 
+/** Household income for the income year, as the sentences need it. */
+export interface IncomeFacts {
+  /** The recorded figure: the sum of the counted lines. */
+  countedCents: number;
+  /** The least and the most income can be when a line can be read more than one way. */
+  lowerBoundCents: number;
+  upperBoundCents: number;
+}
+
+export interface LimitFacts {
+  provisional: boolean;
+  capPct: number;
+  lowerBoundCents: number;
+  upperBoundCents: number;
+  readingsAgree: boolean;
+  /** The largest reading at the statutory 300 percent. */
+  statutoryUpperBoundCents: number;
+  /** Label of the reading that gives the lower bound, and of the one that gives the upper bound. */
+  lowerLabel: string;
+  upperLabel: string;
+  reliedOn: EvidenceReliedOn;
+  reliedOnLimitCents: number | null;
+  /** True when an ineligible decision rests on lines whose treatment is open rather than on the recorded figure. */
+  restsOnOpenLines: boolean;
+}
+
 export interface SummaryFacts {
   status: EvidenceStatus;
   method: EvidenceMethod;
@@ -150,15 +198,10 @@ export interface SummaryFacts {
   householdSize: number;
   countyName: string;
   state: string;
-  provisional: boolean;
-  /** Direct method only. */
-  incomeCents: number | null;
-  reliedOn: EvidenceReliedOn;
-  reliedOnLimitCents: number | null;
-  lowerBoundCents: number;
-  upperBoundCents: number;
-  readingsAgree: boolean;
-  /** Categorical method only. */
+  limit: LimitFacts;
+  /** Null when no income detail is carried. */
+  income: IncomeFacts | null;
+  /** Categorical detail, when carried. */
   program: EvidenceProgram | null;
   letterDate: string | null;
   approvalStatus: EvidenceApprovalStatus | null;
@@ -168,93 +211,143 @@ function householdPhrase(facts: SummaryFacts): string {
   return `a household of ${facts.householdSize} in ${facts.countyName}, ${facts.state}`;
 }
 
-function limitNoun(facts: SummaryFacts): string {
-  return facts.provisional ? "provisional income limit" : "income limit";
+function limitNoun(limit: LimitFacts): string {
+  return limit.provisional ? "provisional income limit" : "income limit";
+}
+
+function capLimitText(limit: LimitFacts): string {
+  return limit.readingsAgree ? formatMoney(limit.upperBoundCents) : `${formatMoney(limit.lowerBoundCents)} to ${formatMoney(limit.upperBoundCents)}`;
 }
 
 /** The decision in words. Stored in the record as `decision.summary` and printed unchanged on the PDF cover. */
 export function decisionSummary(facts: SummaryFacts): string {
-  if (facts.method === "categorical") {
-    const program = facts.program ? PROGRAM_LABEL[facts.program] : null;
-    if (facts.status === "eligible") {
-      const dated = facts.letterDate ? ` dated ${formatCalendarDate(facts.letterDate)}` : "";
-      const finding =
-        facts.approvalStatus === "current"
-          ? `Written documentation${dated} shows that an individual in the student's household currently is approved for ${program}.`
-          : `Written documentation${dated} names an individual in the student's household in connection with ${program}. The approval status read from the document was unclear, and a reviewer made the decision; see the review trail.`;
-      return `Eligible: the household income requirement is met under the categorical eligibility verification method of the proposed regulations (${PROPOSED_RULE_ID}), which are not final. ${finding}`;
-    }
-    if (facts.status === "ineligible") {
-      // buildEvidenceRecord refuses this combination before any sentence is written (docs/architecture.md, rule 2).
-      throw invalid("A categorical verification cannot be ineligible: missing or unusable documentation is not evidence of income over the limit");
-    }
-    const submitted = program ? ` for ${program}` : "";
-    return `Needs review: no eligibility decision has been made. Documentation${submitted} was submitted under the categorical eligibility verification method of the proposed regulations (${PROPOSED_RULE_ID}), which are not final. The reasons are listed in this record.`;
-  }
+  const { limit, income } = facts;
+  const rules = `the proposed regulations (${PROPOSED_RULE_ID}), which are not final`;
 
-  const income = formatMoney(facts.incomeCents ?? 0);
   if (facts.status === "needs_review") {
-    const limit = facts.readingsAgree
-      ? `is ${formatMoney(facts.upperBoundCents)}`
-      : `is between ${formatMoney(facts.lowerBoundCents)} and ${formatMoney(facts.upperBoundCents)}, depending on the reading shown in the limit calculation`;
-    return `Needs review: no eligibility decision has been made. Household cash income counted so far for calendar year ${facts.incomeYear} is ${income}. The ${limitNoun(facts)} for ${householdPhrase(facts)} ${limit}. The reasons are listed in this record.`;
+    const parts = ["Needs review: no eligibility decision has been made."];
+    if (facts.method === "categorical") {
+      const submitted = facts.program ? ` for ${PROGRAM_LABEL[facts.program]}` : "";
+      parts.push(`Documentation${submitted} was submitted under the categorical eligibility verification method of ${rules}.`);
+    }
+    if (income !== null) {
+      const range = limit.readingsAgree
+        ? `is ${formatMoney(limit.upperBoundCents)}`
+        : `is between ${formatMoney(limit.lowerBoundCents)} and ${formatMoney(limit.upperBoundCents)}, depending on the reading shown in the limit calculation`;
+      parts.push(`Household cash income counted so far for calendar year ${facts.incomeYear} is ${formatMoney(income.countedCents)}. The ${limitNoun(limit)} for ${householdPhrase(facts)} ${range}.`);
+    } else if (facts.method === "direct") {
+      parts.push(`No household income has been recorded yet for calendar year ${facts.incomeYear}.`);
+    }
+    parts.push("The reasons are listed in this record.");
+    return parts.join(" ");
   }
 
-  const limit = formatMoney(facts.reliedOnLimitCents ?? facts.upperBoundCents);
-  const bound = facts.reliedOn === "lower_bound" ? " (the lower bound of the readings shown in the limit calculation)" : facts.reliedOn === "upper_bound" ? " (the upper bound of the readings shown in the limit calculation)" : "";
-  const by = facts.decidedByReviewer ? " A reviewer made the decision; see the review trail." : "";
-  if (facts.status === "eligible") {
-    return `Eligible: the household income requirement is met. Household cash income counted for calendar year ${facts.incomeYear} is ${income}, which is not greater than the ${limitNoun(facts)} of ${limit}${bound} for ${householdPhrase(facts)}.${by}`;
+  if (facts.method === "categorical") {
+    if (facts.status === "ineligible" || facts.program === null) {
+      // buildEvidenceRecord refuses both before any sentence is written (docs/architecture.md, rule 2).
+      throw invalid("A decided categorical verification is eligible and names its program");
+    }
+    const program = PROGRAM_LABEL[facts.program];
+    const dated = facts.letterDate ? ` dated ${formatCalendarDate(facts.letterDate)}` : "";
+    const finding =
+      facts.approvalStatus === "current"
+        ? `Written documentation${dated} shows that an individual in the student's household currently is approved for ${program}.`
+        : `Written documentation${dated} names an individual in the student's household in connection with ${program}. The approval status read from the document was unclear, and a reviewer made the decision; see the review trail.`;
+    return `Eligible: the household income requirement is met under the categorical eligibility verification method of ${rules}. ${finding}`;
   }
-  return `Not eligible: the household income requirement is not met. Household cash income counted for calendar year ${facts.incomeYear} is ${income}, which is greater than the ${limitNoun(facts)} of ${limit}${bound} for ${householdPhrase(facts)}.${by}`;
+
+  if (income === null) throw invalid("A decided direct verification carries its household income");
+  const counted = formatMoney(income.countedCents);
+  const by = facts.decidedByReviewer ? " A reviewer made the decision; see the review trail." : "";
+  const household = householdPhrase(facts);
+  const bound =
+    limit.reliedOn === "lower_bound"
+      ? " (the lower bound of the readings shown in the limit calculation)"
+      : limit.reliedOn === "upper_bound"
+        ? " (the upper bound of the readings shown in the limit calculation)"
+        : "";
+  const reliedLimit = formatMoney(limit.reliedOnLimitCents ?? limit.upperBoundCents);
+
+  if (facts.status === "eligible") {
+    const lead = `Eligible: the household income requirement is met. Household cash income counted for calendar year ${facts.incomeYear} is ${counted}, which is not greater than the ${limitNoun(limit)} of`;
+    if (limit.reliedOn === "statutory_limit") {
+      return `${lead} ${reliedLimit} at the statutory 300 percent for ${household}. It is greater than the limit at the SGO's stricter cap of ${limit.capPct} percent (${capLimitText(limit)}).${by}`;
+    }
+    return `${lead} ${reliedLimit}${bound} for ${household}.${by}`;
+  }
+
+  const lead = "Not eligible: the household income requirement is not met.";
+  if (limit.restsOnOpenLines) {
+    return `${lead} Household cash income counted for calendar year ${facts.incomeYear} is ${counted}; with the lines whose treatment is open it is as much as ${formatMoney(income.upperBoundCents)}, which is greater than the ${limitNoun(limit)} of ${reliedLimit}${bound} for ${household}.${by}`;
+  }
+  return `${lead} Household cash income counted for calendar year ${facts.incomeYear} is ${counted}, which is greater than the ${limitNoun(limit)} of ${reliedLimit}${bound} for ${household}.${by}`;
 }
 
 export interface ReliedOnFacts {
   status: EvidenceStatus;
   method: EvidenceMethod;
-  incomeCents: number | null;
-  reliedOn: EvidenceReliedOn;
-  lowerBoundCents: number;
-  upperBoundCents: number;
-  readingsAgree: boolean;
-  /** Label of the reading that gives the lower bound, and of the one that gives the upper bound. */
-  lowerLabel: string;
-  upperLabel: string;
+  limit: LimitFacts;
+  income: IncomeFacts | null;
+}
+
+const NOT_COMPARED =
+  "Household income was not compared with the income limit: this verification uses the categorical eligibility verification method. The limit for the household's area and size is recorded for reference.";
+
+function rangeNote(income: IncomeFacts): string {
+  if (income.lowerBoundCents === income.countedCents && income.upperBoundCents === income.countedCents) return "";
+  return ` Lines that can be read more than one way put household income between ${formatMoney(income.lowerBoundCents)} and ${formatMoney(income.upperBoundCents)}.`;
 }
 
 /** Which figure the decision compared income with, stated plainly. Stored as `threshold.relied_on_statement`. */
 export function reliedOnStatement(facts: ReliedOnFacts): string {
-  const lower = formatMoney(facts.lowerBoundCents);
-  const upper = formatMoney(facts.upperBoundCents);
-  if (facts.method === "categorical") {
-    return "Household income was not compared with the income limit: this verification uses the categorical eligibility verification method. The limit for the household's area and size is recorded for reference.";
+  const { limit, income } = facts;
+  const lower = formatMoney(limit.lowerBoundCents);
+  const upper = formatMoney(limit.upperBoundCents);
+
+  if (income === null) {
+    if (facts.method === "categorical") return NOT_COMPARED;
+    return "No eligibility decision has been made, so no limit has been relied on. No household income has been recorded yet.";
   }
-  const income = formatMoney(facts.incomeCents ?? 0);
+  const counted = formatMoney(income.countedCents);
+
   if (facts.status === "needs_review") {
-    if (facts.readingsAgree) {
-      const position = (facts.incomeCents ?? 0) <= facts.upperBoundCents ? "not greater than" : "greater than";
-      return `No eligibility decision has been made, so no limit has been relied on. Household income counted so far is ${income}, which is ${position} the limit of ${upper}.`;
-    }
-    const position =
-      (facts.incomeCents ?? 0) <= facts.lowerBoundCents
+    const position = limit.readingsAgree
+      ? `${income.countedCents <= limit.upperBoundCents ? "not greater than" : "greater than"} the limit of ${upper}`
+      : income.countedCents <= limit.lowerBoundCents
         ? `not greater than the lower bound of ${lower}`
-        : (facts.incomeCents ?? 0) <= facts.upperBoundCents
+        : income.countedCents <= limit.upperBoundCents
           ? `greater than the lower bound of ${lower} and not greater than the upper bound of ${upper}`
           : `greater than the upper bound of ${upper}`;
-    return `No eligibility decision has been made, so no limit has been relied on. Household income counted so far is ${income}, which is ${position}.`;
+    return `No eligibility decision has been made, so no limit has been relied on. Household income counted so far is ${counted}, which is ${position}.${rangeNote(income)}`;
   }
-  if (facts.reliedOn === "single_limit") {
+
+  if (limit.reliedOn === "statutory_limit") {
+    return `The decision relied on the limit at the statutory 300 percent, ${formatMoney(limit.statutoryUpperBoundCents)}. Household income of ${counted} is not greater than it, and is greater than the limit at the SGO's stricter cap of ${limit.capPct} percent (${capLimitText(limit)}).${rangeNote(income)}`;
+  }
+
+  if (limit.restsOnOpenLines) {
+    const figure = limit.readingsAgree ? `the income limit of ${upper}` : `the lower bound, ${lower} (${limit.lowerLabel})`;
+    return `The decision relied on ${figure}. Recorded household income of ${counted} is not greater than it; with the lines whose treatment is open, household income is as much as ${formatMoney(income.upperBoundCents)}, which is greater. The decision rests on those lines.`;
+  }
+
+  if (limit.reliedOn === "single_limit") {
     const relation = facts.status === "eligible" ? "is not greater than" : "is greater than";
-    return `The decision compared household income of ${income} with the income limit of ${upper}. Income ${relation} the limit.`;
+    return `The decision compared household income of ${counted} with the income limit of ${upper}. Income ${relation} the limit.${rangeNote(income)}`;
   }
+
+  const lead = "The readings give different limits.";
   if (facts.status === "eligible") {
-    return facts.reliedOn === "lower_bound"
-      ? `The readings give different limits. The decision relied on the lower bound, ${lower} (${facts.lowerLabel}). Household income of ${income} is not greater than the lower bound, so it is not greater than the limit under any reading shown.`
-      : `The readings give different limits. The decision relied on the upper bound, ${upper} (${facts.upperLabel}). Household income of ${income} is greater than the lower bound of ${lower} (${facts.lowerLabel}) and not greater than the upper bound.`;
+    const body =
+      limit.reliedOn === "lower_bound"
+        ? `The decision relied on the lower bound, ${lower} (${limit.lowerLabel}). Household income of ${counted} is not greater than the lower bound, so it is not greater than the limit under any reading shown.`
+        : `The decision relied on the upper bound, ${upper} (${limit.upperLabel}). Household income of ${counted} is greater than the lower bound of ${lower} (${limit.lowerLabel}) and not greater than the upper bound.`;
+    return `${lead} ${body}${rangeNote(income)}`;
   }
-  return facts.reliedOn === "upper_bound"
-    ? `The readings give different limits. The decision relied on the upper bound, ${upper} (${facts.upperLabel}). Household income of ${income} is greater than the upper bound, so it is greater than the limit under every reading shown.`
-    : `The readings give different limits. The decision relied on the lower bound, ${lower} (${facts.lowerLabel}). Household income of ${income} is greater than the lower bound and not greater than the upper bound of ${upper} (${facts.upperLabel}).`;
+  const body =
+    limit.reliedOn === "upper_bound"
+      ? `The decision relied on the upper bound, ${upper} (${limit.upperLabel}). Household income of ${counted} is greater than the upper bound, so it is greater than the limit under every reading shown.`
+      : `The decision relied on the lower bound, ${lower} (${limit.lowerLabel}). Household income of ${counted} is greater than the lower bound and not greater than the upper bound of ${upper} (${limit.upperLabel}).`;
+  return `${lead} ${body}${rangeNote(income)}`;
 }
 
 /* --------------------------------------------------------------------------------- PDF-only copy */

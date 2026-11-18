@@ -307,7 +307,7 @@ const DEFINITIONS = {
   "field.liability.label": {
     kind: "label",
     audience: "donor",
-    text: "Your own estimate of your federal income tax for the year, before the credits listed below (optional)",
+    text: "Your own estimate of your federal income tax for the year, before your other nonrefundable credits (optional)",
     authority: "product_policy",
     citation: `${BUILD_SPEC}, tax-math panel: "Do not invent the donor's tax liability." [${REF} F30a]`,
   },
@@ -407,7 +407,7 @@ const DEFINITIONS = {
   "note.cap_per_taxpayer": {
     kind: "statement",
     audience: "donor",
-    text: "The federal credit is dollar for dollar on your qualified contributions for the year, up to {cap} per taxpayer per tax year, after any State tax credit reduction and subject to the tax-liability limit described below.",
+    text: "The federal credit is dollar for dollar on your qualified contributions for the year, up to {cap} per taxpayer per tax year, after any State tax credit reduction and subject to the tax-liability limit.",
     authority: "statute",
     citation: `${STATUTE}(a), (b)(1), (b)(2), (f). [${REF} F10, F11, F12; Engineering Implications 10]`,
   },
@@ -449,7 +449,7 @@ const DEFINITIONS = {
   "note.carryforward": {
     kind: "statement",
     audience: "donor",
-    text: "Credit you cannot use because of that limit carries forward for up to {carryforwardYears} tax years and is used oldest first; after that it expires.",
+    text: "Credit you cannot use in a year because of the tax-liability limit carries forward for up to {carryforwardYears} tax years and is used oldest first; after that it expires.",
     authority: "statute",
     citation: `${STATUTE}(f). [${REF} F31, F32]`,
   },
@@ -800,6 +800,13 @@ const DEFINITIONS = {
   },
 
   /* ---------- eligibility findings (why a gift is or is not labeled credit-eligible) ---------- */
+  "eligibility.credit_eligible": {
+    kind: "statement",
+    audience: "donor",
+    text: "This gift meets this checkout's conditions for the credit-eligible path. Whether you can claim the credit, and how much, depends on your own tax return.",
+    authority: "product_policy",
+    citation: `The gates are in ${REF}, Engineering Implications 2; passing them is not a determination that the credit is allowed. [${ACK} E1 item 11]`,
+  },
   "eligibility.sandbox_mode": {
     kind: "statement",
     audience: "donor",

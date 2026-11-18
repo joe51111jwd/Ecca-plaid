@@ -430,7 +430,7 @@ describe("rendered output obeys the same rules", () => {
       currency: "eur",
       liveMode: false,
     });
-    const messages = [...eligibility.blockers.map((blocker) => blocker.message), eligibility.headline?.message ?? ""];
+    const messages = [...eligibility.blockers.map((blocker) => blocker.message), eligibility.headline.message];
     expect(messages.length).toBeGreaterThan(10);
     for (const message of messages) {
       for (const sentence of sentences(message)) {

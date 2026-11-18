@@ -32,16 +32,43 @@ export function inProduction(): boolean {
 }
 
 /**
+ * Latin letters that Unicode decomposition (NFKD) leaves whole, folded to the ASCII a reader would type.
+ * Without this "Straße" and "Søren" would lose those letters and never match "strasse" / "soren".
+ */
+const LATIN_FOLDS: Readonly<Record<string, string>> = {
+  ß: "ss",
+  ẞ: "ss",
+  æ: "ae",
+  Æ: "ae",
+  œ: "oe",
+  Œ: "oe",
+  ø: "o",
+  Ø: "o",
+  đ: "d",
+  Đ: "d",
+  ð: "d",
+  Ð: "d",
+  ł: "l",
+  Ł: "l",
+  þ: "th",
+  Þ: "th",
+  ı: "i",
+};
+const LATIN_FOLD_RE = new RegExp(`[${Object.keys(LATIN_FOLDS).join("")}]`, "g");
+
+/**
  * Case- and diacritic-insensitive comparison key for names: "Niños  de Texas, Inc." → "ninos de texas inc".
- * "&" reads as "and" so "A & B" and "A and B" match.
+ * "&" reads as "and" so "A & B" and "A and B" match. Letters and digits of every script are kept, so names
+ * written in other scripts keep distinct keys; a name with no letters or digits at all has the empty key.
  */
 export function nameKey(value: string): string {
   return value
+    .replace(LATIN_FOLD_RE, (c) => LATIN_FOLDS[c] ?? c)
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -51,6 +78,16 @@ export function cleanText(value: string): string {
 }
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Identifiers that reach a query (organization ids, list entry ids, slugs) are short ASCII tokens. Anything else is
+ * refused before the database sees it: Postgres rejects text containing NUL with an error, not an empty result.
+ */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/;
+
+export function isSafeId(value: unknown): value is string {
+  return typeof value === "string" && SAFE_ID.test(value);
+}
 
 export function hasControlChars(value: string): boolean {
   return CONTROL_CHARS.test(value);

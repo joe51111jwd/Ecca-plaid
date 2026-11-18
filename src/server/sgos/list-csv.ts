@@ -1,6 +1,6 @@
 import { parseCsv } from "@/lib/csv";
 import type { SgoListEntryStatus, SgoListSource } from "@/db/schema";
-import { cleanText, hasControlChars, isIsoDate, listMatchKey, normalizeEin } from "./identity";
+import { cleanText, hasControlChars, isIsoDate, listMatchKey, nameKey, normalizeEin } from "./identity";
 import { normalizeStateCode, type UsStateCode } from "./states";
 
 /**
@@ -14,7 +14,7 @@ import { normalizeStateCode, type UsStateCode } from "./states";
  * - The header names exactly these six columns, each once, in any order. No other columns.
  * - Every data row has exactly six cells. Fields may be quoted (RFC 4180); a field may not contain a line break.
  * - state:       two-letter code of one of the 50 States or DC (case-insensitive).
- * - name:        1–200 characters after trimming; internal whitespace is collapsed.
+ * - name:        1–200 characters after trimming, with at least one letter or digit; internal whitespace is collapsed.
  * - ein:         NN-NNNNNNN or nine digits. Optional for provisional_curated, REQUIRED for irs_published (a State
  *                gives the IRS each listed SGO's EIN: docs/reference/acknowledgment-reporting.md, F54).
  * - status:      "listed" or "removed".
@@ -147,6 +147,8 @@ function validateRow(raw: Record<ListColumn, string>, line: number, source: SgoL
   if (name.length === 0) fail("name is empty.");
   else if (name.length > LIST_CSV_LIMITS.maxNameLength) fail(`name is longer than ${LIST_CSV_LIMITS.maxNameLength} characters.`);
   else if (hasControlChars(raw.name.replace(/\t/g, " "))) fail("name contains control characters.");
+  // A name-keyed row is matched on its letters and digits; a name with none would collide with every other such name.
+  else if (nameKey(name) === "") fail("name has no letters or digits.");
 
   let ein: string | null = null;
   if (raw.ein !== "") {

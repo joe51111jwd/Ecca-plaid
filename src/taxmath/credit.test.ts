@@ -740,6 +740,7 @@ describe("previewCredit: the panel's data", () => {
       "note.proposed_rules_not_final",
       "note.cap_per_taxpayer",
       "note.cap_is_annual_total",
+      "note.state_credit_reduction",
       "note.nonrefundable",
       "note.liability_limit",
       "note.carryforward",
@@ -815,6 +816,7 @@ describe("previewCredit: the panel's data", () => {
       goodsOrServicesReduceContribution: true,
       otherContributionsEntered: false,
       beforeCreditStart: true,
+      nearYearEnd: false,
       liabilityProvided: true,
       creditLimitedByLiability: true,
       carryforwardExpired: true,
@@ -843,6 +845,26 @@ describe("previewCredit: the panel's data", () => {
     expect(demo.flags.beforeCreditStart).toBe(false);
     const explicitNull = single({ asOf: new Date("2026-11-18T12:00:00Z"), creditStartDate: null });
     expect(explicitNull.flags.beforeCreditStart).toBe(true);
+  });
+
+  it("adds the year-end timing notice in the last days of December, until the year has ended in every State", () => {
+    const at = (iso: string) => single({ asOf: new Date(iso) });
+    // December 15 begins in Hawaii at 10:00 UTC.
+    expect(at("2027-12-15T09:59:59Z").flags.nearYearEnd).toBe(false);
+    expect(at("2027-12-15T10:00:00Z").flags.nearYearEnd).toBe(true);
+    expect(at("2027-12-31T23:00:00Z").flags.nearYearEnd).toBe(true);
+    // Already January 1 on the mainland, still December 31 in Hawaii.
+    expect(at("2028-01-01T09:59:59Z").flags.nearYearEnd).toBe(true);
+    expect(at("2028-01-01T10:00:00Z").flags.nearYearEnd).toBe(false);
+    expect(at("2027-06-15T18:00:00Z").flags.nearYearEnd).toBe(false);
+
+    const december = at("2027-12-20T18:00:00Z");
+    expect(december.noteIds.slice(0, 3)).toEqual(["note.preview_not_tax_advice", "note.proposed_rules_not_final", "note.year_end_timing"]);
+    expect(single().noteIds).not.toContain("note.year_end_timing");
+    // Before the credit exists the tax year of a gift does not matter yet.
+    const december2026 = at("2026-12-20T18:00:00Z");
+    expect(december2026.flags).toMatchObject({ beforeCreditStart: true, nearYearEnd: false });
+    expect(december2026.noteIds).not.toContain("note.year_end_timing");
   });
 
   it("shows the lines that reconcile designated amount to credit", () => {

@@ -181,9 +181,27 @@ function list<T extends z.ZodType>(item: T, max: number, what: string) {
 
 /* ---------------------------------------------------------------------------------------- sections */
 
+function optionalIdList() {
+  return z
+    .array(id("an identifier"), { error: "must be a list of identifiers or null" })
+    .max(L.documents, { error: `has more than ${L.documents} entries` })
+    .nullish()
+    .transform((value) => value ?? []);
+}
+
+/** Optional whole number of cents; missing and null both become null. */
+function optionalCents() {
+  return z
+    .int({ error: "must be a whole number of cents or null" })
+    .nullish()
+    .transform((value) => value ?? null);
+}
+
 const reasonSchema = z.object({
   code: text(L.shortText, "the reason code"),
   message: text(L.longText, "the reason in words"),
+  memberIds: optionalIdList(),
+  sourceIds: optionalIdList(),
 });
 
 const decidedBySchema = z.discriminatedUnion(
@@ -231,6 +249,7 @@ const custodySchema = z.object({
   equalTime: optionalBoolean(),
   thisHouseholdHasHigherIncome: optionalEnum(["yes", "no", "unknown"]),
   notes: optionalText(L.longText),
+  outcome: optionalText(L.shortText),
 });
 
 const householdSchema = z.object({
@@ -300,6 +319,11 @@ const thresholdSchema = z.object(
     lowerBoundCents: positiveCents("the smallest reading of the limit"),
     upperBoundCents: positiveCents("the largest reading of the limit"),
     readingsAgree: z.boolean({ error: "is required: whether every reading gives the same limit" }),
+    statutoryUpperBoundCents: z
+      .int({ error: "must be a whole number of cents or null" })
+      .min(1, { error: "must be greater than zero" })
+      .nullish()
+      .transform((value) => value ?? null),
   },
   { error: "is required: the income limit and its source" },
 );
@@ -311,7 +335,8 @@ const incomeItemSchema = z.object({
   description: optionalText(L.longText),
   memberId: optionalId(),
   annualAmountCents: cents("the annual amount"),
-  counted: z.boolean({ error: "is required: whether the item counts toward household income" }),
+  treatment: optionalEnum(["counted", "excluded", "review"]),
+  counted: optionalBoolean(),
   basis: optionalText(L.longText),
   source: requiredEnum(["document", "rail", "self_reported", "reviewer"], "where the income figure comes from"),
   documentId: optionalId(),
@@ -321,6 +346,8 @@ const incomeItemSchema = z.object({
 const incomeSchema = z.object({
   year: z.int({ error: (issue) => (issue.input === undefined ? "is required: the income year" : "must be a calendar year") }),
   totalCountedCents: cents("the total counted household income"),
+  lowerBoundCents: optionalCents(),
+  upperBoundCents: optionalCents(),
   items: list(incomeItemSchema, L.incomeItems, "the income items"),
 });
 
@@ -338,10 +365,7 @@ const extractedFieldSchema = z.object({
   key: text(L.shortText, "the field key"),
   label: text(L.shortText, "the field label"),
   value: optionalText(L.longText),
-  amountCents: z
-    .int({ error: "must be a whole number of cents or null" })
-    .nullish()
-    .transform((value) => value ?? null),
+  amountCents: optionalCents(),
   confidencePct: optionalInt(0, 100, "a whole percent from 0 to 100"),
 });
 

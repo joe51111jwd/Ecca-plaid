@@ -477,6 +477,22 @@ describe("sgos", () => {
       expect((await getListStatus(org.id)).status).toBe("provisional");
     });
 
+    it("audits an IRS-list removal on an SGO whose provisional link carried over to it", async () => {
+      const org = await linkedSgo();
+      // Another SGO with no link: an IRS removal of an EIN it never verified is not its event.
+      const bystander = await createSgo({ name: "Synthetic Bystander", ein: "00-1000002", ownerEmail: "bystander@example.test" }, SYS);
+      await importSgoList({ source: "irs_published", csv: csv("TX,Synthetic Listed Fund,00-1000001,listed,,", "TX,Synthetic Bystander,00-1000002,listed,,"), retrievedAt: RETRIEVED }, SYS);
+      await importSgoList(
+        { source: "irs_published", csv: csv("TX,Synthetic Listed Fund,00-1000001,removed,,2026-12-01", "TX,Synthetic Bystander,00-1000002,removed,,2026-12-01"), retrievedAt: RETRIEVED },
+        SYS,
+      );
+      const { items } = await listAuditLogs({ orgId: org.id, action: "sgo_list.entry_removed" });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ targetId: await entryId("irs_published", "00-1000001") });
+      expect(items[0].metadata).toMatchObject({ source: "irs_published", removedOn: "2026-12-01", linkedEntryId: await entryId("provisional_curated", "00-1000001") });
+      expect((await listAuditLogs({ orgId: bystander.org.id, action: "sgo_list.entry_removed" })).items).toHaveLength(0);
+    });
+
     it("refuses gifts for suspended SGOs and SGOs not accepting donations", async () => {
       const org = await linkedSgo();
       await updateSgoProfile(org.id, { acceptsDonations: false }, ownerActor);
@@ -536,7 +552,15 @@ describe("sgos", () => {
       await setup();
       const all = await searchSgos({ query: "" });
       expect(all.map((s) => s.displayName)).toEqual(["Synthetic Bluebonnet Aid", "Synthetic Niños Scholarship Fund"]);
-      expect(all[0].list).toEqual({ status: "provisional", source: "provisional_curated", label: "On the provisional list — the IRS SGO list has not been published", listedFrom: null, removedOn: null });
+      expect(all[0].list).toEqual({
+        status: "provisional",
+        source: "provisional_curated",
+        label: "On the provisional list — the IRS SGO list has not been published",
+        listedName: "Synthetic Bluebonnet Aid",
+        listedEin: "00-1000002",
+        listedFrom: null,
+        removedOn: null,
+      });
       for (const q of ["removed", "suspended", "paused", "future", "unlisted"]) expect(await searchSgos({ query: q })).toEqual([]);
     });
 
@@ -564,6 +588,17 @@ describe("sgos", () => {
       expect(hits.map((s) => [s.displayName, s.list.status, s.list.label])).toEqual([["Synthetic Bluebonnet Aid", "irs_listed", "On the IRS SGO list as of November 18, 2026"]]);
     });
 
+    it("shows the listed name next to a display name the SGO chose itself", async () => {
+      const made = await setup();
+      await updateSgoProfile(made["Synthetic Bluebonnet Aid"], { displayName: "Synthetic Famous Other Fund" }, SYS);
+      const [hit] = await searchSgos({ query: "famous" });
+      expect(hit.displayName).toBe("Synthetic Famous Other Fund");
+      expect(hit.list).toMatchObject({ listedName: "Synthetic Bluebonnet Aid", listedEin: "00-1000002" });
+      const db = await getDb();
+      const [{ slug }] = await db.select({ slug: schema.organizations.slug }).from(schema.organizations).where(eq(schema.organizations.id, made["Synthetic Bluebonnet Aid"]));
+      expect((await getPublicSgo(slug))?.list).toMatchObject({ listedName: "Synthetic Bluebonnet Aid", listedEin: "00-1000002" });
+    });
+
     it("getPublicSgo shows listed and removed SGOs and hides everything else", async () => {
       const made = await setup();
       const db = await getDb();
@@ -575,6 +610,56 @@ describe("sgos", () => {
       expect(await getPublicSgo("synthetic-unlisted-scholarship-fund")).toBeNull();
       expect(await getPublicSgo("does-not-exist")).toBeNull();
       expect(await getPublicSgo("")).toBeNull();
+    });
+  });
+
+  /* --------------------------------------------------------------------------------- hostile input */
+
+  describe("hostile input never reaches the database as an error", () => {
+    it("treats ids and slugs with NUL or other odd characters as unknown", async () => {
+      const { org } = await createSgo({ name: "Synthetic Fund", ownerEmail: "owner@example.test" }, ownerActor);
+      for (const bad of ["org_\u0000", "org x", "../org", "x".repeat(101), ""]) {
+        expect(await codeOf(getSgoProfile(bad))).toBe("not_found");
+        expect(await codeOf(getSgoPolicy(bad))).toBe("not_found");
+        expect(await codeOf(getListStatus(bad))).toBe("not_found");
+        expect(await codeOf(assertGiftAllowed(bad, new Date()))).toBe("not_found");
+        expect(await codeOf(onboardingChecklist(bad))).toBe("not_found");
+        expect(await codeOf(updateSgoProfile(bad, { city: "Waco" }, ownerActor))).toBe("forbidden");
+        expect(await codeOf(updateSgoPolicy(bad, { incomeCapPct: 200 }, adminActor))).toBe("not_found");
+        expect(await codeOf(linkProfileToListEntry(org.id, bad || "sle\u0000", adminActor))).toBe("not_found");
+      }
+      expect(await codeOf(updateSgoProfile(org.id, { city: "Waco" }, { userId: "usr_\u0000" }))).toBe("forbidden");
+      expect(await codeOf(createSgo({ name: "Synthetic", ownerEmail: "owner@example.test" }, { userId: "usr_\u0000" }))).toBe("forbidden");
+      for (const slug of ["a\u0000b", "a b", "a/b", "%00"]) expect(await getPublicSgo(slug)).toBeNull();
+    });
+
+    it("refuses control characters in the description", async () => {
+      const { org } = await createSgo({ name: "Synthetic Fund", ownerEmail: "owner@example.test" }, ownerActor);
+      const e = await errorOf(updateSgoProfile(org.id, { description: "Synthetic\u0000text" }, ownerActor));
+      expect(e.code).toBe("validation_failed");
+      expect((e.details as { fields: Record<string, string> }).fields.description).toBeDefined();
+      // Line breaks and tabs are ordinary text in a description.
+      expect((await updateSgoProfile(org.id, { description: "Line one\n\tLine two" }, ownerActor)).description).toBe("Line one\n\tLine two");
+    });
+
+    it("refuses a retrieval time that is not a date, and control characters in the source address", async () => {
+      const file = csv("TX,Synthetic A,00-1000001,listed,,");
+      for (const retrievedAt of [null, 0, 1763478000000, true, "", "   ", "not a date"]) {
+        expect(await codeOf(importSgoList({ source: "provisional_curated", csv: file, retrievedAt: retrievedAt as never }, SYS))).toBe("validation_failed");
+      }
+      for (const sourceUrl of ["https://example.test/a\u0000b", "https://example.test/a\nb", "https://exam\tple.test/"]) {
+        expect(await codeOf(importSgoList({ source: "provisional_curated", csv: file, retrievedAt: RETRIEVED, sourceUrl }, SYS))).toBe("validation_failed");
+      }
+      const db = await getDb();
+      expect(await db.select().from(schema.sgoListEntries)).toHaveLength(0);
+      // An ISO string is accepted.
+      expect((await importSgoList({ source: "provisional_curated", csv: file, retrievedAt: "2026-11-18T14:00:00Z" }, SYS)).added).toBe(1);
+    });
+
+    it("keeps name-keyed entries in other scripts apart", async () => {
+      const r = await importProvisional("TX,合成奖学金基金,,listed,,", "TX,合成教育基金,,listed,,");
+      expect(r.added).toBe(2);
+      expect(await importProvisional("TX,合成奖学金基金,,listed,,", "TX,合成教育基金,,listed,,")).toMatchObject({ added: 0, unchanged: 2 });
     });
   });
 });

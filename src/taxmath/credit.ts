@@ -22,15 +22,17 @@ import { invalid } from "@/lib/errors";
 import {
   CARRYFORWARD_YEARS,
   CREDIT_CAP_PER_TAXPAYER_CENTS,
+  DATE_BEGUN_EVERYWHERE_TIME_ZONE,
   FIRST_ELIGIBLE_DATE,
   JOINT_RETURN_MAX_CREDIT_CENTS,
   RULES,
   TAXMATH_VERSION,
+  YEAR_END_NOTICE_START,
   lastCarryforwardYear,
   type RuleId,
 } from "./constants";
 import { COPY, COPY_VERSION, type CopyId } from "./copy";
-import { formatIsoDateLong } from "./dates";
+import { formatIsoDateLong, zonedDateTime } from "./dates";
 import { isBeforeCreditStart } from "./eligibility";
 import { centsSchema, instantSchema, isoDateSchema, parseInput, sumCents, taxYearSchema } from "./validation";
 
@@ -487,6 +489,8 @@ export interface CreditPreviewFlags {
   goodsOrServicesReduceContribution: boolean;
   otherContributionsEntered: boolean;
   beforeCreditStart: boolean;
+  /** The gift would be made in the last days of a year, when the unsettled "when is a gift made" question matters. */
+  nearYearEnd: boolean;
   liabilityProvided: boolean;
   creditLimitedByLiability: boolean;
   carryforwardExpired: boolean;
@@ -700,6 +704,9 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
 
   const creditStartDate = parsed.creditStartDate ?? FIRST_ELIGIBLE_DATE.value;
   const beforeCreditStart = isBeforeCreditStart(parsed.asOf, creditStartDate);
+  // December is over last in the last State time zone, so that zone's calendar decides how long the notice shows.
+  const lastZoneDate = zonedDateTime(parsed.asOf, DATE_BEGUN_EVERYWHERE_TIME_ZONE.value);
+  const nearYearEnd = !beforeCreditStart && lastZoneDate.month === YEAR_END_NOTICE_START.value.month && lastZoneDate.day >= YEAR_END_NOTICE_START.value.day;
   const oneSpouseOnly = joint && contributing === 1;
   const usesSimpleStateCreditForm = parsed.taxpayers.some((t) => (t.expectedStateCreditCents ?? 0) > 0 && (t.nonDesignatedCents ?? 0) > 0);
   const rulesApplied = [...rules];
@@ -713,6 +720,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
     goodsOrServicesReduceContribution: totals.goodsOrServicesValueCents > 0,
     otherContributionsEntered: totals.otherQualifiedContributionsCents > 0,
     beforeCreditStart,
+    nearYearEnd,
     liabilityProvided: liability !== null,
     creditLimitedByLiability: liability?.limitedByLiability ?? false,
     carryforwardExpired: (liability?.expiredCarryforwardCents ?? 0) > 0,
@@ -724,14 +732,15 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
   const note = (id: CopyId, vars: Record<string, string> = {}) => notes.push({ id, vars });
   if (beforeCreditStart) note("note.before_credit_start", { creditStartDate: formatIsoDateLong(creditStartDate) });
   note("note.preview_not_tax_advice");
+  if (nearYearEnd) note("note.year_end_timing");
   note("note.cap_per_taxpayer");
   note("note.cap_is_annual_total");
   if (joint) note("note.joint_each_spouse");
   if (oneSpouseOnly) note("note.one_spouse_only");
   if (flags.overCapDesignation) note("note.over_cap_designation");
   if (flags.goodsOrServicesReduceContribution) note("note.goods_or_services");
+  note("note.state_credit_reduction");
   if (stateCreditEntered) {
-    note("note.state_credit_reduction");
     note("note.state_credit_ordering");
     if (usesSimpleStateCreditForm) note("note.state_credit_assumed_whole_gift");
     if (flags.stateCreditSpilloverEstimated) note("note.state_credit_spillover_estimate");

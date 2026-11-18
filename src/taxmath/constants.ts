@@ -188,7 +188,7 @@ export const FIRST_ELIGIBLE_DATE = rule(
 export const DATE_BEGUN_EVERYWHERE_TIME_ZONE = rule(
   "Pacific/Honolulu",
   "product_policy",
-  `The sources do not say which time zone decides when a contribution is made. A calendar date is treated as reached only once it has begun in every one of the 50 States (midnight Hawaii time, 10:00 UTC), and a payment must be both started and charged after that instant. Used for the credit start date and for an organization's listed-from date. [${REF} F62; Engineering Implications 2, gate 1]`,
+  `The sources do not say which time zone decides when a contribution is made. A calendar date is treated as reached only once it has begun in every one of the 50 States (midnight Hawaii time, 10:00 UTC), and a payment must be both started and charged after that instant. Used for the credit start date, an organization's listed-from date and the year-end notice. [${REF} F62; Engineering Implications 2, gate 1]`,
 );
 
 export const DATE_BEGUN_ANYWHERE_TIME_ZONE = rule(
@@ -201,6 +201,12 @@ export const TAX_YEAR_BASIS = rule(
   "calendar_year_of_charge_in_donor_time_zone",
   "product_policy",
   `The credit is for contributions "made by the taxpayer during the taxable year", but no section 25F source says when a card or bank payment is made or which time zone decides a gift near midnight on December 31. The product uses the calendar year of the charge in the donor's own time zone and flags gifts whose UTC year differs. [${REF} F62; Open Questions 1]`,
+);
+
+export const YEAR_END_NOTICE_START = rule(
+  { month: 12, day: 15 } as const,
+  "product_policy",
+  `The research notes ask for a year-end notice that the tax year of a gift depends on when it is made and that section 25F does not yet spell that out. Showing it from December 15 (by the calendar of the last State time zone) until the year has ended everywhere is this product's choice. [${REF} F62; Engineering Implications 9]`,
 );
 
 /* ------------------------------------------------------------------ checkout gates */
@@ -387,6 +393,7 @@ export const RULES = Object.freeze({
   dateBegunEverywhereTimeZone: DATE_BEGUN_EVERYWHERE_TIME_ZONE,
   dateBegunAnywhereTimeZone: DATE_BEGUN_ANYWHERE_TIME_ZONE,
   taxYearBasis: TAX_YEAR_BASIS,
+  yearEndNoticeStart: YEAR_END_NOTICE_START,
   provisionalListIsNotCreditEligible: PROVISIONAL_LIST_IS_NOT_CREDIT_ELIGIBLE,
   portalRegistrationRequiredForCreditPath: PORTAL_REGISTRATION_REQUIRED_FOR_CREDIT_PATH,
   unauthorizedPublicListingHandling: UNAUTHORIZED_PUBLIC_LISTING_HANDLING,

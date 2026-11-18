@@ -8,7 +8,7 @@ import { audit } from "@/server/audit";
 import { emailAddressSchema, isPlatformAdmin, type Organization } from "@/server/auth";
 import { createOrganization } from "@/server/orgs";
 import { auditContextOf, authorize, isSystemActor, loadSgo, type SgoActor, type SgoProfile } from "./access";
-import { cleanText, hasControlChars, inProduction, isSandboxEin, normalizeEin } from "./identity";
+import { cleanText, hasControlChars, inProduction, isSafeId, isSandboxEin, normalizeEin } from "./identity";
 import { describeListing, type ListStatusResult } from "./list-status";
 import { getActiveListSource, resolveEntry } from "./listing";
 import { normalizeStateCode } from "./states";
@@ -88,7 +88,13 @@ const profilePatchSchema = z
     displayName: nameSchema,
     legalName: optional(lineText(200, "Legal name")),
     ein: optional(einSchema),
-    description: optional(z.string().trim().max(2000, "Description: use at most 2000 characters.")),
+    description: optional(
+      z
+        .string()
+        .refine((v) => !hasControlChars(v.replace(/[\t\r\n]/g, " ")), "Description contains characters that are not allowed.")
+        .transform((v) => v.trim())
+        .pipe(z.string().max(2000, "Description: use at most 2000 characters.")),
+    ),
     website: optional(webUrl({ httpsOnly: false, label: "Website" })),
     city: optional(lineText(100, "City")),
     state: stateSchema,
@@ -194,7 +200,7 @@ export async function createSgo(input: CreateSgoInput, actor: SgoActor, dbOrTx?:
   const db = dbOrTx ?? (await getDb());
 
   if (!isSystemActor(actor)) {
-    if (typeof actor.userId !== "string" || actor.userId.length === 0) throw forbidden();
+    if (!isSafeId(actor.userId)) throw forbidden();
     if (!(await isPlatformAdmin(actor.userId, db))) {
       const [self] = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, actor.userId)).limit(1);
       if (!self) throw forbidden();

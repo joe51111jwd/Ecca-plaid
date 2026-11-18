@@ -215,6 +215,23 @@ export function extractTf0001(ctx: ExtractContext): Extraction {
     return null;
   })();
 
+  if (!startRef && doc.pages.some((p) => /Aviso sobre su caso/i.test(p.text))) {
+    // B11: the Spanish TF0001 wording is not in the sources. Nothing is read; a person reads it.
+    b.review("language_unsupported", "The notice is in Spanish; a person must read it.");
+    return b.build(
+      finishAward(b, {
+        program: null,
+        lookAlikeProgram: null,
+        approvalStatus: "unclear",
+        recipientName: null,
+        householdMembers: [],
+        benefitPeriod: null,
+        caseNumberMasked: null,
+        issuingAgency: agency,
+      }),
+      null,
+    );
+  }
   b.set("page_one_present", startRef !== null, CONF_VERIFIED, startRef);
   if (!startRef) {
     b.signal('the page carrying "Notice about your case:" is not in the upload');

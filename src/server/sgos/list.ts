@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { and, asc, eq, inArray, ne, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, ne, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema, type DbOrTx } from "@/db/client";
 import type { SgoListEntryStatus, SgoListSource } from "@/db/schema";
@@ -10,10 +10,10 @@ import { newId } from "@/lib/ids";
 import { AppError, badRequest, conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import { audit } from "@/server/audit";
 import { auditContextOf, authorize, loadSgo, systemActor, type SgoActor, type SgoProfile } from "./access";
-import { inProduction, isSandboxEin, listMatchKey, nameKey } from "./identity";
+import { hasControlChars, inProduction, isSafeId, isSandboxEin, listMatchKey, nameKey } from "./identity";
 import { LIST_CSV_LIMITS, parseSgoListCsv, type ListCsvError, type ParsedListRow } from "./list-csv";
 import { describeListing, isGiftableStatus, type ListEntry, type ListStatusResult } from "./list-status";
-import { getActiveListSource, resolveEntry } from "./listing";
+import { getActiveListSource, resolveEntries, resolveEntry } from "./listing";
 import { normalizeStateCode, type UsStateCode } from "./states";
 
 const LIST_SOURCES = ["provisional_curated", "irs_published"] as const satisfies readonly SgoListSource[];
@@ -40,6 +40,8 @@ const importInputSchema = z.strictObject({
     .trim()
     .max(2000)
     .refine((v) => {
+      // The URL parser silently drops tabs and line breaks, and Postgres refuses NUL: control characters are refused.
+      if (hasControlChars(v)) return false;
       try {
         const u = new URL(v);
         return u.protocol === "https:" || u.protocol === "http:";
@@ -49,7 +51,8 @@ const importInputSchema = z.strictObject({
     }, "Enter the http(s) address the list was downloaded from.")
     .optional()
     .nullable(),
-  retrievedAt: z.coerce.date(),
+  // A Date or a date-time string only: coercing null, numbers or booleans would quietly mean January 1, 1970.
+  retrievedAt: z.union([z.date(), z.string().trim().min(1).pipe(z.coerce.date())], { error: "Enter when the list was retrieved." }),
 });
 
 export type ImportSgoListInput = z.input<typeof importInputSchema>;
@@ -142,7 +145,7 @@ export async function importSgoList(input: ImportSgoListInput, actor: SgoActor, 
     const push = (list: string[], id: string) => {
       if (list.length < REPORT_ID_LIMIT) list.push(id);
     };
-    const removedEntryIds: Array<{ id: string; removedOn: string | null }> = [];
+    const removedEntryIds: Array<{ id: string; ein: string | null; removedOn: string | null }> = [];
 
     for (const row of parsed.rows) {
       const key = listMatchKey(row.ein, row.name);
@@ -186,7 +189,7 @@ export async function importSgoList(input: ImportSgoListInput, actor: SgoActor, 
       } else if (row.status === "removed" && (current.status !== "removed" || current.removedOn !== row.removedOn)) {
         report.removed++;
         push(report.ids.removed, current.id);
-        removedEntryIds.push({ id: current.id, removedOn: row.removedOn });
+        removedEntryIds.push({ id: current.id, ein: row.ein, removedOn: row.removedOn });
       } else {
         report.updated++;
         push(report.ids.updated, current.id);
@@ -225,14 +228,33 @@ export async function importSgoList(input: ImportSgoListInput, actor: SgoActor, 
     );
 
     if (removedEntryIds.length > 0) {
-      const affected = await tx
-        .select({ orgId: schema.sgoProfiles.orgId, listEntryId: schema.sgoProfiles.listEntryId })
-        .from(schema.sgoProfiles)
-        .where(inArray(schema.sgoProfiles.listEntryId, removedEntryIds.map((r) => r.id)));
-      for (const a of affected) {
-        const removal = removedEntryIds.find((r) => r.id === a.listEntryId);
+      // Every SGO this source's list now represents by a removed entry: those linked to it, and those whose verified
+      // EIN carries a link to another source's entry over to it (see chooseEntry).
+      const removedById = new Map(removedEntryIds.map((r) => [r.id, r]));
+      const removedEins = [...new Set(removedEntryIds.map((r) => r.ein).filter((e): e is string => e !== null))];
+      const p = schema.sgoProfiles;
+      const profiles = await tx
+        .select({ orgId: p.orgId, ein: p.ein, state: p.state, listEntryId: p.listEntryId })
+        .from(p)
+        .where(
+          removedEins.length > 0
+            ? or(inArray(p.listEntryId, [...removedById.keys()]), and(isNotNull(p.listEntryId), inArray(p.ein, removedEins)))
+            : inArray(p.listEntryId, [...removedById.keys()]),
+        )
+        .orderBy(asc(p.orgId));
+      const resolved = await resolveEntries(tx, profiles, source);
+      for (const profile of profiles) {
+        const removal = removedById.get(resolved.get(profile)?.id ?? "");
+        if (!removal) continue;
         await audit(
-          { actor: ctx.actor, orgId: a.orgId, action: "sgo_list.entry_removed", target: { type: "sgo_list_entry", id: a.listEntryId! }, metadata: { source, removedOn: removal?.removedOn ?? null, sha256 }, request: ctx.request },
+          {
+            actor: ctx.actor,
+            orgId: profile.orgId,
+            action: "sgo_list.entry_removed",
+            target: { type: "sgo_list_entry", id: removal.id },
+            metadata: { source, removedOn: removal.removedOn, sha256, linkedEntryId: profile.listEntryId },
+            request: ctx.request,
+          },
           tx,
         );
       }
@@ -277,7 +299,7 @@ export async function linkProfileToListEntry(orgId: string, entryId: string | nu
       return updated;
     }
 
-    if (typeof entryId !== "string" || entryId.length === 0) throw notFound("List entry");
+    if (!isSafeId(entryId)) throw notFound("List entry");
     const [entry] = await tx.select().from(schema.sgoListEntries).where(eq(schema.sgoListEntries.id, entryId)).limit(1);
     if (!entry) throw notFound("List entry");
     if (entry.state !== profile.state) {

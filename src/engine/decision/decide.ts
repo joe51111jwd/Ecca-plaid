@@ -265,7 +265,8 @@ export function decide(rawInput: DecisionInput): Decision {
   if (custody.reason) reasons.push(custody.reason);
 
   /* The application date fixes the income year; a decision made in a later calendar year is not guessed at. */
-  if (yearOf(applicationDate) !== yearOf(today)) {
+  const incomeYearUnconfirmed = yearOf(applicationDate) !== yearOf(today);
+  if (incomeYearUnconfirmed) {
     reviewReasons.push({
       code: "application_date_in_earlier_year",
       message:
@@ -334,6 +335,9 @@ export function decide(rawInput: DecisionInput): Decision {
       }
     } else if (direct.outcome === "over_limit") {
       candidate = { status: "ineligible", method: "direct" };
+    } else if (incomeYearUnconfirmed) {
+      // Which year's documents to ask for is the very thing a reviewer has to confirm first.
+      reviewReasons.push(...direct.reviewReasons);
     } else if (direct.outcome === "incomplete") {
       missing.push(...direct.coverage!.missing);
       reviewReasons.push(...direct.reviewReasons);

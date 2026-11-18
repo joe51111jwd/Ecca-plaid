@@ -34,7 +34,7 @@ import {
  * COPY_VERSION in copy.ts and add the new hash here, so stored donations keep pointing at the words they saw.
  */
 const PUBLISHED_REGISTRY_HASHES: Record<string, string> = {
-  "25f-copy.2026-11-18.v1": "PENDING",
+  "25f-copy.2026-11-18.v1": "a15be8bbc5c8d924ac2e01c772ed752749b674ba81ec2163ebc089eb79066a8a",
 };
 
 const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -288,7 +288,7 @@ describe("renderCopy", () => {
   it("fills constants without being asked", () => {
     expect(renderCopy("line.over_cap")).toBe("Less: amount above the $1,700 limit (no federal credit)");
     expect(renderCopy("note.carryforward")).toBe(
-      "Credit you cannot use because of that limit carries forward for up to five tax years and is used oldest first; after that it expires.",
+      "Credit you cannot use in a year because of the tax-liability limit carries forward for up to five tax years and is used oldest first; after that it expires.",
     );
     expect(renderCopy("note.proposed_rules_not_final")).toBe(
       "Parts of this preview are based on proposed regulations (REG-117199-25) that are not final. The final rules may be different.",
