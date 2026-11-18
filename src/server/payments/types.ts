@@ -94,6 +94,11 @@ export interface ProcessorPaymentDetails extends ProcessorPayment {
   method?: string;
   failureReason?: string;
   canceledAt?: Date;
+  /**
+   * The processor's charge attempt the status belongs to (Stripe: the latest charge, or the charge named by
+   * the payment error). Lets a sync be matched to the same attempt a webhook already reported.
+   */
+  attemptId?: string;
   livemode: boolean;
 }
 

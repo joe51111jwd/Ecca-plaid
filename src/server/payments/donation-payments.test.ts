@@ -9,6 +9,7 @@ import { listJobs } from "@/server/jobs";
 import { setSetting } from "@/server/settings";
 import { useTestDb } from "../../../tests/helpers/db";
 import { cancelPayment, createDonationPayment, getPayment, getPaymentForClient, refundPayment, syncPaymentWithProcessor, type CreateDonationPaymentInput } from "./donation-payments";
+import { applyProcessorEvent } from "./events";
 import { META } from "./metadata";
 import { setProcessorForTests } from "./processor";
 import { confirmSandboxPayment, sandboxPaymentSecret } from "./sandbox";
@@ -435,6 +436,33 @@ describe("donation payments", () => {
       stripe.paymentIntents.retrieve.mockClear();
       expect(await getPaymentForClient(payment.id)).toMatchObject({ status: "succeeded", clientSecret: null });
       expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
+    });
+
+    it("syncs a bank debit that failed after the processing webhook was recorded", async () => {
+      // Regression: the charge's creation time is older than the processing event, so a sync that only
+      // compared timestamps dropped the failure as "stale" and the payment stayed processing for good.
+      const payment = await createDonationPayment(input());
+      const chargeCreated = 1_800_000_000;
+      await applyProcessorEvent({
+        id: "evt_processing_synthetic",
+        processor: "stripe",
+        occurredAt: new Date((chargeCreated + 5) * 1000),
+        livemode: false,
+        connectedAccountId: ACCOUNT,
+        type: "payment.processing",
+        processorPaymentId: "pi_synthetic1",
+        attemptId: "ch_ach_synthetic",
+      });
+      expect((await getPayment(payment.id)).status).toBe("processing");
+
+      Object.assign(stripe.intents.get("pi_synthetic1") as Record<string, unknown>, {
+        status: "requires_payment_method",
+        latest_charge: { id: "ch_ach_synthetic", object: "charge", created: chargeCreated, payment_method_details: { type: "us_bank_account" } },
+        last_payment_error: { type: "invalid_request_error", code: "payment_method_microdeposit_failed", charge: "ch_ach_synthetic", message: "internal detail" },
+      });
+      const synced = await syncPaymentWithProcessor(payment.id, { checkoutSessionId });
+      expect(synced.status).toBe("failed");
+      expect(synced.failureReason).not.toContain("internal detail");
     });
 
     it("does not cancel a payment the donor has just paid; it records the payment instead", async () => {

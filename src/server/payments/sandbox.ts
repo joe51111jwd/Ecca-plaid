@@ -110,6 +110,7 @@ function details(row: PaymentRow): ProcessorPaymentDetails {
     chargedAt: meta.chargeCreatedAt ?? undefined,
     method: row.method ?? undefined,
     failureReason: row.failureReason ?? undefined,
+    attemptId: meta.attemptId ?? undefined,
     livemode: false,
   };
 }

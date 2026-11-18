@@ -278,6 +278,7 @@ export class StripeProcessor implements PaymentProcessor {
       method: charge?.payment_method_details?.type,
       failureReason: status === "failed" ? failureMessage(intent.last_payment_error) : undefined,
       canceledAt: intent.canceled_at ? toDate(intent.canceled_at) : undefined,
+      attemptId: (status === "failed" ? intent.last_payment_error?.charge : undefined) ?? idOf(intent.latest_charge),
       livemode: intent.livemode,
     };
   }
