@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema, type DbOrTx } from "@/db/client";
-import { now } from "@/lib/clock";
+import { addMs, now } from "@/lib/clock";
 import { AppError, isAppError } from "@/lib/errors";
 import { markAcknowledgmentStale } from "@/server/acknowledgments";
 import { audit, SYSTEM_ACTOR } from "@/server/audit";
@@ -14,6 +14,7 @@ import { getSetting } from "@/server/settings";
 import { assertGiftAllowed, getListStatus, getSgoProfile, type GiftListSnapshot } from "@/server/sgos";
 import { assessCreditEligibility, determineTaxYear, type FeeStructure, type GiftLines } from "@/taxmath";
 import { toApiDonation } from "./api";
+import { CHECKOUT_IDLE_TTL_MS } from "./policy";
 import { buildReceiptEmail } from "./receipt";
 import { recomputeTotalsFor, type YearKey } from "./totals";
 import { eligibilitySgoInput, type CheckoutListContext } from "./view";
@@ -107,7 +108,7 @@ async function applySucceeded(tx: DbOrTx, payment: PaymentSummary, rows: Donatio
   if (!paidAt) throw new AppError("internal", `Payment ${payment.id} is ${payment.status} without a charge time`);
 
   const orgId = todo[0].orgId;
-  const { org, profile } = await getSgoProfile(orgId, tx);
+  const { profile } = await getSgoProfile(orgId, tx);
   const creditStartDate = await getSetting("credit.startDate", tx);
   const { list, snapshot } = await listAtCharge(orgId, paidAt, tx);
   const [session] = await tx.select().from(checkoutSessions).where(eq(checkoutSessions.id, todo[0].checkoutSessionId)).for("update");
@@ -192,7 +193,7 @@ async function applySucceeded(tx: DbOrTx, payment: PaymentSummary, rows: Donatio
   let receiptEmailId: string | null = null;
   if (to && done.length === 0) {
     const email = await queueEmail({ to, subject: receipt.subject, template: "donation_receipt", html: receipt.html, text: receipt.text, related: { type: "payment", id: payment.id } }, tx);
-    await enqueue("email.send", { emailId: email.id }, { dedupeKey: `email.send:${email.id}` }, tx);
+    await enqueue("email.send", { emailId: email.id }, { dedupeKey: `email:${email.id}` }, tx);
     receiptEmailId = email.id;
   }
 
@@ -221,7 +222,6 @@ async function applySucceeded(tx: DbOrTx, payment: PaymentSummary, rows: Donatio
   if (session && session.paymentId === payment.id && session.status !== "completed") {
     await tx.update(checkoutSessions).set({ status: "completed", completedAt: at }).where(eq(checkoutSessions.id, session.id));
   }
-  void org;
   return result;
 }
 
@@ -266,6 +266,6 @@ async function applyUnpaid(tx: DbOrTx, payment: PaymentSummary, rows: DonationRo
   // Reopen the checkout for another attempt, but only if this payment is still the checkout's current one.
   const [session] = await tx.select().from(checkoutSessions).where(eq(checkoutSessions.id, rows[0].checkoutSessionId)).for("update");
   if (session && session.paymentId === payment.id && session.status === "awaiting_payment") {
-    await tx.update(checkoutSessions).set({ status: "open", lastActivityAt: at }).where(eq(checkoutSessions.id, session.id));
+    await tx.update(checkoutSessions).set({ status: "open", lastActivityAt: at, expiresAt: addMs(at, CHECKOUT_IDLE_TTL_MS) }).where(eq(checkoutSessions.id, session.id));
   }
 }

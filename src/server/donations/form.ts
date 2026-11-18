@@ -215,7 +215,8 @@ function mergeFlat<T extends object>(base: T | undefined | null, patch: Partial<
 function mergeContributor(base: ContributorForm | undefined, patch: ContributorInput | null | undefined): ContributorForm | undefined {
   if (patch === undefined) return base;
   if (patch === null) return undefined;
-  const { eDeliveryConsent: _consent, ...rest } = patch;
+  const rest: Partial<ContributorInput> = { ...patch };
+  delete rest.eDeliveryConsent;
   return mergeFlat<ContributorForm>(base, rest);
 }
 
@@ -292,7 +293,10 @@ export function applyConfirmations(form: CheckoutForm, c: Confirmations): Checko
     } else {
       delete current.eDeliveryConsentTextSha256;
     }
-    out.contributors = { ...out.contributors, [key]: current };
+    const next = { ...out.contributors };
+    if (Object.keys(current).length > 0) next[key] = current;
+    else delete next[key];
+    out.contributors = next;
   }
   return stripEmpty({ ...out, contributors: out.contributors && Object.keys(out.contributors).length > 0 ? out.contributors : undefined });
 }

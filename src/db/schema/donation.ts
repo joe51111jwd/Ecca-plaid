@@ -152,6 +152,8 @@ export const donations = pgTable(
     donorServiceFeeCents: bigint("donor_service_fee_cents", { mode: "number" }).notNull().default(0),
     goodsOrServicesProvided: boolean("goods_or_services_provided").notNull().default(false),
     goodsOrServicesValueCents: bigint("goods_or_services_value_cents", { mode: "number" }).notNull().default(0),
+    /** Description of any goods or services provided (acknowledgment element (E)); required whenever goodsOrServicesProvided. */
+    goodsOrServicesDescription: text("goods_or_services_description"),
     status: text("status").$type<"pending" | "succeeded" | "failed" | "canceled" | "refunded">().notNull().default("pending"),
     /** Charge time (copied from the payment); decides taxYear. */
     contributedAt: ts("contributed_at"),
@@ -286,9 +288,25 @@ export const donorNumbers = pgTable(
     source: text("source").$type<"irs_portal_entered" | "irs_portal_import" | "sandbox_generated">().notNull(),
     assignedBy: text("assigned_by"),
     assignedAt: ts("assigned_at").notNull().defaultNow(),
+    /** Set when SGO staff replaced an earlier number for the same donor and year (the audit log keeps the history). */
+    replacedAt: ts("replaced_at"),
   },
-  (t) => [uniqueIndex("donor_numbers_uq").on(t.orgId, t.donorId, t.taxYear, t.mode)],
+  (t) => [
+    uniqueIndex("donor_numbers_uq").on(t.orgId, t.donorId, t.taxYear, t.mode),
+    // A number identifies one donor within an SGO and year (acknowledgment-reporting.md E2 item 3-4).
+    uniqueIndex("donor_numbers_number_uq").on(t.orgId, t.taxYear, t.mode, t.number),
+  ],
 );
+
+/** What an acknowledgment version printed about the donor and the gifts (kept so a version can be reproduced exactly). */
+export interface AcknowledgmentSnapshot {
+  sgo: { name: string; legalName: string | null; ein: string; city: string | null; state: string | null };
+  donor: { fullName: string; addressLines: string[] };
+  donorNumber: { number: string; source: "irs_portal_entered" | "irs_portal_import" | "sandbox_generated" };
+  gifts: Array<{ donationId: string; localDate: string; designatedCents: number; nonDesignatedCents: number }>;
+  copyVersion: string;
+  letterCopyVersion: string;
+}
 
 /** The SGO's written acknowledgment to one donor for one tax year (the donor's substantiation; must match what the SGO reports). */
 export const acknowledgments = pgTable(
@@ -312,12 +330,60 @@ export const acknowledgments = pgTable(
     pdfObjectId: text("pdf_object_id").references(() => objects.id),
     delivery: text("delivery").$type<"email" | "paper_required">().notNull().default("email"),
     issuedAt: ts("issued_at"),
+    /** Email: null (the outbox row's status tells delivery). Paper: when SGO staff recorded that it was mailed. */
     deliveredAt: ts("delivered_at"),
     emailId: text("email_id"),
+    /** Every reason the version cannot be issued (blockedReason is the first one's message). */
+    blockers: jsonb("blockers").$type<Array<{ code: string; message: string }>>().notNull().default([]),
+    nonDesignatedCents: bigint("non_designated_cents", { mode: "number" }).notNull().default(0),
+    goodsOrServicesDescription: text("goods_or_services_description"),
+    /** The address the acknowledgment was emailed to (the consented address). */
+    deliveryEmail: text("delivery_email"),
+    deliveryConsentId: text("delivery_consent_id"),
+    /** SHA-256 of the content the version prints (amounts, people, number, gifts, words); equal hashes mean nothing changed. */
+    contentSha256: text("content_sha256"),
+    pdfSha256: text("pdf_sha256"),
+    snapshot: jsonb("snapshot").$type<AcknowledgmentSnapshot>(),
+    issuedBy: text("issued_by"),
+    mailedBy: text("mailed_by"),
+    supersededAt: ts("superseded_at"),
+    supersededById: text("superseded_by_id"),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
-  (t) => [index("acknowledgments_org_idx").on(t.orgId, t.mode, t.taxYear), index("acknowledgments_donor_idx").on(t.donorId)],
+  (t) => [
+    index("acknowledgments_org_idx").on(t.orgId, t.mode, t.taxYear),
+    index("acknowledgments_donor_idx").on(t.donorId),
+    uniqueIndex("acknowledgments_version_uq").on(t.orgId, t.donorId, t.taxYear, t.mode, t.version),
+  ],
 );
+
+/**
+ * Reminder and worklist emails sent to an SGO about one tax year's acknowledgments (due January 31) or IRS report
+ * (due February 28). One row per escalation level, so the daily job never sends the same level twice.
+ */
+export const acknowledgmentNotices = pgTable(
+  "acknowledgment_notices",
+  {
+    orgId: text("org_id").notNull().references(() => organizations.id),
+    mode: text("mode").$type<Mode>().notNull().default("test"),
+    taxYear: integer("tax_year").notNull(),
+    kind: text("kind").$type<"acknowledgments" | "irs_report">().notNull(),
+    level: text("level").$type<"opening" | "reminder" | "urgent" | "final" | "overdue">().notNull(),
+    sentAt: ts("sent_at").notNull(),
+    emailIds: jsonb("email_ids").$type<string[]>().notNull().default([]),
+    /** The worklist counts the notice reported. */
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.mode, t.taxYear, t.kind, t.level] })],
+);
+
+export interface IrsReportIssue {
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+  donorId?: string;
+}
 
 /** A generated annual information report file for the IRS SGO portal. */
 export const irsReports = pgTable(
@@ -334,9 +400,19 @@ export const irsReports = pgTable(
     generatedBy: text("generated_by"),
     generatedAt: ts("generated_at").notNull().defaultNow(),
     /** Problems that must be fixed before filing (e.g. donors missing a unique donor number). */
-    issues: jsonb("issues").$type<Array<{ code: string; message: string; donorId?: string }>>().notNull().default([]),
+    issues: jsonb("issues").$type<IrsReportIssue[]>().notNull().default([]),
+    /** 1, 2, ... per SGO, mode and year: a correction is a new version. */
+    version: integer("version").notNull().default(1),
+    filename: text("filename"),
+    /** Sum of the latest issued acknowledgments for the year, and the per-donor comparison with the report. */
+    acknowledgedTotalCents: bigint("acknowledged_total_cents", { mode: "number" }).notNull().default(0),
+    consistency: jsonb("consistency").$type<Record<string, unknown>>().notNull().default({}),
+    /** Recorded by SGO staff after entering the report in the IRS SGO portal. */
+    submittedOn: text("submitted_on"),
+    submissionReference: text("submission_reference"),
+    submittedBy: text("submitted_by"),
   },
-  (t) => [index("irs_reports_org_idx").on(t.orgId, t.taxYear)],
+  (t) => [index("irs_reports_org_idx").on(t.orgId, t.taxYear), uniqueIndex("irs_reports_version_uq").on(t.orgId, t.taxYear, t.mode, t.version)],
 );
 
 /** Every fee the platform is owed, on either side of the marketplace. Families never appear here. */

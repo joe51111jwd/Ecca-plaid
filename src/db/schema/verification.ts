@@ -112,6 +112,20 @@ export interface VerificationFlag {
   at: string;
 }
 
+/**
+ * What an SGO reviewer asked the family for (requestMoreInfo). Written by SGO staff for the family; shown on the
+ * family's screens and emailed as written. Cleared when the family submits again.
+ */
+export interface FamilyRequest {
+  message: string;
+  /** Short items, one per thing asked for. */
+  items: string[];
+  /** ISO 8601 UTC timestamp. */
+  requestedAt: string;
+  /** The reviewer's user id. */
+  requestedBy: string;
+}
+
 /** Shared-custody facts needed to apply the proposed household rule. Anything other than a clear answer is flagged for review. */
 export interface CustodyInfo {
   livesInMultipleHouseholds: boolean;
@@ -169,6 +183,17 @@ export const verifications = pgTable(
     passportSourceId: text("passport_source_id"),
     /** When the reused result was decided (denormalized for the API's `passport.source_decided_at`). */
     passportSourceDecidedAt: ts("passport_source_decided_at"),
+    /**
+     * Passport reuse: the earlier verification whose evidence inputs (document references, keyed income lines,
+     * certifications, data-connection reports) were copied onto this one. Kept when the reuse falls back to the
+     * normal flow, so nothing the family already provided is lost; `passportSourceId` is set only when the reused
+     * result stands.
+     */
+    evidenceCopiedFromId: text("evidence_copied_from_id"),
+    /** SHA-256 of the source verification's signed evidence record, cited by this verification's evidence pack. */
+    passportSourceRecordSha256: text("passport_source_record_sha256"),
+    /** An outstanding request from an SGO reviewer to the family (see FamilyRequest); null when none. */
+    familyRequest: jsonb("family_request").$type<FamilyRequest>(),
     studentMemberIds: jsonb("student_member_ids").$type<string[]>().notNull().default([]),
     custody: jsonb("custody").$type<CustodyInfo>(),
 
@@ -214,6 +239,10 @@ export const verifications = pgTable(
     index("verifications_org_status_idx").on(t.orgId, t.status),
     index("verifications_household_idx").on(t.householdId),
     index("verifications_external_ref_idx").on(t.orgId, t.externalRef),
+    // Recurring jobs: expiry of results and unused links, and the abandoned-upload sweep.
+    index("verifications_status_expires_idx").on(t.status, t.expiresAt),
+    index("verifications_status_link_idx").on(t.status, t.familyTokenExpiresAt),
+    index("verifications_status_updated_idx").on(t.status, t.updatedAt),
   ],
 );
 
@@ -269,6 +298,12 @@ export const documents = pgTable(
     /** The family took the document back before a decision. It no longer counts; its bytes are purged, its hash kept. */
     removedAt: ts("removed_at"),
     removedBy: text("removed_by").references(() => users.id),
+    /**
+     * Passport reuse: the document of the earlier verification this row refers to. The row shares that document's
+     * object, hash and extracted fields as evidence; the raw file is never shown to this verification's SGO and this
+     * row never purges it (the source verification's retention governs the bytes).
+     */
+    sourceDocumentId: text("source_document_id"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -314,6 +349,8 @@ export const verificationCertifications = pgTable(
     withdrawnAt: ts("withdrawn_at"),
     ip: text("ip"),
     userAgent: text("user_agent"),
+    /** Passport reuse: the statement on the earlier verification this row carries over (words, signer and time unchanged). */
+    sourceCertificationId: text("source_certification_id"),
   },
   (t) => [index("verification_certifications_ver_idx").on(t.verificationId)],
 );
@@ -385,6 +422,9 @@ export const reviewTasks = pgTable(
     status: text("status").$type<"open" | "resolved">().notNull().default("open"),
     reasons: jsonb("reasons").$type<Array<{ code: string; message: string }>>().notNull().default([]),
     assignedTo: text("assigned_to").references(() => users.id),
+    assignedAt: ts("assigned_at"),
+    /** Set while the reviewer is waiting on the family (requestMoreInfo); cleared when the family submits again. */
+    moreInfoRequestedAt: ts("more_info_requested_at"),
     resolution: text("resolution").$type<"eligible" | "ineligible" | "request_more_info" | "canceled">(),
     resolutionNotes: text("resolution_notes"),
     resolvedBy: text("resolved_by").references(() => users.id),

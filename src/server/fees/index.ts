@@ -160,6 +160,13 @@ export async function voidDonationFees(donationIds: readonly string[], reason: s
 
 /* ------------------------------------------------------------------ reads */
 
+/** The fee rows of the given donations, oldest first. Callers scope the donation ids to an organization first. */
+export async function listFeesForDonations(donationIds: readonly string[], dbOrTx?: DbOrTx): Promise<FeeLedgerRow[]> {
+  if (donationIds.length === 0) return [];
+  const db = dbOrTx ?? (await getDb());
+  return db.select().from(feeLedger).where(inArray(feeLedger.donationId, [...donationIds])).orderBy(feeLedger.createdAt, feeLedger.id);
+}
+
 export interface ListFeeLedgerParams {
   mode: Mode;
   kind?: FeeKind;

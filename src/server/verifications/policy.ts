@@ -89,3 +89,57 @@ export const FAMILY_EDITABLE_STAGES: ReadonlySet<VerificationStage> = new Set(["
 /** Statuses that end a verification. */
 export const CLOSED_STATUSES: ReadonlySet<VerificationStatus> = new Set(["expired", "canceled"]);
 export const DECIDED_STATUSES: ReadonlySet<VerificationStatus> = new Set(["eligible", "ineligible"]);
+
+/* ------------------------------------------------------------------------------------------- review */
+
+/**
+ * Minimum SGO role for each kind of review access. The sharing consent tells the family that "if a person at
+ * {organization} needs to review your case, they can also see the documents you uploaded", so raw files and
+ * every change to the file are for reviewers; the detail page (names, extracted fields, decision) is for any
+ * staff member. API keys get neither: the API surface carries no names, documents or extracted values.
+ */
+export const REVIEW_ACCESS = Object.freeze({
+  detail: "viewer",
+  viewDocument: "reviewer",
+  act: "reviewer",
+} as const);
+
+export const REVIEW_QUEUE_LIMIT_DEFAULT = 25;
+export const REVIEW_QUEUE_LIMIT_MAX = 100;
+
+/** Limits on what a reviewer may send the family with requestMoreInfo. */
+export const FAMILY_REQUEST_LIMITS = Object.freeze({
+  maxMessageLength: 2000,
+  maxItems: 20,
+  maxItemLength: 300,
+});
+
+/** Upper bound for one reviewer-keyed income line: a sanity bound on input, not a rule from the sources. */
+export const MAX_REVIEWER_INCOME_CENTS = 100_000_000_000;
+
+/* ------------------------------------------------------------------------------------- retention */
+
+/**
+ * Uploads of a verification the family stopped working on before submitting (or after being asked for more and
+ * never answering) are purged this many days after the verification last changed. The rows, hashes and
+ * extracted fields stay; the documents stop counting, so the family uploads again if it comes back. No source
+ * fixes a window: this keeps "no state without a retention rule" (emmy-reference-design.md 4b item 23).
+ */
+export const ABANDONED_UPLOAD_RETENTION_DAYS = 60;
+/** Stages that count as abandoned when untouched for ABANDONED_UPLOAD_RETENTION_DAYS (status pending). */
+export const ABANDONABLE_STAGES: readonly VerificationStage[] = ["started", "consented", "household", "collecting", "awaiting_family"];
+
+/* -------------------------------------------------------------------------------------- passport */
+
+/**
+ * A passport reuse shares the earlier result until the last day that result is valid (`decision.validUntil` of
+ * the source), the longest the consents service allows for a reuse.
+ */
+export const PASSPORT_SHARE_UNTIL_POLICY = "source_result_valid_until" as const;
+
+/* --------------------------------------------------------------------------------- notifications */
+
+/** Key in `sgo_profiles.settings` that holds the SGO's verification email preferences. */
+export const SGO_NOTIFICATION_SETTINGS_KEY = "verificationEmails";
+/** Defaults when the SGO has not chosen: reviewers hear about files that need them and about finished decisions. */
+export const SGO_NOTIFICATION_DEFAULTS = Object.freeze({ needsReview: true, decided: true });
