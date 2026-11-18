@@ -1,8 +1,8 @@
 /**
  * PDF text-layer extraction with pdfjs-dist (legacy build, which runs in Node).
  *
- * No worker thread (pdfjs falls back to its in-process "fake worker" in Node), no network (no URL loading,
- * no remote fonts or CMaps), no eval. Encrypted, corrupt and oversized files become a typed
+ * No worker thread (pdfjs falls back to its in-process "fake worker" in Node) and no network (no URL
+ * loading, no remote fonts or CMaps). Encrypted, corrupt and oversized files become a typed
  * `DocumentReadError`. A PDF without a usable text layer (a scan or a photo) is reported as such with
  * `hasTextLayer: false`; nothing is guessed from it.
  */
@@ -155,7 +155,6 @@ export async function extractPdfText(bytes: Uint8Array, opts: ExtractPdfTextOpti
   // pdfjs takes ownership of (and may detach) the buffer it is given, so hand it a copy.
   const task = pdfjs.getDocument({
     data: new Uint8Array(bytes),
-    isEvalSupported: false,
     disableFontFace: true,
     useSystemFonts: false,
     useWorkerFetch: false,
@@ -176,7 +175,7 @@ export async function extractPdfText(bytes: Uint8Array, opts: ExtractPdfTextOpti
         for (let n = 1; n <= pagesRead; n++) {
           const page = await pdf.getPage(n);
           const content = await page.getTextContent();
-          const lines = buildLines(content.items.filter(isRawItem));
+          const lines = buildLines((content.items as unknown[]).filter(isRawItem));
           const text = lines.map((l) => l.text).join("\n");
           if (text.replace(/\s/g, "").length < minChars) pagesWithoutText.push(n);
           pages.push({ number: n, text, lines });
