@@ -112,6 +112,11 @@ Rules that must hold everywhere:
 3. Every decision records the threshold used, its source (`hud_provisional` or `irs_published`), table
    version and effective date. While the table is HUD-derived every surface (API, dashboard, PDF, family
    screen) labels the result **provisional**.
+   The proposed rule can be read two ways while the table is HUD-derived — 300% × area median × family-size
+   multiplier, or 6 × HUD's Section 8 very-low-income limit — and the readings differ in 143 of 254 Texas
+   counties (`docs/reference/sgo-verification-rules.md` F34). An automatic decision is made only where both
+   readings agree: at or below the lower one is eligible, above the higher one is ineligible, in between is
+   `needs_review`. Both figures are recorded and shown.
 4. Verification does not promise an award. An award is a separate, explicit SGO decision (`awards`).
 5. Shared custody is never guessed: unclear answers create a review task.
 
@@ -145,8 +150,19 @@ Rules that must hold everywhere:
 - Three fee structures exist in code (`none`, `sgo_invoiced`, `donor_service_fee`). The active one is a
   platform setting that defaults to `none` and can only be changed by a platform admin recording the
   counsel memo reference. No percentage of a live 25F gift is taken before that.
-- Credit-eligible checkout is held behind the credit start date (January 1, 2027). Before it, sandbox
-  gifts work and are plainly marked as not credit-eligible.
+- Credit-eligible checkout is held behind the credit start date (January 1, 2027) AND the SGO being on the
+  IRS SGO list at the moment of the gift (Texas has only an advance election; its list is due February 15,
+  2027, and a gift to an organization that is not yet listed is not treated as credit-eligible). Before
+  both are true, sandbox gifts work and are plainly marked as not credit-eligible.
+- A donor may designate all or part of a payment as a qualified contribution. The designation is made at
+  the time of payment, recorded with the exact words shown, and is irrevocable: there is no un-designate
+  and no self-serve refund of a designated gift.
+- With Stripe, a designated gift is a direct charge on the SGO's own connected account, so the money never
+  sits in the platform's balance. Other settlement shapes need counsel sign-off first.
+- The official acknowledgment is per donor, per SGO, per calendar year (SGO EIN, total designated, unique
+  donor number, goods-or-services statement and value) and is due by January 31. The immediate email
+  receipt is not the acknowledgment. Unique donor numbers come from the IRS SGO portal; we never invent
+  real ones. Donor SSNs/TINs are not collected.
 - Family-side fees do not exist. The business (camp, school, vendor) is invoiced for the success fee on
   its own account. The fee is never taken from the family and never netted from scholarship funds.
 - Checkout is for individuals only.
