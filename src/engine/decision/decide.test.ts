@@ -744,6 +744,15 @@ describe("decide: open income questions are settled by the bounds or by a person
     }
   });
 
+  it("never finds income over the limit on earned income that names no member", () => {
+    // Regression: $300,000 of attributed wages plus a $30,000 W-2 attributed to nobody used to be "ineligible" in Harris County ($312,000).
+    const unattributed = wageItem(MARIA.id, 3_000_000, { id: "inc_wages_unattributed", memberId: null, documentId: "doc_w2_unattributed" });
+    const decision = run({ sgoPolicy: noBand, direct: directEvidence(15_000_000, 15_000_000, [unattributed]) });
+    expect(decision.status).toBe("needs_review");
+    expect(codes(decision.reviewReasons)).toEqual(["income_range_spans_limit", "earned_income_unattributed"]);
+    expect(decision.income).toMatchObject({ lowerBoundCents: 30_000_000, totalCountedCents: 33_000_000, upperBoundCents: 33_000_000 });
+  });
+
   it("asks whether a member is 18 or older before deciding anything that depends on it", () => {
     const cousin: HouseholdMemberInput = { id: "hm_cousin", firstName: "Luis", kind: "other", ageBand: "unknown" };
     const decision = run({

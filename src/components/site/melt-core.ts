@@ -50,8 +50,8 @@ export interface MeltTimeline {
 export const MELT_TIMELINE: MeltTimeline = {
   scanStart: 0.04,
   scanEnd: 0.4,
-  meltStart: 0.3,
-  meltSpread: 0.34,
+  meltStart: 0.4,
+  meltSpread: 0.26,
   fallDuration: 0.3,
   chipStart: 0.7,
   chipEnd: 0.88,
@@ -264,12 +264,13 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
   const s = Math.trunc(seed);
   // Scrambled glyphs in the hot band re-roll as the page scrolls, not on a timer.
   const scrambleTick = Math.floor(q * 900);
-  const scanSpan = tl.scanEnd - tl.scanStart;
 
   for (let c = 0; c < cols; c++) {
     // Pushed toward the extremes so some stretches of the sheet hold while others have already run.
     const lag = 0.8 * smoothstep(0.15, 0.85, columnNoise(s, c, 7)) + 0.2 * unit(s, c, 3, 0);
-    const colStart = tl.meltStart + tl.meltSpread * lag;
+    // A whole column lets go as one (so its glyphs never overtake each other), and never before the scan
+    // line has left the sheet.
+    const colStart = Math.max(tl.scanEnd + 0.01, tl.meltStart + tl.meltSpread * lag);
     // Columns slide at different speeds (clumped too); a few run noticeably faster.
     const speed = 0.55 + 0.8 * columnNoise(s + 1, c, 3) + 0.6 * Math.pow(unit(s, c, 9, 0), 5);
     // Length of the runs a column sheds as a unit: short runs read as dust, long ones as streaks.
@@ -300,10 +301,7 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
       }
       let tone: number = sample.tone[k];
 
-      // A cell cannot start melting before the scan line has passed it.
-      const scannedAt = tl.scanStart + scanSpan * y;
-      const start = Math.max(colStart, scannedAt + 0.02);
-      const m = clamp01((q - start) / tl.fallDuration);
+      const m = clamp01((q - colStart) / tl.fallDuration);
 
       let drop = 0;
       if (m > 0) {

@@ -23,6 +23,7 @@
  *  - A dependent full-time student aged 18 or older who is not head or spouse: earned income counts only up
  *    to the HUD dependent deduction amount.
  *  - A foster child, foster adult or live-in aide: nothing counts.
+ *  - Earned income attributed to no member: in the recorded figure and the upper bound, not the lower bound.
  * These rules are applied from the member's facts whatever category the item was filed under.
  */
 import { invalid } from "@/lib/errors";
@@ -318,6 +319,16 @@ export function computeHouseholdIncome(input: ComputeHouseholdIncomeInput): Hous
         "minor_head_or_spouse_income",
         "bounded",
         "Earned income is counted for a member under 18 because the member is recorded as head of household or the head's spouse. If that is wrong the income does not count, so the lower bound of household income leaves it out.",
+      );
+    }
+    if (member === null && category.earned) {
+      // Whose earnings these are decides whether they count at all (a child's earnings do not), so an
+      // unattributed amount cannot help show that income is over the limit.
+      lowCents = Math.min(lowCents, 0);
+      flag(
+        "earned_income_unattributed",
+        "bounded",
+        "Earned income is recorded without saying which household member earned it. Earned income of a child under 18 does not count, so the lower bound of household income leaves it out until the item is attributed.",
       );
     }
     if (member && member.role === "unrelated") {

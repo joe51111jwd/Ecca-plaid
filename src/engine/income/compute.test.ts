@@ -290,6 +290,13 @@ describe("computeHouseholdIncome", () => {
     });
   });
 
+  it("keeps earned income that names no member out of the lower bound (it could be a child's, which does not count)", () => {
+    // Regression: an unattributed wage line used to count in full in the lower bound and could alone make a household "over the limit".
+    const result = compute([item({ category: "wages_salary", annualAmountCents: 2_500_000, memberId: null }), item({ category: "interest_dividends", annualAmountCents: 10_000, memberId: null })]);
+    expect([result.lowerBoundCents, result.totalCountedCents, result.upperBoundCents]).toEqual([10_000, 2_510_000, 2_510_000]);
+    expect(result.reviewFlags).toEqual([expect.objectContaining({ code: "earned_income_unattributed", severity: "bounded", memberIds: [] })]);
+  });
+
   it("reports per-member figures in roster order, then unattributed items", () => {
     const result = compute([
       item({ category: "interest_dividends", annualAmountCents: 10_000, memberId: null }),

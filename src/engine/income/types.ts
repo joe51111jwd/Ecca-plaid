@@ -136,6 +136,7 @@ export const INCOME_FLAG_CODES = [
   "minor_head_or_spouse_income",
   "member_age_unknown",
   "unrelated_member_income",
+  "earned_income_unattributed",
   "income_figures_conflict",
   "pay_stub_projection_only",
   "wages_from_pay_stub_only",
