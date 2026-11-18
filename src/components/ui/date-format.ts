@@ -9,12 +9,16 @@ export interface DateTimeOptions {
 }
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATE_ONLY_SHAPE = /^\d{4}-\d{1,2}-\d{1,2}$/;
 const LOCALE_TAG = { en: "en-US", es: "es-US" } as const;
 export const DEFAULT_TIME_ZONE = "America/Chicago";
 
 /** Parses a Date, epoch milliseconds or ISO string. Returns null for anything that is not a real instant. */
 export function toDate(value: Date | string | number | null | undefined): Date | null {
   if (value === null || value === undefined || value === "") return null;
+  // "2026-02-30" must not be rolled forward into March by the Date parser: a date-shaped string is either a
+  // real calendar date (handled as date-only by the formatters) or it is invalid.
+  if (typeof value === "string" && DATE_ONLY_SHAPE.test(value) && !isDateOnly(value)) return null;
   const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }

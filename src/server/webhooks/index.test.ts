@@ -147,6 +147,13 @@ describe("webhook endpoints", () => {
       await deleteEndpoint(orgA, first.id);
       await expect(createEndpoint({ orgId: orgA, url: URL_A })).resolves.toBeTruthy();
     });
+
+    it("enforces the endpoint cap under concurrent creation", async () => {
+      const results = await Promise.allSettled(Array.from({ length: MAX_ENDPOINTS_PER_ORG + 5 }, (_, i) => createEndpoint({ orgId: orgA, url: `${URL_A}/${i}` })));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(MAX_ENDPOINTS_PER_ORG);
+      expect(results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason)).toEqual(Array(5).fill(expect.objectContaining({ code: "conflict" })));
+      expect(await listEndpoints(orgA)).toHaveLength(MAX_ENDPOINTS_PER_ORG);
+    });
   });
 
   describe("tenant scoping", () => {

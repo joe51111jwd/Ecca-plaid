@@ -58,6 +58,9 @@ export const SECRET_ROTATION_OVERLAP_MS = 24 * MS.hour;
 
 const MAX_DESCRIPTION_LENGTH = 500;
 
+/** First half of the two-int advisory lock key ("WHEP") guarding the per-organization endpoint cap. */
+const ENDPOINT_CAP_LOCK_NAMESPACE = 0x57484550;
+
 /* Types -------------------------------------------------------------------------------------------- */
 
 type EndpointRow = typeof endpoints.$inferSelect;
@@ -167,15 +170,18 @@ export async function createEndpoint(input: CreateEndpointInput): Promise<{ endp
   const data = parse(createInput, input);
   const target = await assertSafeWebhookUrl(data.url, { phase: "register" });
   const db = await getDb();
-  const [{ n }] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(endpoints)
-    .where(eq(endpoints.orgId, data.orgId));
-  if (n >= MAX_ENDPOINTS_PER_ORG) throw conflict(`An organization can have at most ${MAX_ENDPOINTS_PER_ORG} webhook endpoints. Delete one to add another.`);
-
   const secret = generateWebhookSecret();
-  const [row] = await db
-    .insert(endpoints)
+  const row = await db.transaction(async (tx) => {
+    // Serializes creations per organization so concurrent requests cannot together exceed the cap
+    // (a plain count-then-insert lets every racer see the same count).
+    await tx.execute(sql`select pg_advisory_xact_lock(${ENDPOINT_CAP_LOCK_NAMESPACE}::int4, hashtext(${data.orgId}))`);
+    const [{ n }] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(endpoints)
+      .where(eq(endpoints.orgId, data.orgId));
+    if (n >= MAX_ENDPOINTS_PER_ORG) throw conflict(`An organization can have at most ${MAX_ENDPOINTS_PER_ORG} webhook endpoints. Delete one to add another.`);
+    const [inserted] = await tx
+      .insert(endpoints)
     .values({
       id: newSortableId("webhookEndpoint"),
       orgId: data.orgId,
@@ -186,9 +192,11 @@ export async function createEndpoint(input: CreateEndpointInput): Promise<{ endp
       format: data.format,
       status: "active",
       failureCount: 0,
-      createdAt: now(),
-    })
-    .returning();
+        createdAt: now(),
+      })
+      .returning();
+    return inserted;
+  });
   return { endpoint: toEndpoint(row), secret };
 }
 

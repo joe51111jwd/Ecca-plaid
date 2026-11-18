@@ -197,7 +197,7 @@ const householdSchema = z.object({
   id: optionalId(),
   size: z.int({ error: (issue) => (issue.input === undefined ? "is required: the household size" : "must be a whole number of persons") }).min(1, { error: "must be at least 1" }),
   members: list(memberSchema, L.members, "the household roster"),
-  custody: z.union([custodySchema, z.null(), z.undefined()]).transform((value) => value ?? null),
+  custody: custodySchema.nullish().transform((value) => value ?? null),
 });
 
 const geographySchema = z.object({
@@ -389,7 +389,7 @@ const reviewEntrySchema = z.object({
 const timelineEntrySchema = z.object({
   at: timestamp("when the event happened"),
   event: text(L.shortText, "the event"),
-  actor: z.union([actorSchema, z.null(), z.undefined()]).transform((value) => value ?? null),
+  actor: actorSchema.nullish().transform((value) => value ?? null),
   detail: optionalText(L.longText),
 });
 
@@ -427,12 +427,14 @@ export const evidenceInputSchema = z.object(
     household: z.object(householdSchema.shape, { error: "is required: the household" }),
     geography: z.object(geographySchema.shape, { error: "is required: the county and income-limit area" }),
     threshold: thresholdSchema,
-    income: z.union([incomeSchema, z.null(), z.undefined()]).transform((value) => value ?? null),
-    categorical: z.union([categoricalSchema, z.null(), z.undefined()]).transform((value) => value ?? null),
+    income: incomeSchema.nullish().transform((value) => value ?? null),
+    categorical: categoricalSchema.nullish().transform((value) => value ?? null),
     documents: list(documentSchema, L.documents, "the documents"),
     rails: list(railSchema, L.rails, "the data connections"),
     consent: consentSchema,
-    additionalConsents: z.union([list(consentSchema, L.consents, "the additional consents"), z.null(), z.undefined()]).transform((value) => value ?? []),
+    additionalConsents: list(consentSchema, L.consents, "the additional consents")
+      .nullish()
+      .transform((value) => value ?? []),
     reviewTrail: list(reviewEntrySchema, L.reviewEntries, "the review trail"),
     timeline: list(timelineEntrySchema, L.timelineEntries, "the timeline"),
     generatedAt: timestamp("when the pack is generated"),

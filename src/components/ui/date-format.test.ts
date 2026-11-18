@@ -122,3 +122,13 @@ describe("formatFullTimestamp", () => {
     expect(formatFullTimestamp("nope")).toBe("");
   });
 });
+
+describe("impossible date-shaped strings", () => {
+  it("are invalid rather than rolled into the next month", () => {
+    expect(toDate("2026-02-30")).toBeNull();
+    expect(toDate("2026-13-01")).toBeNull();
+    expect(toDate("2026-2-3")).toBeNull();
+    expect(formatDateTime("2026-04-31", "dateLong")).toBe("");
+    expect(formatFullTimestamp("2026-02-30")).toBe("");
+  });
+});

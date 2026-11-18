@@ -235,7 +235,7 @@ export const STATUS_MAP: StatusMap = {
   fee: {
     accrued: { label: "Accrued", tone: "neutral", icon: CalendarClock, description: "Owed, not invoiced yet." },
     invoiced: { label: "Invoiced", tone: "info", icon: Receipt, description: "On an invoice awaiting payment." },
-    paid: { label: "Paid", tone: "success", icon: CircleCheck, description: "Paid." },
+    paid: { label: "Paid", tone: "success", icon: CircleCheck, description: "The fee was paid." },
     waived: { label: "Waived", tone: "neutral", icon: CircleSlash, description: "The platform chose not to charge it." },
     void: { label: "Void", tone: "neutral", icon: Ban, description: "Canceled. Nothing is owed." },
   },
@@ -264,8 +264,8 @@ export const STATUS_MAP: StatusMap = {
   },
   job: {
     queued: { label: "Queued", tone: "neutral", icon: Clock, description: "Waiting to run." },
-    running: { label: "Running", tone: "info", icon: LoaderCircle, description: "In progress." },
-    succeeded: { label: "Succeeded", tone: "success", icon: CircleCheck, description: "Finished." },
+    running: { label: "Running", tone: "info", icon: LoaderCircle, description: "In progress right now." },
+    succeeded: { label: "Succeeded", tone: "success", icon: CircleCheck, description: "Finished without an error." },
     failed: { label: "Retrying", tone: "warning", icon: RefreshCw, description: "The last attempt failed. It will be retried." },
     dead: { label: "Failed", tone: "danger", icon: CircleX, description: "Out of attempts. Needs a person." },
   },
@@ -276,7 +276,7 @@ export const STATUS_MAP: StatusMap = {
   },
   mode: {
     test: { label: "Test mode", labelEs: "Modo de prueba", tone: "caution", icon: FlaskConical, description: "Sandbox data. No money moves and nothing here is a real record." },
-    live: { label: "Live", labelEs: "En vivo", tone: "success", icon: Radio, description: "Real data." },
+    live: { label: "Live", labelEs: "En vivo", tone: "success", icon: Radio, description: "Real records. Actions here affect real people and real money." },
   },
 };
 
