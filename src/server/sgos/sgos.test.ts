@@ -91,10 +91,9 @@ describe("sgos", () => {
     return e.id;
   }
 
-  /** A listed SGO accepting gifts: profile with EIN, provisional entry, platform link. */
+  /** An SGO with an EIN, created by system code (callers link it to a list entry). */
   async function listedSgo(name: string, ein: string, opts: { ownerEmail?: string } = {}) {
-    const { org, profile } = await createSgo({ name, ein, ownerEmail: opts.ownerEmail ?? `owner+${ein}@example.test` }, SYS);
-    return { org, profile, entryId: ein };
+    return createSgo({ name, ein, ownerEmail: opts.ownerEmail ?? `owner+${ein}@example.test` }, SYS);
   }
 
   beforeEach(async () => {

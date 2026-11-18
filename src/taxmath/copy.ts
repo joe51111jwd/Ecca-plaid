@@ -141,12 +141,19 @@ const DEFINITIONS = {
     authority: "temporary_reg",
     citation: `Temp. Treas. Reg. 1.25F-1T(a)(12) (${TD}). [${REF} F45]`,
   },
+  "line.other_qualified_contributions": {
+    kind: "label",
+    audience: "donor",
+    text: "Plus: your other qualified contributions this tax year",
+    authority: "statute",
+    citation: `${STATUTE}(a): the aggregate of qualified contributions made during the taxable year. [${REF} F10]`,
+  },
   "line.qualified_contribution": {
     kind: "label",
     audience: "donor",
-    text: "Qualified contribution",
+    text: "Qualified contributions for the year",
     authority: "temporary_reg",
-    citation: `Temp. Treas. Reg. 1.25F-1T(a)(12) (${TD}). [${REF} F41, F45]`,
+    citation: `Temp. Treas. Reg. 1.25F-1T(a)(12) (${TD}); ${STATUTE}(a). [${REF} F10, F41, F45]`,
   },
   "line.state_credit_reduction": {
     kind: "label",
@@ -168,6 +175,13 @@ const DEFINITIONS = {
     text: "Estimated federal credit, before the tax-liability limit",
     authority: "statute",
     citation: `${STATUTE}(a), (b). [${REF} F10, F11, F12]`,
+  },
+  "line.credit_added_by_this_gift": {
+    kind: "label",
+    audience: "donor",
+    text: "Part of that credit added by this gift",
+    authority: "statute",
+    citation: `${STATUTE}(a), (b)(1): one limit for the year's total. [${REF} F10, F11]`,
   },
   "line.non_designated": {
     kind: "label",
@@ -276,6 +290,20 @@ const DEFINITIONS = {
     authority: "proposed_reg",
     citation: `Prop. Treas. Reg. 1.25F-1 (definition of State credit) and preamble (${NPRM}). [${REF} F22, F24]`,
   },
+  "field.other_contributions.label": {
+    kind: "label",
+    audience: "donor",
+    text: "Other qualified contributions you make this tax year, to any organization (optional)",
+    authority: "statute",
+    citation: `${STATUTE}(a). [${REF} F10]`,
+  },
+  "field.other_contributions.help": {
+    kind: "statement",
+    audience: "donor",
+    text: "Include designated gifts to other organizations and any other designated gifts to this one in the same tax year. They share the same {cap} limit.",
+    authority: "statute",
+    citation: `${STATUTE}(a), (b)(1). [${REF} F10, F11]`,
+  },
   "field.liability.label": {
     kind: "label",
     audience: "donor",
@@ -383,6 +411,20 @@ const DEFINITIONS = {
     authority: "statute",
     citation: `${STATUTE}(a), (b)(1), (b)(2), (f). [${REF} F10, F11, F12; Engineering Implications 10]`,
   },
+  "note.cap_is_annual_total": {
+    kind: "statement",
+    audience: "donor",
+    text: "The {cap} limit applies to the total of your qualified contributions for the tax year, to all organizations combined. This preview counts only the amounts entered here.",
+    authority: "statute",
+    citation: `${STATUTE}(a), (b)(1). [${REF} F10, F11]`,
+  },
+  "note.other_contributions_assumed_no_state_credit": {
+    kind: "statement",
+    audience: "donor",
+    text: "This preview assumes no State tax credit is allowed for the other qualified contributions you entered.",
+    authority: "product_policy",
+    citation: `A simplification of the panel; a State credit for any qualified contribution reduces the federal credit. [${REF} F12, F22]`,
+  },
   "note.nonrefundable": {
     kind: "statement",
     audience: "donor",
@@ -463,7 +505,7 @@ const DEFINITIONS = {
   "note.over_cap_designation": {
     kind: "statement",
     audience: "donor",
-    text: "You are designating more than {cap} for one taxpayer. For a given total gift, a designation above {cap} does not increase that taxpayer's federal credit for any year: under the proposed rules, the amount above the limit is not carried forward. Everything you designate stays designated and is deposited in the organization's section 25F account.",
+    text: "The qualified contributions entered for one taxpayer come to more than {cap} for the year. For a given total gift, designating more than {cap} does not increase that taxpayer's federal credit for any year: under the proposed rules, the amount above the limit is not carried forward. Everything you designate stays designated and is deposited in the organization's section 25F account.",
     authority: "proposed_reg",
     citation: `${STATUTE}(b)(1); preamble and Example 5 of ${NPRM}; derived for a fixed total gift from Prop. Treas. Reg. 1.25F-2(c). [${REF} F34, F43; Engineering Implications 3]`,
   },

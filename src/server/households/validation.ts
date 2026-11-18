@@ -137,7 +137,10 @@ export interface MemberPatch {
 
 function fieldErrors(error: z.ZodError): Record<string, string> {
   const fields: Record<string, string> = {};
-  for (const issue of error.issues) fields[String(issue.path[0] ?? "member")] ??= issue.message;
+  for (const issue of error.issues) {
+    if (issue.code === "unrecognized_keys") for (const key of issue.keys) fields[key] ??= "Not a field of this form.";
+    else fields[String(issue.path[0] ?? "member")] ??= issue.message;
+  }
   return fields;
 }
 

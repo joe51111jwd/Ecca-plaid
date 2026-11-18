@@ -84,7 +84,7 @@ export const DOCUMENT_KIND_LABEL: Readonly<Record<EvidenceDocumentKind, string>>
 });
 
 export const EXTRACTOR_LABEL: Readonly<Record<EvidenceExtractor, string>> = Object.freeze({
-  parser: "Read by document parser",
+  parser: "Read by parser",
   model: "Read by model-assisted extraction",
   reviewer: "Keyed by a reviewer",
   none: "No fields read",

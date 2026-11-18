@@ -38,7 +38,7 @@ export interface ExtractedPdf {
 /** Reads a PDF's text and metadata back with pdf.js, the way a reader application would. */
 export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdf> {
   // pdf.js takes ownership of the buffer it is given, so it gets a copy.
-  const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: false, isEvalSupported: false, verbosity: 0 });
+  const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: false, verbosity: 0 });
   try {
     const document = await task.promise;
     const pages: string[] = [];

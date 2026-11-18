@@ -10,10 +10,10 @@ export const SANDBOX_EXPLANATION = "This is a test payment. Nothing is charged a
 export function SandboxBanner({ children }: { children?: ReactNode }) {
   return (
     <Banner tone="sandbox" className="py-3 text-base">
-      <strong className="text-lg font-bold tracking-wide uppercase" data-testid="sandbox-banner">
+      <strong className="block text-lg font-bold tracking-wide uppercase sm:inline" data-testid="sandbox-banner">
         {SANDBOX_HEADLINE}
       </strong>
-      <span className="ml-3 font-normal">{children ?? SANDBOX_EXPLANATION}</span>
+      <span className="block font-normal sm:ml-3 sm:inline">{children ?? SANDBOX_EXPLANATION}</span>
     </Banner>
   );
 }

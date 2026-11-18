@@ -157,10 +157,6 @@ export interface Column {
 export interface TableOptions {
   /** Draw the header row (and repeat it after a page break). Default true. */
   header?: boolean;
-  /** Shade every second row. Default false. */
-  zebra?: boolean;
-  /** Draw a rule under every row. Default true. */
-  rules?: boolean;
 }
 
 interface PlacedLine {
@@ -209,7 +205,7 @@ export class PdfWriter {
       italic: await doc.embedFont(StandardFonts.HelveticaOblique),
       mono: await doc.embedFont(StandardFonts.Courier),
     };
-    const writer = new PdfWriter(doc, fonts, new PdfTextEncoder(fonts.regular), options.watermark === null ? null : options.watermark);
+    const writer = new PdfWriter(doc, fonts, new PdfTextEncoder(fonts.regular), options.watermark);
     writer.addPage();
     return writer;
   }
@@ -486,7 +482,6 @@ export class PdfWriter {
 
   table(columns: readonly Column[], rows: ReadonlyArray<readonly Cell[]>, options: TableOptions = {}): void {
     const showHeader = options.header ?? true;
-    const rules = options.rules ?? true;
     const headerStyle = STYLE.tableHeader;
     const headerLines = columns.map((column) => this.linesOf(column.header, headerStyle, column.width - 2 * CELL_PAD_X));
     const headerLineHeight = this.lineHeight(headerStyle);
@@ -518,7 +513,7 @@ export class PdfWriter {
     this.ensure((showHeader ? headerHeight : 0) + 30);
     drawHeader();
 
-    rows.forEach((row, rowIndex) => {
+    for (const row of rows) {
       const cells = this.cellLines(columns, row);
       const lineHeight = this.rowLineHeight(cells);
       const lineCount = Math.max(...cells.map((lines) => lines.length));
@@ -536,9 +531,6 @@ export class PdfWriter {
         }
         const count = Math.max(1, Math.min(remaining, fits));
         const height = count * lineHeight + 2 * CELL_PAD_Y;
-        if (options.zebra && rowIndex % 2 === 1) {
-          this.page.drawRectangle({ x: CONTENT_LEFT, y: this.y - height, width: CONTENT_WIDTH, height, color: COLOR.panel });
-        }
         columns.forEach((column, index) => {
           let top = this.y - CELL_PAD_Y;
           for (const line of cells[index].slice(from, from + count)) {
@@ -547,10 +539,10 @@ export class PdfWriter {
           }
         });
         this.y -= height;
-        if (rules) this.page.drawLine({ start: { x: CONTENT_LEFT, y: this.y }, end: { x: CONTENT_RIGHT, y: this.y }, thickness: 0.5, color: COLOR.rule });
+        this.page.drawLine({ start: { x: CONTENT_LEFT, y: this.y }, end: { x: CONTENT_RIGHT, y: this.y }, thickness: 0.5, color: COLOR.rule });
         from += count;
       }
-    });
+    }
     this.y -= 8;
   }
 

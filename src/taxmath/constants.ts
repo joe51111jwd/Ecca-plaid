@@ -33,6 +33,12 @@ export const CREDIT_CAP_PER_TAXPAYER_CENTS = rule(
   `${STATUTE}(b)(1): "The credit allowed under subsection (a) to any taxpayer for any taxable year shall not exceed $1,700." The statute text contains no inflation adjustment. [${REF} F11]`,
 );
 
+export const CREDIT_BASE_IS_ANNUAL_AGGREGATE = rule(
+  true,
+  "statute",
+  `${STATUTE}(a): the credit is "an amount equal to the aggregate amount of qualified contributions made by the taxpayer during the taxable year", so the cap applies to the year's total across every SGO and every gift (Example 3 adds gifts to two organizations). [${REF} F1, F10, F75]`,
+);
+
 export const STATE_CREDIT_REDUCES_CREDIT = rule(
   true,
   "statute",
@@ -354,6 +360,7 @@ export const JOINT_DEFAULT_SPLIT = rule(
 
 export const RULES = Object.freeze({
   creditCapPerTaxpayerCents: CREDIT_CAP_PER_TAXPAYER_CENTS,
+  creditBaseIsAnnualAggregate: CREDIT_BASE_IS_ANNUAL_AGGREGATE,
   stateCreditReducesCredit: STATE_CREDIT_REDUCES_CREDIT,
   stateCreditReductionBeforeCap: STATE_CREDIT_REDUCTION_BEFORE_CAP,
   stateCreditAbsorptionOrder: STATE_CREDIT_ABSORPTION_ORDER,

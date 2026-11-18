@@ -104,11 +104,11 @@ export function SandboxPaymentForm({ paymentId, clientSecret, amountCents, testC
             className="font-mono"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field id={FIELD_IDS.expiry} label={FIELD_LABELS.expiry} hint="Any future date, MM/YY." error={fieldError(state, "expiry")}>
+        <div className="grid grid-cols-2 items-start gap-4">
+          <Field id={FIELD_IDS.expiry} label={FIELD_LABELS.expiry} hint="Any future date" error={fieldError(state, "expiry")}>
             <Input name="sandboxExpiry" value={expiry} onChange={(event) => setExpiry(event.target.value.slice(0, 9))} inputMode="numeric" autoComplete="off" placeholder="MM/YY" className="font-mono" />
           </Field>
-          <Field id={FIELD_IDS.securityCode} label={FIELD_LABELS.securityCode} hint="Any 3 or 4 digits." error={fieldError(state, "securityCode")}>
+          <Field id={FIELD_IDS.securityCode} label={FIELD_LABELS.securityCode} hint="Any 3 digits" error={fieldError(state, "securityCode")}>
             <Input
               name="sandboxSecurityCode"
               value={securityCode}

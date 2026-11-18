@@ -6,6 +6,7 @@
  *
  *   per taxpayer, per tax year
  *     qualified contribution = designated cash - goods or services from the SGO            (F41, F45)
+ *                              + the taxpayer's other qualified contributions that year     (F10)
  *     State credit reduction = State credit left after the non-designated cash absorbs it,
  *                              one State-credit dollar per non-designated dollar            (F23)
  *     credit                 = min(max(qualified contribution - reduction, 0), $1,700)      (F12, F13)
@@ -50,6 +51,11 @@ export interface TaxpayerCreditInput {
   /** Value of goods or services the SGO provides in consideration for the designated amount, in cents. Default 0. */
   goodsOrServicesValueCents?: number;
   /**
+   * Qualified contributions the same taxpayer makes in the same tax year outside this gift (to any SGO,
+   * already net of goods or services), in cents. They share the one annual cap. Default 0.
+   */
+  otherQualifiedContributionsCents?: number;
+  /**
    * Simple form: one State credit, assumed to be allowed for the whole gift (designated and non-designated),
    * so the entire non-designated amount absorbs it first. Default 0. Not together with `stateCredits`.
    */
@@ -65,7 +71,10 @@ export interface TaxpayerCredit {
   designatedCents: number;
   nonDesignatedCents: number;
   goodsOrServicesValueCents: number;
-  /** Designated cash less goods or services, never below zero. */
+  /** This gift's designated cash less goods or services, never below zero. */
+  giftQualifiedContributionCents: number;
+  otherQualifiedContributionsCents: number;
+  /** The taxpayer's qualified contributions for the year: this gift's plus the other ones entered. */
   qualifiedContributionCents: number;
   /** All State credit entered. */
   stateCreditCents: number;
@@ -79,6 +88,8 @@ export interface TaxpayerCredit {
   capCents: number;
   /** The section 25F credit for the year, before the tax-liability limit. */
   creditCents: number;
+  /** The part of `creditCents` that this gift adds on top of what the other contributions would earn alone. */
+  creditAddedByThisGiftCents: number;
   /** Qualified contribution above the cap: no credit, never carried forward; "may be deductible" under section 170 rules. */
   overCapCents: number;
   /** Qualified contribution for which no credit is allowed: `overCapCents + removedByStateCreditCents`. */
@@ -88,7 +99,7 @@ export interface TaxpayerCredit {
   stateCreditReducesCredit: boolean;
   /** A State credit exceeded its non-designated base: the reduction rests on an extrapolation, show it as an estimate. */
   stateCreditSpilloverEstimated: boolean;
-  /** The qualified contribution is above the cap (designating more cannot raise the credit for a fixed gift). */
+  /** The year's qualified contributions are above the cap (designating more cannot raise the credit for a fixed gift). */
   designatedAboveCap: boolean;
   goodsOrServicesExceedDesignated: boolean;
   rulesApplied: RuleId[];
@@ -100,6 +111,7 @@ const taxpayerCreditShape = {
   designatedCents: centsSchema,
   nonDesignatedCents: centsSchema.optional(),
   goodsOrServicesValueCents: centsSchema.optional(),
+  otherQualifiedContributionsCents: centsSchema.optional(),
   expectedStateCreditCents: centsSchema.optional(),
   stateCredits: z.array(stateCreditSchema).max(50, "Too many State credits").optional(),
 };
@@ -110,6 +122,7 @@ function computeParsedTaxpayerCredit(input: TaxpayerCreditInput, path: string): 
   const designatedCents = input.designatedCents;
   const nonDesignatedCents = input.nonDesignatedCents ?? 0;
   const goodsOrServicesValueCents = input.goodsOrServicesValueCents ?? 0;
+  const otherQualifiedContributionsCents = input.otherQualifiedContributionsCents ?? 0;
   const field = (name: string) => (path === "" ? name : `${path}.${name}`);
 
   if (input.stateCredits !== undefined && input.expectedStateCreditCents !== undefined) {
@@ -129,7 +142,9 @@ function computeParsedTaxpayerCredit(input: TaxpayerCreditInput, path: string): 
 
   const rules = new Set<RuleId>(["designationRequiredAtTimeOfContribution", "creditCapPerTaxpayerCents"]);
   if (goodsOrServicesValueCents > 0) rules.add("goodsOrServicesReduceQualifiedContribution");
-  const qualifiedContributionCents = Math.max(0, designatedCents - goodsOrServicesValueCents);
+  if (otherQualifiedContributionsCents > 0) rules.add("creditBaseIsAnnualAggregate");
+  const giftQualifiedContributionCents = Math.max(0, designatedCents - goodsOrServicesValueCents);
+  const qualifiedContributionCents = sumCents(field("otherQualifiedContributionsCents"), giftQualifiedContributionCents, otherQualifiedContributionsCents);
 
   let absorbedCents = 0;
   let reductionCents = 0;
@@ -156,6 +171,8 @@ function computeParsedTaxpayerCredit(input: TaxpayerCreditInput, path: string): 
     designatedCents,
     nonDesignatedCents,
     goodsOrServicesValueCents,
+    giftQualifiedContributionCents,
+    otherQualifiedContributionsCents,
     qualifiedContributionCents,
     stateCreditCents,
     stateCreditAbsorbedByNonQualifiedCents: absorbedCents,
@@ -164,6 +181,7 @@ function computeParsedTaxpayerCredit(input: TaxpayerCreditInput, path: string): 
     qualifiedAfterStateCreditCents,
     capCents,
     creditCents,
+    creditAddedByThisGiftCents: Math.max(0, creditCents - Math.min(otherQualifiedContributionsCents, capCents)),
     overCapCents: qualifiedAfterStateCreditCents - creditCents,
     noCreditAllowedCents: qualifiedContributionCents - creditCents,
     creditWithoutStateCreditCents,
@@ -387,10 +405,12 @@ export interface CreditPreviewInput {
 export type PreviewLineId =
   | "designated"
   | "goods_or_services"
+  | "other_qualified_contributions"
   | "qualified_contribution"
   | "state_credit_reduction"
   | "over_cap"
   | "estimated_credit"
+  | "credit_added_by_this_gift"
   | "non_designated"
   | "state_credit_absorbed"
   | "joint_total_credit"
@@ -404,8 +424,11 @@ export type PreviewLineId =
   | "expiring_unused"
   | "carried_to_next_year";
 
-/** amount: a starting figure; subtraction: taken off the figure above; result: the computed credit; information: shown beside the sum. */
-export type PreviewLineRole = "amount" | "subtraction" | "result" | "information";
+/**
+ * amount: a starting figure; addition and subtraction: applied to the running figure; subtotal: the running
+ * figure so far; result: the computed credit; information: shown beside the sum, not part of it.
+ */
+export type PreviewLineRole = "amount" | "addition" | "subtraction" | "subtotal" | "result" | "information";
 
 export interface PreviewLine {
   id: PreviewLineId;
@@ -435,13 +458,17 @@ export interface CreditPreviewTotals {
   /** Designated plus non-designated cash. */
   giftCents: number;
   goodsOrServicesValueCents: number;
+  otherQualifiedContributionsCents: number;
+  /** Qualified contributions for the year: this gift's plus the other ones entered. */
   qualifiedContributionCents: number;
   stateCreditCents: number;
   removedByStateCreditCents: number;
   overCapCents: number;
   noCreditAllowedCents: number;
-  /** Sum of the taxpayers' credits, before the tax-liability limit. */
+  /** Sum of the taxpayers' credits for the year, before the tax-liability limit. */
   creditCents: number;
+  /** The part of `creditCents` added by this gift. */
+  creditAddedByThisGiftCents: number;
   /** The cap times the number of taxpayers who make a qualified contribution (at least one). */
   applicableCapCents: number;
   /** Federal credit plus State credit entered, before any liability limit. */
@@ -458,6 +485,7 @@ export interface CreditPreviewFlags {
   stateCreditReducesFederal: boolean;
   stateCreditSpilloverEstimated: boolean;
   goodsOrServicesReduceContribution: boolean;
+  otherContributionsEntered: boolean;
   beforeCreditStart: boolean;
   liabilityProvided: boolean;
   creditLimitedByLiability: boolean;
@@ -516,10 +544,12 @@ const HEADING_BY_ROLE: Readonly<Record<TaxpayerRole, CopyId>> = {
 const LINE_COPY: Readonly<Record<PreviewLineId, CopyId>> = {
   designated: "line.designated",
   goods_or_services: "line.goods_or_services",
+  other_qualified_contributions: "line.other_qualified_contributions",
   qualified_contribution: "line.qualified_contribution",
   state_credit_reduction: "line.state_credit_reduction",
   over_cap: "line.over_cap",
   estimated_credit: "line.estimated_credit",
+  credit_added_by_this_gift: "line.credit_added_by_this_gift",
   non_designated: "line.non_designated",
   state_credit_absorbed: "line.state_credit_absorbed",
   joint_total_credit: "line.joint_total_credit",
@@ -538,13 +568,17 @@ const line = (id: PreviewLineId, amountCents: number, role: PreviewLineRole): Pr
 
 function taxpayerLines(credit: TaxpayerCredit): PreviewLine[] {
   const lines: PreviewLine[] = [line("designated", credit.designatedCents, "amount")];
-  if (credit.goodsOrServicesValueCents > 0) {
-    lines.push(line("goods_or_services", credit.goodsOrServicesValueCents, "subtraction"));
-    lines.push(line("qualified_contribution", credit.qualifiedContributionCents, "amount"));
+  // Shown as designated - min(goods or services, designated) so the lines always add up, even when the value exceeds the gift.
+  const goodsOrServicesTakenOffCents = credit.designatedCents - credit.giftQualifiedContributionCents;
+  if (credit.goodsOrServicesValueCents > 0) lines.push(line("goods_or_services", goodsOrServicesTakenOffCents, "subtraction"));
+  if (credit.otherQualifiedContributionsCents > 0) lines.push(line("other_qualified_contributions", credit.otherQualifiedContributionsCents, "addition"));
+  if (credit.goodsOrServicesValueCents > 0 || credit.otherQualifiedContributionsCents > 0) {
+    lines.push(line("qualified_contribution", credit.qualifiedContributionCents, "subtotal"));
   }
   if (credit.stateCreditCents > 0) lines.push(line("state_credit_reduction", credit.removedByStateCreditCents, "subtraction"));
   if (credit.overCapCents > 0) lines.push(line("over_cap", credit.overCapCents, "subtraction"));
   lines.push(line("estimated_credit", credit.creditCents, "result"));
+  if (credit.otherQualifiedContributionsCents > 0) lines.push(line("credit_added_by_this_gift", credit.creditAddedByThisGiftCents, "information"));
   if (credit.nonDesignatedCents > 0) lines.push(line("non_designated", credit.nonDesignatedCents, "information"));
   if (credit.stateCreditAbsorbedByNonQualifiedCents > 0) {
     lines.push(line("state_credit_absorbed", credit.stateCreditAbsorbedByNonQualifiedCents, "information"));
@@ -607,6 +641,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
         designatedCents: taxpayer.designatedCents,
         nonDesignatedCents: taxpayer.nonDesignatedCents,
         goodsOrServicesValueCents: taxpayer.goodsOrServicesValueCents,
+        otherQualifiedContributionsCents: taxpayer.otherQualifiedContributionsCents,
         expectedStateCreditCents: taxpayer.expectedStateCreditCents,
         stateCredits: taxpayer.stateCredits,
       },
@@ -624,6 +659,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
     nonDesignatedCents: sum((t) => t.nonDesignatedCents),
     giftCents: sum((t) => t.designatedCents + t.nonDesignatedCents),
     goodsOrServicesValueCents: sum((t) => t.goodsOrServicesValueCents),
+    otherQualifiedContributionsCents: sum((t) => t.otherQualifiedContributionsCents),
     qualifiedContributionCents: sum((t) => t.qualifiedContributionCents),
     stateCreditCents: sum((t) => t.stateCreditCents),
     removedByStateCreditCents: sum((t) => t.removedByStateCreditCents),
@@ -631,6 +667,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
     noCreditAllowedCents: sum((t) => t.noCreditAllowedCents),
     // Per spouse, then added. Never min(couple total, 2 x cap): one spouse's gift cannot use the other's cap.
     creditCents: sum((t) => t.creditCents),
+    creditAddedByThisGiftCents: sum((t) => t.creditAddedByThisGiftCents),
     applicableCapCents: CREDIT_CAP_PER_TAXPAYER_CENTS.value * Math.max(1, contributing),
     combinedFederalAndStateCreditCents: sum((t) => t.creditCents + t.stateCreditCents),
     donorServiceFeeCents,
@@ -674,6 +711,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
     stateCreditReducesFederal: taxpayers.some((t) => t.stateCreditReducesCredit),
     stateCreditSpilloverEstimated: taxpayers.some((t) => t.stateCreditSpilloverEstimated),
     goodsOrServicesReduceContribution: totals.goodsOrServicesValueCents > 0,
+    otherContributionsEntered: totals.otherQualifiedContributionsCents > 0,
     beforeCreditStart,
     liabilityProvided: liability !== null,
     creditLimitedByLiability: liability?.limitedByLiability ?? false,
@@ -687,6 +725,7 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
   if (beforeCreditStart) note("note.before_credit_start", { creditStartDate: formatIsoDateLong(creditStartDate) });
   note("note.preview_not_tax_advice");
   note("note.cap_per_taxpayer");
+  note("note.cap_is_annual_total");
   if (joint) note("note.joint_each_spouse");
   if (oneSpouseOnly) note("note.one_spouse_only");
   if (flags.overCapDesignation) note("note.over_cap_designation");
@@ -697,6 +736,10 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
     if (usesSimpleStateCreditForm) note("note.state_credit_assumed_whole_gift");
     if (flags.stateCreditSpilloverEstimated) note("note.state_credit_spillover_estimate");
     if (totals.removedByStateCreditCents > 0) note("note.state_credit_offset_not_deductible_here");
+  }
+  // With the detailed State-credit list the caller has said which credits apply to which gifts, so nothing is assumed.
+  if (parsed.taxpayers.some((t) => (t.otherQualifiedContributionsCents ?? 0) > 0 && t.stateCredits === undefined)) {
+    note("note.other_contributions_assumed_no_state_credit");
   }
   note("note.nonrefundable");
   note("note.liability_limit");
@@ -748,33 +791,51 @@ export function previewCredit(input: CreditPreviewInput): CreditPreview {
 
 /* ------------------------------------------------------------------ pre-fill helper */
 
+export interface SuggestDesignationInput {
+  giftCents: number;
+  filingStatus: FilingStatus;
+  /** On a joint return: false when only one spouse is giving. Default true. */
+  bothSpousesContribute?: boolean;
+  /**
+   * Qualified contributions each taxpayer has already made this tax year, in the order of the result
+   * (the individual, or first spouse then second spouse). They use up the cap first. Default 0 each.
+   */
+  otherQualifiedContributionsCents?: number[];
+}
+
 export interface SuggestedDesignation {
   role: TaxpayerRole;
   /** This taxpayer's share of the gift. */
   giftCents: number;
-  /** Pre-filled designated amount: the lesser of the share and the per-taxpayer cap. */
+  /** Pre-filled designated amount: the lesser of the share and what is left of the per-taxpayer cap. */
   designatedCents: number;
   nonDesignatedCents: number;
 }
 
-const suggestionSchema = z.strictObject({ giftCents: centsSchema, filingStatus: z.enum(FILING_STATUSES, "Must be a filing status"), bothSpousesContribute: z.boolean().optional() });
+const suggestionSchema = z.strictObject({
+  giftCents: centsSchema,
+  filingStatus: z.enum(FILING_STATUSES, "Must be a filing status"),
+  bothSpousesContribute: z.boolean("Must be true or false").optional(),
+  otherQualifiedContributionsCents: z.array(centsSchema).max(2, "At most one amount per taxpayer").optional(),
+}) satisfies z.ZodType<SuggestDesignationInput>;
 
 /**
  * A starting point for the designation fields, which the donor must confirm or change (product policy, not
- * a rule): min(share of the gift, $1,700) per taxpayer, with a joint gift split evenly when both spouses
- * contribute (the odd cent goes to the first spouse).
+ * a rule): min(share of the gift, what is left of $1,700) per taxpayer, with a joint gift split evenly when
+ * both spouses contribute (the odd cent goes to the first spouse).
  */
-export function suggestDesignation(input: { giftCents: number; filingStatus: FilingStatus; bothSpousesContribute?: boolean }): SuggestedDesignation[] {
+export function suggestDesignation(input: SuggestDesignationInput): SuggestedDesignation[] {
   const parsed = parseInput(suggestionSchema, input, "designation input");
   const cap = CREDIT_CAP_PER_TAXPAYER_CENTS.value;
-  const suggestion = (role: TaxpayerRole, giftCents: number): SuggestedDesignation => {
-    const designatedCents = Math.min(giftCents, cap);
+  const suggestion = (role: TaxpayerRole, giftCents: number, index: number): SuggestedDesignation => {
+    const capLeftCents = Math.max(0, cap - (parsed.otherQualifiedContributionsCents?.[index] ?? 0));
+    const designatedCents = Math.min(giftCents, capLeftCents);
     return { role, giftCents, designatedCents, nonDesignatedCents: giftCents - designatedCents };
   };
-  if (parsed.filingStatus !== "married_joint") return [suggestion("individual", parsed.giftCents)];
-  if (parsed.bothSpousesContribute === false) return [suggestion("spouse_1", parsed.giftCents)];
+  if (parsed.filingStatus !== "married_joint") return [suggestion("individual", parsed.giftCents, 0)];
+  if (parsed.bothSpousesContribute === false) return [suggestion("spouse_1", parsed.giftCents, 0)];
   const secondShare = Math.floor(parsed.giftCents / 2);
-  return [suggestion("spouse_1", parsed.giftCents - secondShare), suggestion("spouse_2", secondShare)];
+  return [suggestion("spouse_1", parsed.giftCents - secondShare, 0), suggestion("spouse_2", secondShare, 1)];
 }
 
 /** Tax years in which unused credit that arose in `originYear` can be used: the five years after it. */

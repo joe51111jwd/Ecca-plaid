@@ -165,6 +165,8 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     );
   }
 
+  // A verification still in review has been routed, not decided.
+  const decided = decision.status === "needs_review" ? "Sent to review" : "Decided";
   const decidedBy =
     decision.decided_by.type === "reviewer"
       ? `Reviewer: ${decision.decided_by.reviewer_name ?? ""} (${decision.decided_by.reviewer_id ?? ""})`
@@ -202,7 +204,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     [threshold.label.limit_label, limitFact],
     basisFact,
     ["Income year", [part(`${decision.income_year} (application dated ${formatCalendarDate(decision.application_date)})`)]],
-    ["Decided", [part(formatUtcTimestamp(decision.decided_at)), part(decidedBy, MUTED)]],
+    [decided, [part(formatUtcTimestamp(decision.decided_at)), part(decidedBy, MUTED)]],
     ["Result valid until", [part(decision.expires_at ? formatUtcTimestamp(decision.expires_at) : "No expiry recorded")]],
     ["Mode", [part(test ? "Test (sandbox)" : "Live")]],
     ...(record.reused_from_verification_id ? [["Reuses the result of verification", [part(record.reused_from_verification_id, MONO)]] as Fact] : []),
@@ -325,13 +327,13 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     pdf.table(
       [
         { header: "Document", width: 124 },
-        { header: "File", width: 122 },
-        { header: "Extraction and raw file", width: 100 },
+        { header: "File, size, uploaded (UTC)", width: 116 },
+        { header: "Extraction and raw file", width: 106 },
         { header: "SHA-256 of the stored file", width: 158 },
       ],
       record.documents.map((document) => [
         [part(DOCUMENT_KIND_LABEL[document.kind], STYLE.smallBold), part(document.id, MONO_SMALL), ...(document.member_id ? [part(`About ${memberLabel(document.member_id)}`, MUTED)] : [])],
-        [part(document.filename), part(formatBytes(document.size_bytes), MUTED), part(`Uploaded ${formatUtcTimestamp(document.uploaded_at)}`, MUTED)],
+        [part(document.filename), part(formatBytes(document.size_bytes), MUTED), part(formatUtcClock(document.uploaded_at), MUTED)],
         [part(EXTRACTOR_LABEL[document.extracted_by]), part(document.purged_at ? PDF_COPY.purged(utcDateOf(document.purged_at)) : PDF_COPY.retained, MUTED)],
         hashParts(document.sha256),
       ]),
@@ -424,7 +426,7 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
         ...(categorical.named_member_id ? [["Household member named", [part(memberLabel(categorical.named_member_id)), part(categorical.named_member_id, MONO)]] as const] : []),
         ...(categorical.document_id ? [["Document", [part(categorical.document_id, MONO)]] as const] : []),
         ["Application date", `${formatCalendarDate(decision.application_date)} (${decision.application_date})`],
-        ["Decision date", formatUtcTimestamp(decision.decided_at)],
+        [decided, formatUtcTimestamp(decision.decided_at)],
     ];
     pdf.heading("4. Categorical eligibility detail", Math.min(pdf.keyValuesHeight(categoricalRows, 190), KEEP_TOGETHER_LIMIT));
     pdf.keyValues(categoricalRows, 190);
@@ -445,8 +447,8 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   /* ----------------------------------------------------------------------------- 6. review trail */
 
   const decisionRows: KeyValueRow[] = [
-    ["Decision made by", decidedBy],
-    ["Decision made", formatUtcTimestamp(decision.decided_at)],
+    [`${decided} by`, decidedBy],
+    [decided, formatUtcTimestamp(decision.decided_at)],
     ...(decision.decided_by.reviewer_notes ? [["Reviewer notes", decision.decided_by.reviewer_notes] as const] : []),
   ];
   pdf.heading("6. Decision reasons and review trail", Math.min(pdf.keyValuesHeight(decisionRows, 150), KEEP_TOGETHER_LIMIT));

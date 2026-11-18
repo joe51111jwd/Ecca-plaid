@@ -21,6 +21,11 @@ import type { EvidenceInput, EvidenceRecord, SignedEvidence } from "./types";
 
 type Mutable = Record<string, unknown>;
 
+/** A typed part of the input, loosened so a test can delete or mistype its fields. */
+function loose(value: object): Mutable {
+  return value as unknown as Mutable;
+}
+
 /** Applies `change` to a deep copy of a synthetic input. The copy is loosely typed so tests can break it. */
 function altered(base: EvidenceInput, change: (input: Mutable & EvidenceInput) => void): EvidenceInput {
   const copy = structuredClone(base) as Mutable & EvidenceInput;
@@ -424,27 +429,27 @@ describe("buildEvidenceRecord: refuses when an audit field is missing", () => {
   const base = syntheticDirectReviewedInput;
 
   it.each([
-    ["threshold.source", (copy: Mutable & EvidenceInput) => delete (copy.threshold as Mutable).source],
-    ["threshold.tableVersion", (copy: Mutable & EvidenceInput) => delete (copy.threshold as Mutable).tableVersion],
+    ["threshold.source", (copy: Mutable & EvidenceInput) => delete loose(copy.threshold).source],
+    ["threshold.tableVersion", (copy: Mutable & EvidenceInput) => delete loose(copy.threshold).tableVersion],
     ["threshold.tableVersion", (copy: Mutable & EvidenceInput) => void (copy.threshold.tableVersion = "   ")],
-    ["threshold.effectiveDate", (copy: Mutable & EvidenceInput) => delete (copy.threshold as Mutable).effectiveDate],
+    ["threshold.effectiveDate", (copy: Mutable & EvidenceInput) => delete loose(copy.threshold).effectiveDate],
     ["threshold.effectiveDate", (copy: Mutable & EvidenceInput) => void (copy.threshold.effectiveDate = "2026-02-30")],
     ["threshold.effectiveDate", (copy: Mutable & EvidenceInput) => void (copy.threshold.effectiveDate = "May 1, 2026")],
     ["threshold", (copy: Mutable & EvidenceInput) => delete (copy as Mutable).threshold],
-    ["consent.copyVersion", (copy: Mutable & EvidenceInput) => delete (copy.consent as Mutable).copyVersion],
+    ["consent.copyVersion", (copy: Mutable & EvidenceInput) => delete loose(copy.consent).copyVersion],
     ["consent.copyVersion", (copy: Mutable & EvidenceInput) => void (copy.consent.copyVersion = "")],
-    ["consent.grantedAt", (copy: Mutable & EvidenceInput) => delete (copy.consent as Mutable).grantedAt],
+    ["consent.grantedAt", (copy: Mutable & EvidenceInput) => delete loose(copy.consent).grantedAt],
     ["consent.grantedAt", (copy: Mutable & EvidenceInput) => void (copy.consent.grantedAt = "yesterday")],
     ["consent.grantedAt", (copy: Mutable & EvidenceInput) => void (copy.consent.grantedAt = new Date(Number.NaN))],
-    ["consent.copySha256", (copy: Mutable & EvidenceInput) => delete (copy.consent as Mutable).copySha256],
+    ["consent.copySha256", (copy: Mutable & EvidenceInput) => delete loose(copy.consent).copySha256],
     ["consent", (copy: Mutable & EvidenceInput) => delete (copy as Mutable).consent],
-    ["decision.decidedBy.reviewerId", (copy: Mutable & EvidenceInput) => delete (copy.decision.decidedBy as Mutable).reviewerId],
-    ["decision.decidedBy.reviewerName", (copy: Mutable & EvidenceInput) => void ((copy.decision.decidedBy as Mutable).reviewerName = " ")],
-    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => delete (copy.decision.decidedBy as Mutable).notes],
-    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => void ((copy.decision.decidedBy as Mutable).notes = "\n\t ")],
-    ["decision.decidedBy", (copy: Mutable & EvidenceInput) => delete (copy.decision as Mutable).decidedBy],
-    ["decision.decidedBy.type", (copy: Mutable & EvidenceInput) => void ((copy.decision as Mutable).decidedBy = { type: "somebody" })],
-    ["documents[1].sha256", (copy: Mutable & EvidenceInput) => delete (copy.documents[1] as Mutable).sha256],
+    ["decision.decidedBy.reviewerId", (copy: Mutable & EvidenceInput) => delete loose(copy.decision.decidedBy).reviewerId],
+    ["decision.decidedBy.reviewerName", (copy: Mutable & EvidenceInput) => void (loose(copy.decision.decidedBy).reviewerName = " ")],
+    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => delete loose(copy.decision.decidedBy).notes],
+    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => void (loose(copy.decision.decidedBy).notes = "\n\t ")],
+    ["decision.decidedBy", (copy: Mutable & EvidenceInput) => delete loose(copy.decision).decidedBy],
+    ["decision.decidedBy.type", (copy: Mutable & EvidenceInput) => void (loose(copy.decision).decidedBy = { type: "somebody" })],
+    ["documents[1].sha256", (copy: Mutable & EvidenceInput) => delete loose(copy.documents[1]).sha256],
     ["documents[1].sha256", (copy: Mutable & EvidenceInput) => void (copy.documents[1].sha256 = "abc123")],
     ["documents[1].sha256", (copy: Mutable & EvidenceInput) => void (copy.documents[1].sha256 = EMPTY_SHA256)],
     ["rails[0].reportSha256", (copy: Mutable & EvidenceInput) => void (copy.rails[0].reportSha256 = "z".repeat(64))],
@@ -497,8 +502,8 @@ describe("buildEvidenceRecord: refuses when an audit field is missing", () => {
 
   it("reports every problem at once, with a readable message", () => {
     const input = altered(syntheticDirectReviewedInput(), (copy) => {
-      delete (copy.threshold as Mutable).effectiveDate;
-      delete (copy.consent as Mutable).copyVersion;
+      delete loose(copy.threshold).effectiveDate;
+      delete loose(copy.consent).copyVersion;
       copy.documents[0].sha256 = "nope";
     });
     const issues = issuesOf(input);
@@ -576,7 +581,7 @@ describe("buildEvidenceRecord: refuses malformed values", () => {
     ["verificationId", (copy: Mutable & EvidenceInput) => void (copy.verificationId = "ver 1")],
     ["verificationId", (copy: Mutable & EvidenceInput) => void (copy.verificationId = "../etc/passwd")],
     ["sgo.ein", (copy: Mutable & EvidenceInput) => void (copy.sgo.ein = "12-34567")],
-    ["decision.status", (copy: Mutable & EvidenceInput) => void ((copy.decision as Mutable).status = "pending")],
+    ["decision.status", (copy: Mutable & EvidenceInput) => void (loose(copy.decision).status = "pending")],
     ["decision.applicationDate", (copy: Mutable & EvidenceInput) => void (copy.decision.applicationDate = "2027-13-01")],
     ["decision.decidedAt", (copy: Mutable & EvidenceInput) => void (copy.decision.decidedAt = "2027-02-03T15:12:44")],
     ["decision.decidedAt", (copy: Mutable & EvidenceInput) => void (copy.decision.decidedAt = new Date(8.64e15))],
@@ -585,21 +590,21 @@ describe("buildEvidenceRecord: refuses malformed values", () => {
     ["geography.zip", (copy: Mutable & EvidenceInput) => void (copy.geography.zip = "78582-1234")],
     ["threshold.thresholdCents", (copy: Mutable & EvidenceInput) => void (copy.threshold.thresholdCents = 125388.5)],
     ["threshold.thresholdCents", (copy: Mutable & EvidenceInput) => void (copy.threshold.thresholdCents = 0)],
-    ["threshold.multiplier", (copy: Mutable & EvidenceInput) => void ((copy.threshold as Mutable).multiplier = 1.08)],
+    ["threshold.multiplier", (copy: Mutable & EvidenceInput) => void (loose(copy.threshold).multiplier = 1.08)],
     ["threshold.capPct", (copy: Mutable & EvidenceInput) => void (copy.threshold.capPct = 301)],
     ["threshold.readings", (copy: Mutable & EvidenceInput) => void (copy.threshold.readings = [])],
     ["income.items[0].annualAmountCents", (copy: Mutable & EvidenceInput) => void (copy.income!.items[0].annualAmountCents = 52310.25)],
     ["income.items[0].annualAmountCents", (copy: Mutable & EvidenceInput) => void (copy.income!.items[0].annualAmountCents = Number.POSITIVE_INFINITY)],
     ["documents[0].sizeBytes", (copy: Mutable & EvidenceInput) => void (copy.documents[0].sizeBytes = 0)],
-    ["documents[0].kind", (copy: Mutable & EvidenceInput) => void ((copy.documents[0] as Mutable).kind = "passport")],
+    ["documents[0].kind", (copy: Mutable & EvidenceInput) => void (loose(copy.documents[0]).kind = "passport")],
     ["documents[0].extractedFields[0].confidencePct", (copy: Mutable & EvidenceInput) => void (copy.documents[0].extractedFields[0].confidencePct = 99.5)],
     ["consent.scope", (copy: Mutable & EvidenceInput) => void (copy.consent.scope = { retentionYears: 2.5 })],
     ["consent.scope", (copy: Mutable & EvidenceInput) => void (copy.consent.scope = { a: { b: { c: { d: { e: 1 } } } } })],
-    ["consent.scope", (copy: Mutable & EvidenceInput) => void ((copy.consent as Mutable).scope = ["x"])],
-    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => void ((copy.decision.decidedBy as Mutable).notes = "n".repeat(EVIDENCE_POLICY.limits.notes + 1))],
+    ["consent.scope", (copy: Mutable & EvidenceInput) => void (loose(copy.consent).scope = ["x"])],
+    ["decision.decidedBy.notes", (copy: Mutable & EvidenceInput) => void (loose(copy.decision.decidedBy).notes = "n".repeat(EVIDENCE_POLICY.limits.notes + 1))],
     ["household.custody.monthsInThisHousehold", (copy: Mutable & EvidenceInput) => void (copy.household.custody = { livesInMultipleHouseholds: true, monthsInThisHousehold: 13 })],
     ["generatedAt", (copy: Mutable & EvidenceInput) => delete (copy as Mutable).generatedAt],
-    ["versions.engine", (copy: Mutable & EvidenceInput) => delete (copy.versions as Mutable).engine],
+    ["versions.engine", (copy: Mutable & EvidenceInput) => delete loose(copy.versions).engine],
     ["versions.taxonomy", (copy: Mutable & EvidenceInput) => void (copy.versions.taxonomy = "")],
   ])("%s", (path, change) => {
     const issues = issuesOf(altered(syntheticDirectReviewedInput(), change));
@@ -935,7 +940,8 @@ describe("verifySignedEvidence", () => {
       expect(result.valid, JSON.stringify(alg)).toBe(false);
       expect(result.reason, JSON.stringify(alg)).toBe("unsupported_alg");
     }
-    const { alg: _omitted, ...withoutAlg } = signed.signature;
+    const withoutAlg: Mutable = { ...signed.signature };
+    delete withoutAlg.alg;
     expect(verifySignedEvidence({ ...signed, signature: withoutAlg }, jwks)).toMatchObject({ valid: false, reason: "malformed" });
     for (const canonicalization of ["jcs", "none", "ecca-jcs-2", "", null]) {
       expect(verifySignedEvidence({ ...signed, signature: { ...signed.signature, canonicalization } }, jwks)).toMatchObject({ valid: false, reason: "unsupported_canonicalization" });

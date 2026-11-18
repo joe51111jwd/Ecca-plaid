@@ -391,6 +391,7 @@ describe("rendered output obeys the same rules", () => {
       },
     ],
     ["a gift before the credit start", { filingStatus: "single", asOf: new Date("2026-12-01T18:00:00Z"), taxpayers: [{ designatedCents: 170_000 }] }],
+    ["a second gift in a year with other qualified contributions", { filingStatus: "single", asOf, taxpayers: [{ designatedCents: 100_000, otherQualifiedContributionsCents: 120_000 }] }],
   ];
 
   it.each(previews)("the panel for %s", (_label, input) => {

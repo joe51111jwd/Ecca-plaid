@@ -5,7 +5,7 @@ import type { RailStatus } from "@/db/schema";
 import { centralDateString, now } from "@/lib/clock";
 import { AppError, conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import { newId } from "@/lib/ids";
-import { audit, type AuditRequestInfo } from "@/server/audit";
+import { audit, normalizeIp, type AuditRequestInfo } from "@/server/audit";
 import { assertHouseholdAccess, type User } from "@/server/auth";
 import {
   CONSENT_COPY_KINDS,
@@ -82,6 +82,13 @@ export function endOfCentralDay(isoDate: string): Date {
   // Next-day midnight is 05:00Z under CDT and 06:00Z under CST; DST changes at 2 a.m., never at midnight.
   const cdt = new Date(Date.UTC(y!, m! - 1, d! + 1, 5));
   return centralDateString(cdt) === centralDateString(new Date(Date.UTC(y!, m! - 1, d! + 1, 12))) ? cdt : new Date(Date.UTC(y!, m! - 1, d! + 1, 6));
+}
+
+const MAX_USER_AGENT_LENGTH = 512;
+
+function tidyUserAgent(raw: string | null | undefined): string | null {
+  const v = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]+/g, " ").trim() : "";
+  return v.length === 0 ? null : v.slice(0, MAX_USER_AGENT_LENGTH);
 }
 
 function addDays(isoDate: string, days: number): string {
@@ -225,8 +232,8 @@ export async function grantConsent(input: GrantConsentInput, dbOrTx?: DbOrTx): P
         scope: { ...rendered.scope, vars: rendered.vars },
         grantedAt: now(),
         expiresAt,
-        ip: input.request?.ip ?? null,
-        userAgent: input.request?.userAgent ?? null,
+        ip: normalizeIp(input.request?.ip),
+        userAgent: tidyUserAgent(input.request?.userAgent),
       })
       .returning();
 

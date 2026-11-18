@@ -6,8 +6,15 @@
 import { z } from "zod";
 import { invalid } from "@/lib/errors";
 
-/** Integer US cents, zero or more, within the safe-integer range (rejects NaN, floats, infinities, strings). */
-export const centsSchema = z.number("Must be a whole number of cents").int("Must be a whole number of cents").min(0, "Must not be negative");
+/**
+ * Integer US cents, zero or more, within the safe-integer range (rejects NaN, floats, infinities, strings).
+ * Negative zero is accepted as zero and normalized, so it can never surface in a result.
+ */
+export const centsSchema = z
+  .number("Must be a whole number of cents")
+  .int("Must be a whole number of cents")
+  .min(0, "Must not be negative")
+  .transform((cents) => (cents === 0 ? 0 : cents));
 
 /** Basis points of a whole: 0 to 10,000. */
 export const bpsSchema = z

@@ -5,7 +5,7 @@ import { PDF_COPY } from "./copy";
 import { formatUtcClock, formatUtcTimestamp, groupHash } from "./format";
 import { EVIDENCE_PDF_RENDERER, renderEvidencePdf } from "./pdf";
 import { buildEvidenceRecord, signEvidenceRecord } from "./record";
-import { syntheticCategoricalEligibleInput, syntheticDirectReviewedInput, syntheticDocuments, syntheticHarrisThreshold, syntheticIrsPublishedThreshold } from "./synthetic-fixtures";
+import { syntheticCategoricalEligibleInput, syntheticDirectReviewedInput, syntheticDocuments, syntheticIrsPublishedThreshold } from "./synthetic-fixtures";
 import { extractPdfText, generateTestSigningKey, type ExtractedPdf } from "./test-support";
 import type { EvidenceInput, EvidencePdfOptions, SignedEvidence } from "./types";
 
@@ -86,13 +86,12 @@ describe("renderEvidencePdf: what an auditor has to find", () => {
       expect(pdf.compact).toContain(document.sha256);
       expect(pdf.compact).toContain(document.filename);
     }
-    expect(pdf.text).toContain("Read by document parser Raw file retained");
-    expect(pdf.text).toContain("184,233 bytes");
+    expect(pdf.text).toContain("184,233 bytes 2027-01-11 18:02:11 Read by parser Raw file retained");
     expect(pdf.text).toContain("Certification period ends certification_period_end 2027-01-31 95%");
     expect(pdf.text).toContain(PDF_COPY.noRails);
 
     // Who or what reviewed: here, the engine.
-    expect(pdf.text).toContain("Decision made by Decision engine, version synthetic-decision-engine-1.0.0");
+    expect(pdf.text).toContain("Decided by Decision engine, version synthetic-decision-engine-1.0.0");
     expect(pdf.text).toContain(PDF_COPY.noReviewEngine("synthetic-decision-engine-1.0.0"));
     expect(pdf.text).toContain("categorical_approval_current");
 
@@ -151,7 +150,7 @@ describe("renderEvidencePdf: what an auditor has to find", () => {
     expect(pdf.text).toContain("Text version synthetic-rail-consent-copy.v1");
 
     // Who reviewed the exception, and what they wrote.
-    expect(pdf.text).toContain("Decision made by Reviewer: Riley Example (synthetic reviewer) (usr_SYNTHETICreviewer00001)");
+    expect(pdf.text).toContain("Decided by Reviewer: Riley Example (synthetic reviewer) (usr_SYNTHETICreviewer00001)");
     expect(pdf.text).toContain(`Reviewer notes ${record.decision.decided_by.reviewer_notes}`);
     expect(pdf.text).toContain("Who or what reviewed exceptions");
     expect(pdf.text).toContain("2027-02-03 15:12:44 Reviewer: Riley Example (synthetic reviewer) usr_SYNTHETICreviewer00001 Resolved: eligible Counted income is within the limit under both readings");
@@ -296,7 +295,7 @@ describe("renderEvidencePdf: pagination", () => {
       expect(pdf.compact).toContain(document.sha256);
       expect(pdf.compact).toContain(document.filename);
     }
-    const withDocumentHeader = pdf.pages.filter((page) => page.includes("Document File Extraction and raw file SHA-256 of the stored file"));
+    const withDocumentHeader = pdf.pages.filter((page) => page.includes("Document File, size, uploaded (UTC) Extraction and raw file SHA-256 of the stored file"));
     expect(withDocumentHeader.length).toBeGreaterThanOrEqual(3);
     const withIncomeHeader = pdf.pages.filter((page) => page.includes("Category Source Counted Annual amount"));
     expect(withIncomeHeader.length).toBeGreaterThanOrEqual(2);

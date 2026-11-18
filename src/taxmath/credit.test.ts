@@ -295,6 +295,50 @@ describe("computeTaxpayerCredit", () => {
     expect(swallowed.goodsOrServicesExceedDesignated).toBe(true);
   });
 
+  it("F10: applies one cap to the year's total, counting the taxpayer's other qualified contributions", () => {
+    // Already gave $1,700 elsewhere this year: a further designated $1,000 adds no credit.
+    const used = computeTaxpayerCredit({ designatedCents: usd(1000), otherQualifiedContributionsCents: usd(1700) });
+    expect(used.qualifiedContributionCents).toBe(usd(2700));
+    expect(used.creditCents).toBe(usd(1700));
+    expect(used.creditAddedByThisGiftCents).toBe(0);
+    expect(used.overCapCents).toBe(usd(1000));
+    expect(used.designatedAboveCap).toBe(true);
+    expect(used.rulesApplied).toContain("creditBaseIsAnnualAggregate");
+
+    // Gave $1,000 elsewhere: a designated $1,000 adds only the remaining $700.
+    const partial = computeTaxpayerCredit({ designatedCents: usd(1000), otherQualifiedContributionsCents: usd(1000) });
+    expect(partial.creditCents).toBe(usd(1700));
+    expect(partial.creditAddedByThisGiftCents).toBe(usd(700));
+    expect(partial.overCapCents).toBe(usd(300));
+
+    // Other contributions are already net; goods or services come off this gift only.
+    const net = computeTaxpayerCredit({ designatedCents: usd(500), goodsOrServicesValueCents: usd(600), otherQualifiedContributionsCents: usd(200) });
+    expect(net.giftQualifiedContributionCents).toBe(0);
+    expect(net.qualifiedContributionCents).toBe(usd(200));
+    expect(net.creditCents).toBe(usd(200));
+    expect(net.creditAddedByThisGiftCents).toBe(0);
+
+    const none = computeTaxpayerCredit({ designatedCents: usd(1000) });
+    expect(none.otherQualifiedContributionsCents).toBe(0);
+    expect(none.creditAddedByThisGiftCents).toBe(usd(1000));
+    expect(none.rulesApplied).not.toContain("creditBaseIsAnnualAggregate");
+  });
+
+  it("T3 / F75 Example 3 as a checkout sees it: $1,500 to Org X with a $400 State credit, $500 given to Org Y -> $1,600 for the year", () => {
+    const credit = computeTaxpayerCredit({ designatedCents: usd(1500), expectedStateCreditCents: usd(400), otherQualifiedContributionsCents: usd(500) });
+    expect(credit.qualifiedContributionCents).toBe(usd(2000));
+    expect(credit.creditCents).toBe(usd(1600));
+    expect(credit.creditAddedByThisGiftCents).toBe(usd(1100));
+  });
+
+  it("treats negative zero as zero and never returns it", () => {
+    const credit = computeTaxpayerCredit({ designatedCents: -0, nonDesignatedCents: -0, goodsOrServicesValueCents: -0, expectedStateCreditCents: -0 });
+    for (const [key, value] of Object.entries(credit)) {
+      if (typeof value === "number") expect(Object.is(value, -0), key).toBe(false);
+    }
+    expect(credit.creditCents).toBe(0);
+  });
+
   it("never lets a State credit push the credit below zero (F12: \"but not to below zero\")", () => {
     const credit = computeTaxpayerCredit({ designatedCents: usd(1000), expectedStateCreditCents: usd(5000) });
     expect(credit.qualifiedAfterStateCreditCents).toBe(0);
@@ -368,6 +412,8 @@ describe("computeTaxpayerCredit", () => {
     ["a NaN State credit", { designatedCents: 100, expectedStateCreditCents: Number.NaN }, "expectedStateCreditCents"],
     ["a negative State credit", { designatedCents: 100, expectedStateCreditCents: -1 }, "expectedStateCreditCents"],
     ["negative goods or services", { designatedCents: 100, goodsOrServicesValueCents: -1 }, "goodsOrServicesValueCents"],
+    ["negative other contributions", { designatedCents: 100, otherQualifiedContributionsCents: -1 }, "otherQualifiedContributionsCents"],
+    ["fractional other contributions", { designatedCents: 100, otherQualifiedContributionsCents: 0.1 }, "otherQualifiedContributionsCents"],
     ["a negative detailed State credit", { designatedCents: 100, stateCredits: [{ amountCents: -1, nonQualifiedBaseCents: 0 }] }, "stateCredits.0.amountCents"],
     ["a misspelled field", { designatedCents: 100, designatedCent: 5 }, "_"],
   ])("rejects %s with validation_failed", (_label, input, field) => {
@@ -378,6 +424,7 @@ describe("computeTaxpayerCredit", () => {
     expectValidationError(() => computeTaxpayerCredit(null as unknown as TaxpayerCreditInput));
     expectValidationError(() => computeTaxpayerCredit(170000 as unknown as TaxpayerCreditInput));
     expectValidationError(() => computeTaxpayerCredit({ designatedCents: Number.MAX_SAFE_INTEGER, nonDesignatedCents: 1 }), "designatedCents");
+    expectValidationError(() => computeTaxpayerCredit({ designatedCents: Number.MAX_SAFE_INTEGER, otherQualifiedContributionsCents: 1 }), "otherQualifiedContributionsCents");
   });
 
   it("handles the largest safe amount without losing a cent", () => {
@@ -395,6 +442,21 @@ describe("computeTaxpayerCredit", () => {
       const credit = computeTaxpayerCredit({ designatedCents, nonDesignatedCents: giftCents - designatedCents, expectedStateCreditCents: stateCreditCents });
       const expected = Math.min(designatedCents, CAP, Math.max(0, giftCents - stateCreditCents));
       expect(credit.creditCents, `gift ${giftCents}, designated ${designatedCents}, State credit ${stateCreditCents}`).toBe(expected);
+      expect(credit.creditAddedByThisGiftCents).toBe(credit.creditCents);
+
+      // The same gift on top of other qualified contributions made in the year: one cap for the total.
+      const otherCents = Math.floor(random() * 300_000);
+      const withOther = computeTaxpayerCredit({
+        designatedCents,
+        nonDesignatedCents: giftCents - designatedCents,
+        expectedStateCreditCents: stateCreditCents,
+        otherQualifiedContributionsCents: otherCents,
+      });
+      const spilloverCents = Math.max(0, stateCreditCents - (giftCents - designatedCents));
+      expect(withOther.creditCents).toBe(Math.min(CAP, Math.max(0, designatedCents + otherCents - spilloverCents)));
+      expect(withOther.creditCents + withOther.overCapCents + withOther.removedByStateCreditCents).toBe(designatedCents + otherCents);
+      expect(withOther.creditAddedByThisGiftCents).toBe(Math.max(0, withOther.creditCents - Math.min(otherCents, CAP)));
+      expect(withOther.creditAddedByThisGiftCents).toBeLessThanOrEqual(withOther.creditCents);
 
       // Accounting identities that hold for every input.
       expect(credit.creditCents + credit.overCapCents + credit.removedByStateCreditCents).toBe(credit.qualifiedContributionCents);
@@ -677,6 +739,7 @@ describe("previewCredit: the panel's data", () => {
       "note.preview_not_tax_advice",
       "note.proposed_rules_not_final",
       "note.cap_per_taxpayer",
+      "note.cap_is_annual_total",
       "note.nonrefundable",
       "note.liability_limit",
       "note.carryforward",
@@ -713,6 +776,7 @@ describe("previewCredit: the panel's data", () => {
       "note.preview_not_tax_advice",
       "note.proposed_rules_not_final",
       "note.cap_per_taxpayer",
+      "note.cap_is_annual_total",
       "note.joint_each_spouse",
       "note.one_spouse_only",
       "note.over_cap_designation",
@@ -749,6 +813,7 @@ describe("previewCredit: the panel's data", () => {
       stateCreditReducesFederal: false,
       stateCreditSpilloverEstimated: true,
       goodsOrServicesReduceContribution: true,
+      otherContributionsEntered: false,
       beforeCreditStart: true,
       liabilityProvided: true,
       creditLimitedByLiability: true,
@@ -786,7 +851,7 @@ describe("previewCredit: the panel's data", () => {
     expect(lines.map((line) => [line.id, line.amountCents, line.role])).toEqual([
       ["designated", usd(2600), "amount"],
       ["goods_or_services", usd(100), "subtraction"],
-      ["qualified_contribution", usd(2500), "amount"],
+      ["qualified_contribution", usd(2500), "subtotal"],
       ["state_credit_reduction", usd(300), "subtraction"],
       ["over_cap", usd(500), "subtraction"],
       ["estimated_credit", usd(1700), "result"],
@@ -796,6 +861,68 @@ describe("previewCredit: the panel's data", () => {
     const subtractions = lines.filter((line) => line.role === "subtraction").reduce((sum, line) => sum + line.amountCents, 0);
     expect(usd(2600) - subtractions).toBe(usd(1700));
     for (const line of lines) expect(COPY[line.copyId].kind).toBe("label");
+  });
+
+  it("shows other qualified contributions, the year's total and what this gift adds", () => {
+    const preview = single({ taxpayers: [{ designatedCents: usd(1000), otherQualifiedContributionsCents: usd(1200) }] });
+    expect(preview.taxpayers[0].lines.map((line) => [line.id, line.amountCents, line.role])).toEqual([
+      ["designated", usd(1000), "amount"],
+      ["other_qualified_contributions", usd(1200), "addition"],
+      ["qualified_contribution", usd(2200), "subtotal"],
+      ["over_cap", usd(500), "subtraction"],
+      ["estimated_credit", usd(1700), "result"],
+      ["credit_added_by_this_gift", usd(500), "information"],
+    ]);
+    expect(preview.totals).toMatchObject({ otherQualifiedContributionsCents: usd(1200), qualifiedContributionCents: usd(2200), creditCents: usd(1700), creditAddedByThisGiftCents: usd(500), giftCents: usd(1000) });
+    expect(preview.flags.otherContributionsEntered).toBe(true);
+    expect(preview.flags.overCapDesignation).toBe(true);
+    expect(preview.noteIds).toEqual(expect.arrayContaining(["note.cap_is_annual_total", "note.other_contributions_assumed_no_state_credit", "note.over_cap_designation"]));
+    expect(preview.rulesApplied).toContain("creditBaseIsAnnualAggregate");
+
+    // With the detailed State-credit list nothing is assumed about the other contributions.
+    const detailed = single({ taxpayers: [{ designatedCents: usd(1000), otherQualifiedContributionsCents: usd(500), stateCredits: [{ amountCents: usd(100), nonQualifiedBaseCents: 0 }] }] });
+    expect(detailed.noteIds).not.toContain("note.other_contributions_assumed_no_state_credit");
+    expect(detailed.totals.creditCents).toBe(usd(1400));
+    expect(single().noteIds).not.toContain("note.other_contributions_assumed_no_state_credit");
+  });
+
+  it("the goods-or-services line shows what was actually taken off, so the lines still add up when the value exceeds the gift", () => {
+    const preview = single({ taxpayers: [{ designatedCents: usd(100), goodsOrServicesValueCents: usd(150), otherQualifiedContributionsCents: usd(40) }] });
+    expect(preview.taxpayers[0].lines.map((line) => [line.id, line.amountCents])).toEqual([
+      ["designated", usd(100)],
+      ["goods_or_services", usd(100)],
+      ["other_qualified_contributions", usd(40)],
+      ["qualified_contribution", usd(40)],
+      ["estimated_credit", usd(40)],
+      ["credit_added_by_this_gift", 0],
+    ]);
+    expect(preview.taxpayers[0].goodsOrServicesExceedDesignated).toBe(true);
+  });
+
+  it("reconciles the lines of every generated preview: amount + additions - subtractions = credit", () => {
+    const random = prng(1040);
+    for (let i = 0; i < 1500; i++) {
+      const preview = single({
+        taxpayers: [
+          {
+            designatedCents: Math.floor(random() * 400_000),
+            nonDesignatedCents: random() < 0.5 ? 0 : Math.floor(random() * 200_000),
+            goodsOrServicesValueCents: random() < 0.7 ? 0 : Math.floor(random() * 50_000),
+            otherQualifiedContributionsCents: random() < 0.6 ? 0 : Math.floor(random() * 250_000),
+            expectedStateCreditCents: random() < 0.5 ? 0 : Math.floor(random() * 300_000),
+          },
+        ],
+      });
+      const [taxpayer] = preview.taxpayers;
+      let running = 0;
+      for (const line of taxpayer.lines) {
+        if (line.role === "amount" || line.role === "addition") running += line.amountCents;
+        if (line.role === "subtraction") running -= line.amountCents;
+        if (line.role === "subtotal" || line.role === "result") expect(line.amountCents, `${line.id} of ${JSON.stringify(taxpayer.lines)}`).toBe(running);
+        expect(line.amountCents).toBeGreaterThanOrEqual(0);
+      }
+      expect(taxpayer.lines.at(-1)?.role === "result" || taxpayer.lines.some((line) => line.role === "information")).toBe(true);
+    }
   });
 
   it("includes the 'proposed regulations that are not final' note whenever a proposed rule affected the numbers", () => {
@@ -901,6 +1028,19 @@ describe("suggestDesignation (a pre-fill, not a rule)", () => {
     expect(suggestDesignation({ giftCents: usd(3400), filingStatus: "married_joint", bothSpousesContribute: false })).toEqual([
       { role: "spouse_1", giftCents: usd(3400), designatedCents: usd(1700), nonDesignatedCents: usd(1700) },
     ]);
+  });
+
+  it("pre-fills only what is left of the cap when the taxpayer has already made qualified contributions this year", () => {
+    expect(suggestDesignation({ giftCents: usd(2000), filingStatus: "single", otherQualifiedContributionsCents: [usd(1200)] })).toEqual([
+      { role: "individual", giftCents: usd(2000), designatedCents: usd(500), nonDesignatedCents: usd(1500) },
+    ]);
+    expect(suggestDesignation({ giftCents: usd(2000), filingStatus: "single", otherQualifiedContributionsCents: [usd(5000)] })[0].designatedCents).toBe(0);
+    expect(suggestDesignation({ giftCents: usd(3400), filingStatus: "married_joint", otherQualifiedContributionsCents: [0, usd(1700)] })).toEqual([
+      { role: "spouse_1", giftCents: usd(1700), designatedCents: usd(1700), nonDesignatedCents: 0 },
+      { role: "spouse_2", giftCents: usd(1700), designatedCents: 0, nonDesignatedCents: usd(1700) },
+    ]);
+    expectValidationError(() => suggestDesignation({ giftCents: 1, filingStatus: "single", otherQualifiedContributionsCents: [0, 0, 0] }), "otherQualifiedContributionsCents");
+    expectValidationError(() => suggestDesignation({ giftCents: 1, filingStatus: "single", otherQualifiedContributionsCents: [-1] }), "otherQualifiedContributionsCents.0");
   });
 
   it("feeds straight into previewCredit and conserves the gift", () => {

@@ -33,16 +33,9 @@ export function isSystemActor(actor: SgoActor): actor is SgoSystemActor {
   return "system" in actor && actor.system === true;
 }
 
-export function auditActorOf(actor: SgoActor): AuditActor {
-  return isSystemActor(actor) ? { type: "system" } : { type: "user", id: actor.userId };
-}
-
-export function auditRequestOf(actor: SgoActor): AuditRequestInfo | null {
-  return isSystemActor(actor) ? null : (actor.request ?? null);
-}
-
+/** The audit actor and request for an SGO actor, plus the system reason to record in metadata. */
 export function auditContextOf(actor: SgoActor): { actor: AuditActor; request: AuditRequestInfo | null; systemReason?: string } {
-  return isSystemActor(actor) ? { actor: { type: "system" }, request: null, systemReason: actor.reason } : { actor: auditActorOf(actor), request: auditRequestOf(actor) };
+  return isSystemActor(actor) ? { actor: { type: "system" }, request: null, systemReason: actor.reason } : { actor: { type: "user", id: actor.userId }, request: actor.request ?? null };
 }
 
 /** What the actor is allowed to do across the module. */
