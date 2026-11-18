@@ -444,17 +444,21 @@ export async function syncPaymentWithProcessor(paymentId: string, scope?: Paymen
 
   const found = await processorFor(row.processor).retrievePayment(row.processorPaymentId, lookupFor(row));
   const base = { id: `sync_${row.id}_${found.status}`, processor: row.processor, livemode: found.livemode, processorPaymentId: row.processorPaymentId };
+  // The attempt id lets the state machine recognise the attempt a webhook already reported. Without it, a
+  // failure read here (stamped with its charge's creation time) looked older than the "processing" event
+  // of the same attempt and was dropped as stale.
+  const attempt = found.attemptId ? { attemptId: found.attemptId } : {};
   const at = now();
   switch (found.status) {
     case "succeeded":
       if (!found.chargedAt) throw new AppError("internal", `Processor reports payment ${row.id} as paid without a charge`);
-      await applyProcessorEvent({ ...base, type: "payment.succeeded", occurredAt: found.chargedAt, chargedAt: found.chargedAt, amountCents: found.amountCents, method: found.method });
+      await applyProcessorEvent({ ...base, ...attempt, type: "payment.succeeded", occurredAt: found.chargedAt, chargedAt: found.chargedAt, amountCents: found.amountCents, method: found.method });
       break;
     case "processing":
-      await applyProcessorEvent({ ...base, type: "payment.processing", occurredAt: found.chargedAt ?? at, chargedAt: found.chargedAt, method: found.method });
+      await applyProcessorEvent({ ...base, ...attempt, type: "payment.processing", occurredAt: found.chargedAt ?? at, chargedAt: found.chargedAt, method: found.method });
       break;
     case "failed":
-      await applyProcessorEvent({ ...base, type: "payment.failed", occurredAt: found.chargedAt ?? at, failureReason: found.failureReason ?? "The payment could not be completed.", method: found.method });
+      await applyProcessorEvent({ ...base, ...attempt, type: "payment.failed", occurredAt: found.chargedAt ?? at, failureReason: found.failureReason ?? "The payment could not be completed.", method: found.method });
       break;
     case "canceled":
       await applyProcessorEvent({ ...base, type: "payment.canceled", occurredAt: found.canceledAt ?? at });
