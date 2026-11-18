@@ -63,6 +63,15 @@ export interface PayStubSources {
   warnings: string[];
 }
 
+/** A real calendar date written YYYY-MM-DD ("2025-13-40" matches the pattern but is not a date). */
+export function isCalendarDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+}
+
 function employerKey(name: string | null): string {
   return (name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -78,7 +87,9 @@ export function payStubSources(stubs: readonly RawPayStub[], incomeYear: number,
   const latest = new Map<string, RawPayStub & { ytdGrossCents: number }>();
   let otherYear = 0;
   for (const stub of stubs) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(stub.payDate) || Number(stub.payDate.slice(0, 4)) !== incomeYear) {
+    // An impossible date would sort after every real one and roll over into the next year when the pay
+    // period is added, so it could pass as a year-closing stub; it is dropped like a stub from another year.
+    if (!isCalendarDate(stub.payDate) || Number(stub.payDate.slice(0, 4)) !== incomeYear) {
       otherYear += 1;
       continue;
     }

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setTestNow } from "@/lib/clock";
 import { sha256Hex } from "@/lib/crypto";
-import { createPlaidRail, mapPlaidWebhook, normalizePlaidBankIncome, normalizePlaidPayrollIncome, PlaidApiError, PLAID_API_VERSION } from "./plaid";
+import { createPlaidRail, mapPlaidWebhook, normalizePlaidBankIncome, normalizePlaidPayrollIncome, PlaidApiError, PLAID_API_VERSION, PLAID_MAX_REPORT_WARNINGS, PLAID_WEBHOOK_KEY_CACHE_MS } from "./plaid";
+import { normalizedIncomeReportSchema } from "./types";
 import { fakePlaidFetch, makeWebhookSigner, payrollIncomeBody, signJwt } from "./test-support";
 import type { RailConnection } from "./types";
 
@@ -210,6 +211,34 @@ describe("Plaid adapter", () => {
       expect(out.report.warnings.join(" ")).toMatch(/W-2 without a readable/);
     });
 
+    it("keeps an oversized or record-heavy response within the stored report format", () => {
+      const body = payrollIncomeBody(2025);
+      const pi = (body.items as Array<{ payroll_income: Array<{ w2s: Array<Record<string, unknown>>; pay_stubs: Array<Record<string, unknown>> }> }>)[0]!.payroll_income[0]!;
+      pi.w2s[0]!.employer = { name: "Synthetic Widgets ".repeat(40) };
+      pi.w2s[0]!.document_id = "d".repeat(500);
+      // 300 stubs without a pay date each produce the same warning; 150 W-2s without amounts likewise.
+      for (let i = 0; i < 300; i += 1) pi.pay_stubs.push({ document_id: `s${i}`, earnings: null, pay_period_details: { pay_date: null }, employer: { name: `Synthetic ${i}` } });
+      for (let i = 0; i < 150; i += 1) pi.w2s.push({ document_id: `w${i}`, tax_year: `bad-${i}`, wages_tips_other_comp: "x" });
+      const out = normalizePlaidPayrollIncome(body, ctx);
+      if (out.state !== "ready") throw new Error("expected ready");
+      expect(normalizedIncomeReportSchema.safeParse(out.report).success).toBe(true);
+      expect(out.report.sources[0]!.employerName).toHaveLength(200);
+      expect(out.report.warnings.length).toBeLessThanOrEqual(PLAID_MAX_REPORT_WARNINGS);
+      expect(new Set(out.report.warnings).size).toBe(out.report.warnings.length);
+
+      const many = Array.from({ length: 120 }, (_, i) => `Distinct synthetic warning ${i}`);
+      const bank = normalizePlaidBankIncome(
+        {
+          bank_income: [{ items: [{ bank_income_sources: many.map((_, i) => ({ income_source_id: `src_${i}`, income_description: "D".repeat(300), income_category: "C".repeat(5000), historical_summary: [{ start_date: "2025-01-01", end_date: "2025-01-31", total_amounts: [{ amount: 1, iso_currency_code: "EUR" }, { amount: 1, iso_currency_code: "USD" }] }] })) }] }],
+        },
+        ctx,
+      );
+      if (bank.state !== "ready") throw new Error("expected ready");
+      expect(bank.report.sources[0]!.employerName).toHaveLength(200);
+      expect(bank.report.sources[0]!.note.length).toBeLessThanOrEqual(1000);
+      expect(normalizedIncomeReportSchema.safeParse(bank.report).success).toBe(true);
+    });
+
     it("warns about Forms 1099 it does not read", () => {
       const body = payrollIncomeBody(2025);
       ((body.items as Array<{ payroll_income: Array<{ form1099s: unknown[] }> }>)[0]!.payroll_income[0]!).form1099s = [{ tax_year: "2025" }];
@@ -273,6 +302,18 @@ describe("Plaid adapter", () => {
       ]);
     });
 
+    it("reports the access token as revoked as soon as the Item is removed, even if the user removal then fails", async () => {
+      const plaid = fakePlaidFetch({ "/item/remove": () => ({ json: {} }), "/user/remove": () => ({ status: 503, json: {} }) });
+      const rail = createPlaidRail({ clientId: "c", secret: "s", environment: "sandbox", fetch: plaid.fetch });
+      let revoked = 0;
+      const outcome = await failureOf(rail.revoke(connection({ kind: "bank" }), { accessToken: "access-x", onAccessTokenRevoked: async () => void (revoked += 1) }));
+      expect(outcome).toMatchObject({ retryable: true });
+      expect(revoked).toBe(1);
+      const failing = createPlaidRail({ clientId: "c", secret: "s", environment: "sandbox", fetch: fakePlaidFetch({ "/item/remove": () => ({ status: 503, json: {} }) }).fetch });
+      await failureOf(failing.revoke(connection({ kind: "bank" }), { accessToken: "access-x", onAccessTokenRevoked: async () => void (revoked += 1) }));
+      expect(revoked).toBe(1);
+    });
+
     it("treats an already-removed user as success and other failures as errors", async () => {
       const gone = createPlaidRail({ clientId: "c", secret: "s", environment: "sandbox", fetch: fakePlaidFetch({ "/user/remove": () => ({ status: 400, json: { error_type: "INVALID_INPUT", error_code: "USER_NOT_FOUND" } }) }).fetch });
       await expect(gone.revoke(connection(), { accessToken: null })).resolves.toBeUndefined();
@@ -295,6 +336,25 @@ describe("Plaid adapter", () => {
       await rail.parseWebhook!(body, headers);
       expect(plaid.calls.filter((c) => c.path === "/webhook_verification_key/get")).toHaveLength(1);
       expect(plaid.calls[0]!.body).toEqual({ key_id: "kid-a" });
+    });
+
+    it("refetches a cached key after the cache period, so a key Plaid has since expired stops verifying", async () => {
+      const signer = makeWebhookSigner("kid-a", NOW_S - 100);
+      let expiredAt: number | null = null;
+      const plaid = fakePlaidFetch({ "/webhook_verification_key/get": () => ({ json: { key: { ...signer.key, expired_at: expiredAt } } }) });
+      const rail = createPlaidRail({ clientId: "c", secret: "s", environment: "sandbox", fetch: plaid.fetch });
+      const sign = (iat: number) => new Headers({ "plaid-verification": signJwt(signer.privateKey, { alg: "ES256", kid: "kid-a" }, { iat, request_body_sha256: sha256Hex(body) }) });
+      await rail.parseWebhook!(body, sign(NOW_S));
+      expiredAt = NOW_S + 10;
+      // Within the cache period the cached copy is used.
+      setTestNow(new Date(NOW.getTime() + PLAID_WEBHOOK_KEY_CACHE_MS - 1000));
+      await rail.parseWebhook!(body, sign(Math.floor((NOW.getTime() + PLAID_WEBHOOK_KEY_CACHE_MS - 1000) / 1000)));
+      expect(plaid.calls).toHaveLength(1);
+      // After it, the key is fetched again and its expiry is honored.
+      const later = new Date(NOW.getTime() + PLAID_WEBHOOK_KEY_CACHE_MS + 1000);
+      setTestNow(later);
+      expect(await failureOf(rail.parseWebhook!(body, sign(Math.floor(later.getTime() / 1000))))).toMatchObject({ code: "unauthenticated" });
+      expect(plaid.calls).toHaveLength(2);
     });
 
     it("rejects an unsigned or forged webhook without acting on it, and an unknown kid as unauthenticated", async () => {

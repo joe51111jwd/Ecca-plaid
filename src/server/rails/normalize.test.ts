@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { reconcileIncomeEvidence } from "@/engine/income";
-import { decimalToCents, isCountableSource, isReviewSource, payStubSources, reportToEvidence, summarizeCoverage } from "./normalize";
+import { decimalToCents, isCalendarDate, isCountableSource, isReviewSource, payStubSources, reportToEvidence, summarizeCoverage } from "./normalize";
 import type { NormalizedIncomeReport, NormalizedIncomeSource } from "./types";
 
 // All figures and names are SYNTHETIC.
@@ -155,5 +155,21 @@ describe("reportToEvidence", () => {
       ["rail_bank_net_deposits", "blocking"],
     ]);
     expect(flags.every((f) => f.sourceIds[0] === "rail_1" && f.memberIds[0] === "hm_1")).toBe(true);
+  });
+
+  it("never treats a stub with an impossible date as closing the year", () => {
+    expect(isCalendarDate("2025-12-26")).toBe(true);
+    expect(isCalendarDate("2024-02-29")).toBe(true);
+    for (const bad of ["2025-13-01", "2025-12-32", "2025-02-29", "2025-00-10", "2025-12-26T00:00:00Z", "0050-01-01"]) expect(isCalendarDate(bad)).toBe(false);
+    const out = payStubSources(
+      [
+        { employerName: "Synthetic Employer", payDate: "2025-06-13", payFrequency: "biweekly", ytdGrossCents: 1_000_000, providerRef: null },
+        // Sorts after every real 2025 date and would roll into 2026 when a pay period is added.
+        { employerName: "Synthetic Employer", payDate: "2025-99-99", payFrequency: "biweekly", ytdGrossCents: 1_000_000, providerRef: null },
+      ],
+      2025,
+      "high",
+    );
+    expect(out.sources.map((s) => [s.type, s.payDate])).toEqual([["paystub_projection", "2025-06-13"]]);
   });
 });

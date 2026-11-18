@@ -136,9 +136,7 @@ export function RailConnect({ locale, strings, consent, actions, onUploadInstead
 
       <div aria-live="polite" className="space-y-5">
         {state.error ? (
-          <Alert tone="danger" role="alert" title={state.error}>
-            {null}
-          </Alert>
+          <Alert tone="danger" role="alert" title={state.error} />
         ) : null}
 
         {state.phase === "intro" || state.phase === "starting" ? <ConsentStep strings={strings} consent={consent} busy={state.phase === "starting"} onConnect={start} /> : null}
@@ -220,7 +218,7 @@ function ProviderStep(props: { locale: "en" | "es"; strings: RailConnectStrings;
 function SimulatedPicker({ locale, strings, client, busy, onComplete, onDecline }: { locale: "en" | "es"; strings: RailConnectStrings; client: Extract<LinkSessionPayload, { provider: "simulated" }>; busy: boolean; onComplete: (clientResult: unknown) => void; onDecline: () => void }) {
   const [persona, setPersona] = useState(client.personas[0]?.id ?? "");
   return (
-    <Card tone="caution" padding="md" className="hatch space-y-4" data-testid="rail-sandbox-picker">
+    <Card tone="caution" padding="md" className="hatch space-y-4" id="rail-sandbox-picker">
       <div>
         <p className="flex items-center gap-2 text-base font-semibold tracking-wide text-caution-fg uppercase" data-testid="rail-sandbox-heading">
           <FlaskConical aria-hidden="true" className="size-5 shrink-0" />
@@ -282,16 +280,14 @@ function PlaidLauncher({ strings, client, busy, onComplete }: { strings: RailCon
 
   if (status === "failed") {
     return (
-      <Alert tone="warning" role="alert" title={strings.plaidLoadFailed}>
-        {null}
-      </Alert>
+      <Alert tone="warning" role="alert" title={strings.plaidLoadFailed} />
     );
   }
   return (
     <div className="space-y-3">
       {client.sandbox ? (
         <Badge tone="caution" icon={<FlaskConical />}>
-          {strings.sandboxHeading}
+          {strings.sandboxBadge}
         </Badge>
       ) : null}
       <Button size="lg" loading={status === "loading" || busy} loadingText={status === "loading" ? strings.plaidLoading : strings.connecting} onClick={() => handler.current?.open()}>

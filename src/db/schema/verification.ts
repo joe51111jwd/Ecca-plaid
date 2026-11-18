@@ -98,6 +98,19 @@ export type VerificationStage =
 export type VerificationMethod = "direct" | "categorical";
 export type ThresholdSource = "hud_provisional" | "irs_published";
 export type PathPreference = "upload" | "auto_submit";
+export type VerificationLocale = "en" | "es";
+
+/**
+ * Something a reviewer should see that does not block the family, e.g. the person who opened the link signed in
+ * with a different email than the SGO gave. Appended, never silently removed.
+ */
+export interface VerificationFlag {
+  code: string;
+  /** One sentence for SGO staff. Never contains a household member's name or an email address. */
+  message: string;
+  /** ISO 8601 UTC timestamp. */
+  at: string;
+}
 
 /** Shared-custody facts needed to apply the proposed household rule. Anything other than a clear answer is flagged for review. */
 export interface CustodyInfo {
@@ -135,13 +148,27 @@ export const verifications = pgTable(
     /* Family access */
     familyTokenHash: text("family_token_hash").notNull(),
     familyTokenExpiresAt: ts("family_token_expires_at").notNull(),
+    /** Language for the invitation and for messages sent before a household exists (the household's own locale wins afterwards). */
+    locale: text("locale").$type<VerificationLocale>().notNull().default("en"),
+    /** The signed-in person who first opened the family link and bound it to their household. */
+    startedAt: ts("started_at"),
+    startedByUserId: text("started_by_user_id").references(() => users.id),
+    /** Reviewer-visible, non-blocking observations (see VerificationFlag). */
+    flags: jsonb("flags").$type<VerificationFlag[]>().notNull().default([]),
 
     /* Links */
     householdId: text("household_id").references(() => households.id),
     consentId: text("consent_id").references(() => consents.id),
+    /** Denormalized from the sharing consent so the API can show `consent.version` / `consent.granted_at` without a join. */
+    consentVersion: text("consent_version"),
+    consentGrantedAt: ts("consent_granted_at"),
+    /** When the household facts (size, county, students, custody) were last snapshotted onto this verification. */
+    householdCompletedAt: ts("household_completed_at"),
     handoffId: text("handoff_id"),
     /** Passport reuse: the earlier verification whose still-valid result this one reuses (with a fresh consent). */
     passportSourceId: text("passport_source_id"),
+    /** When the reused result was decided (denormalized for the API's `passport.source_decided_at`). */
+    passportSourceDecidedAt: ts("passport_source_decided_at"),
     studentMemberIds: jsonb("student_member_ids").$type<string[]>().notNull().default([]),
     custody: jsonb("custody").$type<CustodyInfo>(),
 
@@ -237,9 +264,58 @@ export const documents = pgTable(
     /** When the raw bytes are due to be purged (set at decision time from the SGO's retention window). */
     purgeAfter: ts("purge_after"),
     purgedAt: ts("purged_at"),
+    /** When the parser or model finished reading the file. */
+    extractedAt: ts("extracted_at"),
+    /** The family took the document back before a decision. It no longer counts; its bytes are purged, its hash kept. */
+    removedAt: ts("removed_at"),
+    removedBy: text("removed_by").references(() => users.id),
     createdAt: createdAt(),
   },
-  (t) => [index("documents_verification_idx").on(t.verificationId), index("documents_purge_idx").on(t.purgeAfter)],
+  (t) => [
+    index("documents_verification_idx").on(t.verificationId),
+    index("documents_purge_idx").on(t.purgeAfter),
+    index("documents_verification_sha_idx").on(t.verificationId, t.sha256),
+  ],
+);
+
+/* Income certifications ---------------------------------------------------------------------------------- */
+
+/**
+ * `zero_income`: the named member had no income in the income year. `no_other_income`: the household (or the named
+ * member) had no income in the year beyond what the documents and data connections show. Proposed
+ * Reg. 1.25F-3(c)(6)(iii)(A): "evidence of other income not reflected on such documents ... or a certification that
+ * there is none".
+ */
+export type CertificationKind = "zero_income" | "no_other_income";
+
+/**
+ * A household adult's signed statement, stored like a consent: the exact versioned words (by version id and
+ * SHA-256), the locale, the signer and the time. Immutable except `withdrawnAt`.
+ */
+export const verificationCertifications = pgTable(
+  "verification_certifications",
+  {
+    id: pk(),
+    verificationId: text("verification_id").notNull().references(() => verifications.id),
+    householdId: text("household_id").notNull().references(() => households.id),
+    kind: text("kind").$type<CertificationKind>().notNull(),
+    /** Member the statement is about; null for a household-wide no-other-income statement. */
+    memberId: text("member_id").references(() => householdMembers.id),
+    incomeYear: integer("income_year").notNull(),
+    signedByUserId: text("signed_by_user_id").notNull().references(() => users.id),
+    /** The signer's own household-member row (an adult). */
+    signedByMemberId: text("signed_by_member_id").notNull().references(() => householdMembers.id),
+    copyVersion: text("copy_version").notNull(),
+    copySha256: text("copy_sha256").notNull(),
+    locale: text("locale").$type<VerificationLocale>().notNull(),
+    /** The variables the words were rendered with, so the text can be re-rendered and its hash re-checked. */
+    vars: jsonb("vars").$type<Record<string, string | number>>().notNull().default({}),
+    signedAt: ts("signed_at").notNull(),
+    withdrawnAt: ts("withdrawn_at"),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index("verification_certifications_ver_idx").on(t.verificationId)],
 );
 
 /* Income ---------------------------------------------------------------------------------------------- */

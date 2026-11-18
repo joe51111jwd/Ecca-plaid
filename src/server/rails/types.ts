@@ -235,8 +235,12 @@ export interface RailProvider {
   /** Validates what the browser reported (never trusted as data) and finishes the link. */
   completeLink(input: { connection: RailConnection; clientResult: unknown; at: Date }): Promise<CompleteLinkResult>;
   fetchIncomeReport(connection: RailConnection, ctx: FetchContext): Promise<FetchIncomeResult>;
-  /** Removes our access at the provider. Must succeed when the access is already gone. */
-  revoke(connection: RailConnection, ctx: { accessToken: string | null }): Promise<void>;
+  /**
+   * Removes our access at the provider. Must succeed when the access is already gone. A provider that
+   * removes access in several calls invokes `onAccessTokenRevoked` as soon as the access token is no longer
+   * valid, so a retry after a later step failed does not present the dead token again.
+   */
+  revoke(connection: RailConnection, ctx: { accessToken: string | null; onAccessTokenRevoked?: () => Promise<void> }): Promise<void>;
   /** Verifies the signature FIRST, then parses. Throws AppError `unauthenticated` for a bad signature. */
   parseWebhook?(rawBody: string, headers: { get(name: string): string | null }): Promise<RailWebhookEvent>;
 }

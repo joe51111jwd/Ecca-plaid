@@ -48,6 +48,12 @@ export const PLAID_API_VERSION = "2020-09-14";
 export const PLAID_BASE_URLS = { sandbox: "https://sandbox.plaid.com", production: "https://production.plaid.com" } as const;
 /** Policy: how long one Plaid API call may take before it counts as an outage (retried by the sync job). */
 export const PLAID_REQUEST_TIMEOUT_MS = 20_000;
+/**
+ * Policy (sources are silent): how long a fetched webhook verification key is trusted before it is fetched
+ * again. Plaid can expire a key (`expired_at`); without a refresh, a key cached while still valid would keep
+ * verifying webhooks after Plaid expired it.
+ */
+export const PLAID_WEBHOOK_KEY_CACHE_MS = 60 * 60 * 1000;
 
 export interface PlaidConfig {
   clientId: string;
@@ -185,6 +191,20 @@ export type PlaidBankIncomeGet = z.infer<typeof bankIncomeGetSchema>;
 const FREQUENCY: Readonly<Record<string, RailPayFrequency>> = { WEEKLY: "weekly", BIWEEKLY: "biweekly", SEMI_MONTHLY: "semimonthly", MONTHLY: "monthly" };
 const NOT_READY_STATUSES: ReadonlySet<string> = new Set(["PROCESSING", "APPROVAL_STATUS_PENDING"]);
 
+/** Plaid strings are unbounded; the stored report caps them (normalizedIncomeReportSchema). */
+function clip(value: string | null | undefined, max = 200): string | null {
+  if (typeof value !== "string") return null;
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+/** The report keeps at most 100 distinct warnings; repeated per-record warnings collapse into one. */
+export const PLAID_MAX_REPORT_WARNINGS = 100;
+function capWarnings(warnings: readonly string[]): string[] {
+  const distinct = [...new Set(warnings.map((w) => (w.length > 1000 ? w.slice(0, 1000) : w)))];
+  if (distinct.length <= PLAID_MAX_REPORT_WARNINGS) return distinct;
+  return [...distinct.slice(0, PLAID_MAX_REPORT_WARNINGS - 1), `${distinct.length - (PLAID_MAX_REPORT_WARNINGS - 1)} further warning(s) were left out.`];
+}
+
 interface NormalizeContext {
   incomeYear: number;
   retrievedAt: Date;
@@ -235,7 +255,7 @@ export function normalizePlaidPayrollIncome(json: PlaidPayrollIncomeGet, ctx: No
         const medicare = decimalToCents(w.medicare_wages_and_tips);
         w2Sources.push({
           type: "w2",
-          employerName: w.employer?.name ?? null,
+          employerName: clip(w.employer?.name),
           grossAnnualCents: wages,
           taxYear,
           confidence: "high",
@@ -244,12 +264,12 @@ export function normalizePlaidPayrollIncome(json: PlaidPayrollIncomeGet, ctx: No
           payDate: null,
           payFrequency: null,
           ytdGrossCents: null,
-          providerRef: w.document_id ?? null,
+          providerRef: clip(w.document_id),
         });
       }
       for (const s of pi.pay_stubs ?? []) {
         recordsSeen += 1;
-        personName ??= s.employee?.name ?? null;
+        personName ??= clip(s.employee?.name);
         const payDate = s.pay_period_details?.pay_date;
         if (!payDate) {
           warnings.push("A pay stub without a pay date was not used.");
@@ -257,11 +277,11 @@ export function normalizePlaidPayrollIncome(json: PlaidPayrollIncomeGet, ctx: No
         }
         const ytd = decimalToCents(s.earnings?.total?.ytd_amount);
         stubs.push({
-          employerName: s.employer?.name ?? null,
+          employerName: clip(s.employer?.name),
           payDate,
           payFrequency: FREQUENCY[s.pay_period_details?.pay_frequency ?? ""] ?? null,
           ytdGrossCents: ytd,
-          providerRef: s.document_id ?? null,
+          providerRef: clip(s.document_id),
         });
       }
     }
@@ -282,7 +302,7 @@ export function normalizePlaidPayrollIncome(json: PlaidPayrollIncomeGet, ctx: No
     coverage: summarizeCoverage(sources, ctx.incomeYear),
     dataBasis: "payroll_gross",
     recordsSeen,
-    warnings: [...warnings, ...fromStubs.warnings],
+    warnings: capWarnings([...warnings, ...fromStubs.warnings]),
     providerResponseSha256: ctx.rawSha256,
   };
   return { state: "ready", report };
@@ -330,16 +350,16 @@ export function normalizePlaidBankIncome(json: PlaidBankIncomeGet, ctx: Normaliz
         if (months.size < 12) partial = true;
         sources.push({
           type: "bank_income_estimate",
-          employerName: src.income_description ?? null,
+          employerName: clip(src.income_description),
           grossAnnualCents: total,
           taxYear: ctx.incomeYear,
           confidence: "low",
-          note: `Deposits categorized ${src.income_category ?? "UNKNOWN"} across ${months.size} month(s) of ${ctx.incomeYear}. Bank deposits are after taxes and deductions; this is not gross income.`,
+          note: `Deposits categorized ${clip(src.income_category, 100) ?? "UNKNOWN"} across ${months.size} month(s) of ${ctx.incomeYear}. Bank deposits are after taxes and deductions; this is not gross income.`,
           medicareWagesCents: null,
           payDate: null,
           payFrequency: null,
           ytdGrossCents: null,
-          providerRef: src.income_source_id ?? null,
+          providerRef: clip(src.income_source_id),
         });
       }
     }
@@ -358,7 +378,7 @@ export function normalizePlaidBankIncome(json: PlaidBankIncomeGet, ctx: Normaliz
       coverage: summarizeCoverage(sources, ctx.incomeYear, { partialHint: partial }),
       dataBasis: "bank_net_deposits",
       recordsSeen,
-      warnings,
+      warnings: capWarnings(warnings),
       providerResponseSha256: ctx.rawSha256,
     },
   };
@@ -402,7 +422,7 @@ export interface PlaidRail extends RailProvider {
 export function createPlaidRail(config: PlaidConfig): PlaidRail {
   const base = PLAID_BASE_URLS[config.environment];
   const doFetch = config.fetch ?? fetch;
-  const keyCache = new Map<string, PlaidWebhookKey>();
+  const keyCache = new Map<string, { key: PlaidWebhookKey; fetchedAtMs: number }>();
 
   async function call<T>(path: string, body: Record<string, unknown>, schema?: z.ZodType<T>): Promise<{ json: T; raw: string }> {
     let res: Response;
@@ -435,7 +455,7 @@ export function createPlaidRail(config: PlaidConfig): PlaidRail {
 
   async function getKey(kid: string): Promise<PlaidWebhookKey> {
     const cached = keyCache.get(kid);
-    if (cached) return cached;
+    if (cached && now().getTime() - cached.fetchedAtMs < PLAID_WEBHOOK_KEY_CACHE_MS) return cached.key;
     let json: { key?: PlaidWebhookKey };
     try {
       ({ json } = await call<{ key?: PlaidWebhookKey }>("/webhook_verification_key/get", { key_id: kid }));
@@ -445,7 +465,7 @@ export function createPlaidRail(config: PlaidConfig): PlaidRail {
       throw e;
     }
     if (!json.key || typeof json.key.x !== "string" || typeof json.key.y !== "string") throw new AppError("unauthenticated", "Invalid webhook signature", { reason: "unknown_kid" });
-    keyCache.set(kid, json.key);
+    keyCache.set(kid, { key: json.key, fetchedAtMs: now().getTime() });
     return json.key;
   }
 
@@ -511,8 +531,11 @@ export function createPlaidRail(config: PlaidConfig): PlaidRail {
       return normalizePlaidPayrollIncome(json, { ...norm, rawSha256: sha256Hex(raw) });
     },
 
-    async revoke(connection: RailConnection, ctx: { accessToken: string | null }): Promise<void> {
-      if (ctx.accessToken) await call("/item/remove", { access_token: ctx.accessToken });
+    async revoke(connection: RailConnection, ctx: { accessToken: string | null; onAccessTokenRevoked?: () => Promise<void> }): Promise<void> {
+      if (ctx.accessToken) {
+        await call("/item/remove", { access_token: ctx.accessToken });
+        await ctx.onAccessTokenRevoked?.();
+      }
       if (connection.externalId) {
         try {
           await call("/user/remove", { user_id: connection.externalId });

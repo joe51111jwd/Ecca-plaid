@@ -66,6 +66,24 @@ describe("POST /api/webhooks/plaid", () => {
     expect(plaid.calls).toHaveLength(0);
   });
 
+  it("answers 413 to a streamed body with no Content-Length once it passes the limit, without buffering the rest", async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(16_000).fill(120);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 1000) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const req = new Request("http://localhost/api/webhooks/plaid", { method: "POST", body: stream, headers: { "content-type": "application/json" }, duplex: "half" } as RequestInit & { duplex: "half" });
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+    expect(plaid.calls).toHaveLength(0);
+  });
+
   it("answers 503 when Plaid is not configured", async () => {
     setRailProviderForTests("plaid", null);
     const saved = { id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET };

@@ -60,8 +60,13 @@ export function loadPlaidLink(env: LinkLoaderEnv = browserEnv()): Promise<PlaidG
   if (env.window.Plaid) return Promise.resolve(env.window.Plaid);
   if (pending) return pending;
   pending = new Promise<PlaidGlobal>((resolve, reject) => {
+    const existing = env.document.querySelector(`script[src="${PLAID_LINK_SCRIPT_URL}"]`) as HTMLScriptElement | null;
+    const script = existing ?? env.document.createElement("script");
     const fail = (why: string) => {
       pending = null;
+      // A script element that errored never fires again; leaving it in the page would make every retry find
+      // it, wait on events that never come and time out. Removing it lets the retry add a fresh tag.
+      script.remove();
       reject(new Error(why));
     };
     const timer = env.window.setTimeout(() => fail("Plaid Link did not load in time"), PLAID_LINK_LOAD_TIMEOUT_MS);
@@ -70,8 +75,6 @@ export function loadPlaidLink(env: LinkLoaderEnv = browserEnv()): Promise<PlaidG
       if (env.window.Plaid) resolve(env.window.Plaid);
       else fail("Plaid Link loaded without defining Plaid");
     };
-    const existing = env.document.querySelector(`script[src="${PLAID_LINK_SCRIPT_URL}"]`) as HTMLScriptElement | null;
-    const script = existing ?? env.document.createElement("script");
     script.addEventListener("load", done, { once: true });
     script.addEventListener(
       "error",

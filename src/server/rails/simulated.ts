@@ -62,8 +62,8 @@ export const SIMULATED_PERSONAS: Readonly<Record<SimulatedPersonaId, PersonaDef>
   },
   high_earner: {
     kinds: ["payroll"],
-    label: { en: "High earner (far above any Texas limit)", es: "Ingresos altos (muy por encima de cualquier límite de Texas)" },
-    description: { en: `A W-2 well over the income limit. ${SANDBOX_NOTE.en}`, es: `Un W-2 muy por encima del límite de ingresos. ${SANDBOX_NOTE.es}` },
+    label: { en: "High earner (W-2 of $2.4 million)", es: "Ingresos altos (W-2 de 2.4 millones de dólares)" },
+    description: { en: `One W-2 with a very large income, for testing an over-the-limit result. ${SANDBOX_NOTE.en}`, es: `Un W-2 con ingresos muy altos, para probar un resultado por encima del límite. ${SANDBOX_NOTE.es}` },
   },
   no_prior_year: {
     kinds: ["payroll"],

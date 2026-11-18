@@ -447,6 +447,102 @@ describe("rails service", () => {
       expect((await listAuditLogs({ action: "rail.resync_failed" })).items).toHaveLength(1);
     });
 
+    it("never lets sandbox data reach a verification that became live", async () => {
+      const started = await start();
+      const view = await completeConnection(started.connection.id, { persona: "slow_provider" }, { userId: owner.id });
+      const db = await getDb();
+      await db.update(schema.verifications).set({ mode: "live" }).where(eq(schema.verifications.id, verificationId));
+      setTestNow(new Date(Date.parse(T0) + SIMULATED_SLOW_READY_AFTER_MS + 1000));
+      await syncConnection(view.id, { poll: 1, trigger: "job" });
+      expect(await railRow(view.id)).toMatchObject({ status: "failed", failureReason: "provider_unavailable", reportEnc: null });
+      expect(await railItems(view.id)).toHaveLength(0);
+    });
+
+    it("a stale provider failure from a double-submitted completion does not fail a connection that was linked meanwhile", async () => {
+      const { simulatedRail } = await import("./simulated");
+      let calls = 0;
+      setRailProviderForTests("simulated", {
+        ...simulatedRail,
+        async completeLink(input) {
+          calls += 1;
+          if (calls === 1) {
+            // The second submission wins the race and links the connection while this one is still at the provider.
+            // (a provider that prepares the data later, so the connection is "syncing", not yet "ready").
+            await completeConnection(input.connection.id, { persona: "slow_provider" }, { userId: owner.id });
+            throw new RailProviderError("connection_expired", "synthetic: the one-time token was already used");
+          }
+          return simulatedRail.completeLink(input);
+        },
+      });
+      const started = await start();
+      const view = await completeConnection(started.connection.id, { persona: "slow_provider" }, { userId: owner.id });
+      expect(calls).toBe(2);
+      expect(view).toMatchObject({ status: "syncing", failureReason: null, waiting: true });
+      expect((await listAuditLogs({ action: "rail.fail" })).items).toHaveLength(0);
+      setTestNow(new Date(Date.parse(T0) + SIMULATED_SLOW_READY_AFTER_MS + 1000));
+      await runJobs();
+      expect((await railRow(view.id)).status).toBe("ready");
+      expect(await railItems(view.id)).toHaveLength(1);
+    });
+
+    it("never replaces income items after the verification was decided", async () => {
+      const { view } = await connectPersona("single_w2");
+      const idsBefore = (await railItems(view.id)).map((i) => i.id);
+      const db = await getDb();
+      await db.update(schema.verifications).set({ status: "eligible", stage: "decided", decidedAt: new Date(T0) }).where(eq(schema.verifications.id, verificationId));
+      await syncConnection(view.id, { poll: 0, trigger: "webhook" });
+      expect((await railItems(view.id)).map((i) => i.id)).toEqual(idsBefore);
+      // Also when only decidedAt is set (status still pending while a decision is being recorded).
+      await db.update(schema.verifications).set({ status: "pending", stage: "processing" }).where(eq(schema.verifications.id, verificationId));
+      await syncConnection(view.id, { poll: 0, trigger: "webhook" });
+      expect((await railItems(view.id)).map((i) => i.id)).toEqual(idsBefore);
+      expect((await listAuditLogs({ action: "rail.sync" })).items).toHaveLength(1);
+    });
+
+    it("a report that breaks the stored format or names another year fails as records_unreadable instead of throwing", async () => {
+      const { simulatedRail } = await import("./simulated");
+      const variants: Array<(r: NormalizedIncomeReport) => NormalizedIncomeReport> = [
+        (r) => ({ ...r, sources: r.sources.map((s) => ({ ...s, employerName: "E".repeat(201) })) }),
+        (r) => ({ ...r, sources: r.sources.map((s) => ({ ...s, grossAnnualCents: -1 })) }),
+        (r) => ({ ...r, incomeYear: 2024 }),
+      ];
+      for (const mutate of variants) {
+        setRailProviderForTests("simulated", {
+          ...simulatedRail,
+          async fetchIncomeReport(connection, ctx) {
+            const result = await simulatedRail.fetchIncomeReport(connection, ctx);
+            return result.state === "ready" ? { state: "ready", report: mutate(result.report) } : result;
+          },
+        });
+        const started = await start();
+        const view = await completeConnection(started.connection.id, { persona: "single_w2" }, { userId: owner.id });
+        expect(view).toMatchObject({ status: "failed", failureReason: "records_unreadable", offerUpload: true, waiting: false });
+        expect(await railItems(view.id)).toHaveLength(0);
+      }
+    });
+
+    it("an unexpected error during the inline fetch hands the connection to the sync job instead of stranding it", async () => {
+      const { simulatedRail } = await import("./simulated");
+      let broken = true;
+      setRailProviderForTests("simulated", {
+        ...simulatedRail,
+        async fetchIncomeReport(connection, ctx) {
+          if (broken) throw new TypeError("synthetic bug");
+          return simulatedRail.fetchIncomeReport(connection, ctx);
+        },
+      });
+      const started = await start();
+      const view = await completeConnection(started.connection.id, { persona: "single_w2" }, { userId: owner.id });
+      expect(view).toMatchObject({ status: "connected", waiting: true });
+      const db = await getDb();
+      expect((await db.select().from(schema.jobs)).map((j) => j.type)).toEqual(["rail.sync"]);
+      broken = false;
+      setTestNow(new Date(Date.parse(T0) + RAIL_POLICY.pollIntervalMs + 1000));
+      expect(await runJobs()).toMatchObject({ ran: 1, succeeded: 1 });
+      expect(await getConnection(view.id, { userId: owner.id })).toMatchObject({ status: "ready" });
+      expect(await railItems(view.id)).toHaveLength(1);
+    });
+
     it("the job handler validates its payload", async () => {
       await expect(jobHandlers["rail.sync"]!({}, { jobId: "job_1", attempt: 1 })).rejects.toMatchObject({ code: "validation_failed" });
       await expect(jobHandlers["rail.revoke_remote"]!({ connectionId: 5 }, { jobId: "job_1", attempt: 1 })).rejects.toMatchObject({ code: "validation_failed" });
@@ -603,6 +699,22 @@ describe("rails service", () => {
       setTestNow(new Date(Date.parse(T0) + 60 * 60 * 1000));
       expect(await runJobs()).toMatchObject({ ran: 1, succeeded: 1 });
       expect((await railRow(view.id)).accessTokenEnc).toBeNull();
+    });
+
+    it("bank: when the Item was removed but the user removal failed, the retry does not present the dead token again", async () => {
+      const started = await start({ kind: "bank" });
+      const view = await completeConnection(started.connection.id, { status: "success", publicToken: "public-sandbox-x" }, { userId: owner.id });
+      let userDown = true;
+      const partial = fakePlaidFetch({
+        "/item/remove": () => ({ json: {} }),
+        "/user/remove": () => (userDown ? { status: 503, json: {} } : { json: {} }),
+      });
+      setRailProviderForTests("plaid", createPlaidRail({ clientId: "c", secret: "s", environment: "sandbox", fetch: partial.fetch }));
+      await revokeConnection(view.id, { userId: owner.id });
+      expect((await railRow(view.id)).accessTokenEnc).toBeNull();
+      userDown = false;
+      expect(await runJobs()).toMatchObject({ ran: 1, succeeded: 1 });
+      expect(partial.calls.map((c) => c.path)).toEqual(["/item/remove", "/user/remove", "/user/remove"]);
     });
 
     it("Link exit without an error is a decline; an expired link token fails as connection_expired", async () => {

@@ -31,7 +31,7 @@ import { enqueue } from "@/server/jobs";
 import { RAIL_DECLINED_COPY, RAIL_FAILURE_COPY, RAIL_REVOKED_COPY } from "./copy";
 import { isCountableSource, isReviewSource, reportToEvidence } from "./normalize";
 import { RAIL_POLICY } from "./policy";
-import { getRailProvider, RAIL_PROVIDER_INFO, railProviderForMode } from "./providers";
+import { getRailProvider, RAIL_PROVIDER_INFO, railModeMismatch, railProviderForMode } from "./providers";
 import {
   isRailFailureReason,
   isRailProviderError,
@@ -221,11 +221,17 @@ function assertOpenVerification(verification: Verification): void {
 
 /* --------------------------------------------------------------------------- state transitions */
 
-async function markFailed(connectionId: string, reason: RailFailureReason, detail: string, actor: RailActor | null): Promise<void> {
+/**
+ * Ends a connection as failed. `onlyFrom` narrows the statuses that may fail: a caller that read the row
+ * before a provider call passes the status it saw, so a concurrent request that already moved the connection
+ * on (for example a double-submitted completion that linked it) is not overwritten by a stale failure.
+ */
+async function markFailed(connectionId: string, reason: RailFailureReason, detail: string, actor: RailActor | null, opts: { onlyFrom?: readonly RailStatus[] } = {}): Promise<void> {
   const db = await getDb();
   await db.transaction(async (tx) => {
     const connection = await loadConnection(tx, connectionId, { forUpdate: true });
     if (!connection || !LIVE_STATUSES.includes(connection.status)) return;
+    if (opts.onlyFrom && !opts.onlyFrom.includes(connection.status)) return;
     const verification = await loadVerification(tx, connection.verificationId);
     if (connection.status === "ready") {
       // A re-sync that failed does not undo a report already received: the stored report and items stand.
@@ -392,18 +398,24 @@ export async function completeConnection(connectionId: string, clientResult: unk
   assertOpenVerification(verification);
 
   const provider = getRailProvider(providerIdOf(connection));
+  const mismatch = railModeMismatch(provider, verification.mode);
+  const onlyFrom = { onlyFrom: ["connecting"] as const };
+  if (mismatch) {
+    await markFailed(connection.id, "provider_unavailable", mismatch, actor, onlyFrom);
+    return viewOf(db, connection.id);
+  }
   let result;
   try {
     result = await provider.completeLink({ connection, clientResult, at: now() });
   } catch (e) {
     if (!isRailProviderError(e)) throw e;
-    await markFailed(connection.id, e.reason, e.message, actor);
+    await markFailed(connection.id, e.reason, e.message, actor, onlyFrom);
     return viewOf(db, connection.id);
   }
 
   if (result.outcome === "declined") return declineConnection(connection.id, actor);
   if (result.outcome === "failed") {
-    await markFailed(connection.id, result.reason, result.detail, actor);
+    await markFailed(connection.id, result.reason, result.detail, actor, onlyFrom);
     return viewOf(db, connection.id);
   }
 
@@ -422,7 +434,16 @@ export async function completeConnection(connectionId: string, clientResult: unk
     await audit({ actor: { type: "user", id: user.id }, orgId: verification.orgId, action: "rail.connect", target: { type: "rail_connection", id: connection.id }, metadata: { readiness: linked.readiness.type }, request: actor.request }, tx);
     return true;
   });
-  if (proceed && linked.readiness.type === "immediate") await syncConnection(connection.id, { poll: 0, trigger: "inline" });
+  if (proceed && linked.readiness.type === "immediate") {
+    try {
+      await syncConnection(connection.id, { poll: 0, trigger: "inline" });
+    } catch (e) {
+      // The link itself succeeded; an unexpected error while fetching must not leave the connection
+      // "connected" with nothing scheduled (the decision would wait on it forever). The job retries it.
+      console.error(`[rails] inline sync of ${connection.id} failed; handing it to the ${RAIL_SYNC_JOB} job`, e instanceof Error ? e.message : e);
+      await scheduleSync(db, connection.id, 0, RAIL_POLICY.pollIntervalMs, "job");
+    }
+  }
   return viewOf(db, connection.id);
 }
 
@@ -483,7 +504,9 @@ export async function syncConnection(connectionId: string, opts: SyncOptions): P
   const connection = await loadConnection(db, connectionId);
   if (!connection || !["connected", "syncing", "ready"].includes(connection.status)) return;
   const verification = await loadVerification(db, connection.verificationId);
-  if (!verification || verification.status === "canceled" || verification.status === "expired") return;
+  // Only while the verification is undecided: after a decision (or cancel/expiry) the income items are part of
+  // the decision record, so a late webhook or poll must not replace them.
+  if (!verification || verification.status !== "pending" || verification.decidedAt) return;
   if (connection.consentId) {
     const consent = await getConsentRecord(connection.consentId, db);
     if (consentState(consent) !== "active") return;
@@ -492,6 +515,12 @@ export async function syncConnection(connectionId: string, opts: SyncOptions): P
   if (!member) throw new AppError("internal", `Connection ${connection.id} has no member`);
   const incomeYear = await incomeYearFor(db, connection, verification);
   const provider = getRailProvider(providerIdOf(connection));
+  // The configuration may have changed since the connection was made; sandbox data never reaches a live verification.
+  const mismatch = railModeMismatch(provider, verification.mode);
+  if (mismatch) {
+    await markFailed(connection.id, "provider_unavailable", mismatch, null);
+    return;
+  }
   const accessToken = connection.accessTokenEnc ? decryptField(connection.accessTokenEnc, RAIL_TOKEN_PURPOSE) : null;
 
   const retryLater = async (afterMs: number, reason: RailFailureReason, detail: string) => {
@@ -518,8 +547,18 @@ export async function syncConnection(connectionId: string, opts: SyncOptions): P
   }
   if (result.state === "pending") return retryLater(result.retryAfterMs, "provider_unavailable", "The provider was still preparing the records");
 
-  const report = normalizedIncomeReportSchema.parse(result.report);
-  if (report.incomeYear !== incomeYear) throw new AppError("internal", `Provider returned a report for ${report.incomeYear}, expected ${incomeYear}`);
+  // A report that does not fit the stored format, or names another year, ends the connection as unreadable
+  // (the family is steered to upload) instead of throwing and leaving it "syncing" for ever.
+  const checked = normalizedIncomeReportSchema.safeParse(result.report);
+  if (!checked.success) {
+    await markFailed(connection.id, "records_unreadable", `The provider's records did not match the report format (${checked.error.issues.length} issue(s))`, null);
+    return;
+  }
+  const report = checked.data;
+  if (report.incomeYear !== incomeYear) {
+    await markFailed(connection.id, "records_unreadable", `The provider returned a report for ${report.incomeYear}, expected ${incomeYear}`, null);
+    return;
+  }
   const usable = report.sources.some((s) => isCountableSource(s, incomeYear) || isReviewSource(s, incomeYear));
   const failure: RailFailureReason | null = usable ? null : report.recordsSeen === 0 ? "records_unreadable" : "no_data_for_year";
   const reportSha256 = railReportSha256(report);
@@ -584,14 +623,18 @@ export async function syncConnection(connectionId: string, opts: SyncOptions): P
 async function revokeRemote(connection: RailConnection): Promise<boolean> {
   const provider = getRailProvider(providerIdOf(connection));
   const accessToken = connection.accessTokenEnc ? decryptField(connection.accessTokenEnc, RAIL_TOKEN_PURPOSE) : null;
+  const db = await getDb();
+  const deleteToken = async () => {
+    await db.update(schema.railConnections).set({ accessTokenEnc: null, updatedAt: now() }).where(eq(schema.railConnections.id, connection.id));
+  };
   try {
-    await provider.revoke(connection, { accessToken });
+    // The token is deleted as soon as the provider has invalidated it, even if a later removal step fails.
+    await provider.revoke(connection, { accessToken, onAccessTokenRevoked: deleteToken });
   } catch (e) {
     if (isRailProviderError(e) || (e instanceof AppError && e.code === "not_available")) return false;
     throw e;
   }
-  const db = await getDb();
-  await db.update(schema.railConnections).set({ accessTokenEnc: null, updatedAt: now() }).where(eq(schema.railConnections.id, connection.id));
+  await deleteToken();
   return true;
 }
 

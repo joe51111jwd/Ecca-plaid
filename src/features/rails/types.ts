@@ -21,6 +21,8 @@ export interface RailConnectStrings {
   sandboxHeading: string;
   /** Says no real account is used and nothing typed here is a password. */
   sandboxExplanation: string;
+  /** Short marker shown next to a provider running in its sandbox (e.g. Plaid sandbox). */
+  sandboxBadge: string;
   choosePersona: string;
   continueButton: string;
   /** Leaves the provider screen without sharing (a decline). */
