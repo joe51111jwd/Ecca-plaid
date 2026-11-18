@@ -51,7 +51,7 @@ export { Alert, Banner, Callout, LegalNote, type AlertProps, type AlertTone, typ
 export { FlashToast, ToastProvider, useToast, type FlashToastProps, type ToastOptions, type ToastTone } from "./toast";
 
 // Overlays
-export { ConfirmButton, ConfirmDialog, Dialog, DialogButton, Drawer, useDisclosure, type ConfirmButtonProps, type ConfirmDialogProps, type DialogButtonProps, type DialogProps, type DrawerProps } from "./dialog";
+export { ConfirmButton, ConfirmDialog, Dialog, DialogButton, Drawer, Modal, useDisclosure, type ConfirmButtonProps, type ConfirmDialogProps, type DialogButtonProps, type DialogProps, type DrawerProps } from "./dialog";
 export { DefinitionTooltip, Tooltip, type DefinitionTooltipProps, type TooltipProps } from "./tooltip";
 export { DropdownMenu, type DropdownMenuProps, type MenuItem } from "./menu";
 

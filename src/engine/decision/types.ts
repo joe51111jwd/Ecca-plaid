@@ -173,7 +173,6 @@ export const INFORMATIONAL_REASON_CODES = [
   "direct_evidence_wrong_year",
   "income_ambiguity_does_not_change_result",
   "sgo_stricter_cap_applied",
-  "custody_single_household",
   "custody_this_household_longest",
   "custody_equal_time_higher_income",
   "information_missing",
@@ -360,7 +359,7 @@ export interface Decision {
   reasons: DecisionReason[];
   /** What a person has to settle. Empty on every `eligible` and `ineligible` decision. */
   reviewReasons: DecisionReason[];
-  /** What the household still has to provide. Written for the household: do not show to anyone else. */
+  /** What the household still has to provide. The messages may use household members' names: keep them out of evidence packs. */
   missing: MissingItem[];
   /** True while the threshold table is HUD-derived. Every surface must label the result provisional. */
   provisional: boolean;

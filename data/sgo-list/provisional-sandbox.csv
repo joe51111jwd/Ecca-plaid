@@ -1,0 +1,10 @@
+# SANDBOX ONLY - NOT A REAL SGO LIST. Every organization below is fictional demo data for local development and tests.
+# No official or provisional Texas SGO list exists as of 2026-11-18 and the IRS SGO list has not been published.
+# EINs use the 00- prefix, which the IRS does not assign; the importer refuses them in production.
+# Contract: src/server/sgos/list-csv.ts (state,name,ein,status,listed_from,removed_on).
+state,name,ein,status,listed_from,removed_on
+TX,Demo: Lone Star Scholarship Fund (sandbox),00-1000001,listed,2026-11-01,
+TX,Demo: Bluebonnet Education Partners (sandbox),00-1000002,listed,2026-11-01,
+TX,Demo: Gulf Coast Learning Grants (sandbox),00-1000003,listed,2026-11-01,
+TX,Demo: Hill Country Tuition Aid (sandbox),00-1000004,listed,2026-11-01,
+TX,Demo: Pecos Valley Scholars (sandbox - shown as removed),00-1000005,removed,2026-11-01,2026-11-15

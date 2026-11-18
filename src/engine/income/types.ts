@@ -197,7 +197,8 @@ export interface MissingItem {
   accepts: MissingAccepts[];
   /**
    * A complete sentence for a list under a heading such as "We still need". Written for the household
-   * itself: it may use the names the household entered and must not be shown to anyone else.
+   * itself and for the SGO staff working the file: it may use the names the household entered, so it does
+   * not belong in an evidence pack or anywhere a third party reads.
    */
   message: { en: string; es: string };
 }

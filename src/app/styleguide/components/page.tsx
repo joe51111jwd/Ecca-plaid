@@ -276,6 +276,16 @@ export default async function StyleGuideComponents({ searchParams }: { searchPar
         </Specimen>
 
         <Specimen id="text-link" name="TextLink" importLine='import { TextLink } from "@/components/ui"' note={<p>A link inside text. Underlined by default so it never depends on colour alone; <C>tone=&quot;quiet&quot;</C> only where the layout already says “link” (table cells, navigation).</p>}>
+          <Example label="standalone — a link on its own line (footers, sidebars): full-size tap target, room for an icon">
+            <Row className="gap-6">
+              <TextLink href="/docs" tone="quiet" standalone>
+                <KeyRound aria-hidden="true" className="size-4" /> API reference
+              </TextLink>
+              <TextLink href="/styleguide/shells" standalone>
+                How we use your information
+              </TextLink>
+            </Row>
+          </Example>
           <Example label="In running text, quiet, external">
             <p className="max-w-reading text-base text-fg">
               Upload a benefits award letter, or <TextLink href="/styleguide/forms">see which documents work</TextLink>. Applicant <TextLink href="/styleguide/components" tone="quiet">Maria Alvarez</TextLink> · source:{" "}
@@ -1037,7 +1047,7 @@ export default async function StyleGuideComponents({ searchParams }: { searchPar
         <Specimen
           id="dialog"
           name="Dialog · Drawer · ConfirmDialog · DialogButton · ConfirmButton"
-          importLine='import { Dialog, Drawer, ConfirmDialog, DialogButton, ConfirmButton, useDisclosure } from "@/components/ui"'
+          importLine='import { Dialog (alias Modal), Drawer, ConfirmDialog, DialogButton, ConfirmButton, useDisclosure } from "@/components/ui"'
           note={
             <p>
               Built on the native <C>&lt;dialog&gt;</C>: the browser traps and returns focus, Esc closes, the page behind is inert. <C>Dialog</C>, <C>Drawer</C> and <C>ConfirmDialog</C> are controlled (<C>open</C>/<C>onClose</C>,

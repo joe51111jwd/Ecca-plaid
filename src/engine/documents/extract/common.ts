@@ -62,6 +62,12 @@ export class ExtractionBuilder {
     };
   }
 
+  /** Records `toKey` as the same value and provenance as `fromKey` (e.g. letter_date = certification date). */
+  alias(toKey: string, fromKey: string): void {
+    const f = this.fields[fromKey];
+    if (f) this.fields[toKey] = { ...f };
+  }
+
   /** Marks a field as required: missing → `field_missing`; low confidence → `low_confidence`. */
   require(...keys: string[]): void {
     for (const k of keys) this.required.add(k);

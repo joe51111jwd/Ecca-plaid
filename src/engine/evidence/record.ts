@@ -57,7 +57,7 @@ export interface EvidenceInputErrorDetails {
 const AUDIT_FIELD_PATHS: readonly RegExp[] = [
   /^threshold(\.(source|tableVersion|effectiveDate))?$/,
   /^consent(\.(copyVersion|copySha256|grantedAt))?$/,
-  /^decision\.decidedBy(\.(reviewerId|reviewerName|notes))?$/,
+  /^decision\.decidedBy(\.(type|reviewerId|reviewerName|notes))?$/,
   /^documents\[\d+\]\.sha256$/,
   /^rails\[\d+\]\.reportSha256$/,
 ];

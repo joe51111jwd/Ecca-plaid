@@ -108,7 +108,9 @@ export function extractSimpleNotice(ctx: ExtractContext, subtype: DocumentSubtyp
 /** Unemployment letters: other income, not an award. Pre-filled for a reviewer only (no source layout). */
 export function extractUnemploymentNotice(ctx: ExtractContext): Extraction {
   const b = new ExtractionBuilder("unemployment_notice", ctx.policy);
-XX, addressee.name, 0.8, addressee.ref);
+  readLetterDate(ctx, b, /\bDate:/i, CONF_HEURISTIC);
+  const addressee = findAddressee(ctx.doc);
+  if (addressee) b.set("claimant_name", addressee.name, 0.8, addressee.ref);
   b.set("look_alike_program", "UNEMPLOYMENT", CONF_HEURISTIC, null);
   b.review("review_required_by_policy", "Unemployment letters are income evidence read by a person; no layout is verified.");
   return b.build(null, null);

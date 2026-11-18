@@ -133,6 +133,9 @@ export function Dialog(props: DialogProps) {
   return <ModalFrame {...props} kind="dialog" />;
 }
 
+/** `Modal` is the same component as `Dialog`, under the other name people look for. */
+export const Modal = Dialog;
+
 /**
  * Side pane for the detail of one record while the list stays in view behind it.
  * Same behaviour as Dialog. URL-driven use: `<Drawer open closeHref="/sgo/verifications" …>`.

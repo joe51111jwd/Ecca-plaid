@@ -80,7 +80,7 @@ function ExampleResult({ live }: { live: LiveThreshold | null }) {
                 <KeyValue label={example.countyLabel}>
                   {live.result.county.name}, {LANDING_EXAMPLE.state}
                 </KeyValue>
-                <KeyValue label={example.limitLabel} hint={`${live.result.formula}. ${live.source.sourceLine}`}>
+                <KeyValue label={example.limitLabel} hint={live.result.formula}>
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <Money cents={live.result.thresholdCents} />
                     {provisional ? <ProvisionalBadge size="sm" /> : null}
@@ -92,7 +92,10 @@ function ExampleResult({ live }: { live: LiveThreshold | null }) {
             <KeyValue label={example.evidenceLabel}>{example.evidence}</KeyValue>
           </KeyValueList>
         </div>
-        <p className="rounded-b-card border-t border-line bg-canvas px-5 py-3 text-xs leading-5 text-fg-muted">{example.footnote}</p>
+        <div className="space-y-1.5 rounded-b-card border-t border-line bg-canvas px-5 py-3 text-xs leading-5 text-fg-muted">
+          {live ? <p>{live.source.sourceLine}</p> : null}
+          <p>{example.footnote}</p>
+        </div>
       </div>
     </div>
   );

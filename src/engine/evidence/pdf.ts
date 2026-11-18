@@ -17,7 +17,7 @@ import {
   consentKindLabel,
 } from "./copy";
 import { formatBytes, formatCalendarDate, formatMoney, formatUtcClock, formatUtcTimestamp, groupHash, humanizeKey, utcDateOf } from "./format";
-import { COLOR, CONTENT_WIDTH, PdfWriter, STYLE, type Cell, type CellPart, type TextStyle } from "./pdf-layout";
+import { COLOR, CONTENT_WIDTH, PdfWriter, STYLE, type Cell, type CellPart, type Column, type TextStyle } from "./pdf-layout";
 import { canonicalRecordBytes } from "./record";
 import {
   EVIDENCE_SCHEMA_VERSION,
@@ -255,19 +255,14 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
     180,
   );
 
-  pdf.subheading(threshold.readings.length === 1 ? "The limit under the table in use" : "Every reading of the limit");
-  pdf.table(
-    [
-      { header: "Reading", width: 190 },
-      { header: "Arithmetic", width: 224 },
-      { header: "Limit", width: 90, align: "right", style: STYLE.smallBold },
-    ],
-    threshold.readings.map((reading) => [
-      [part(reading.label), part(reading.id, MONO_SMALL)],
-      reading.formula,
-      formatMoney(reading.limit_cents),
-    ]),
-  );
+  const readingColumns: Column[] = [
+    { header: "Reading", width: 190 },
+    { header: "Arithmetic", width: 224 },
+    { header: "Limit", width: 90, align: "right", style: STYLE.smallBold },
+  ];
+  const readingRows: Cell[][] = threshold.readings.map((reading) => [[part(reading.label), part(reading.id, MONO_SMALL)], reading.formula, formatMoney(reading.limit_cents)]);
+  pdf.subheading(threshold.readings.length === 1 ? "The limit under the table in use" : "Every reading of the limit", Math.min(pdf.tableHeight(readingColumns, readingRows), KEEP_TOGETHER_LIMIT));
+  pdf.table(readingColumns, readingRows);
   if (!threshold.readings_agree) {
     pdf.keyValues(
       [
@@ -459,8 +454,8 @@ export async function renderEvidencePdf(signed: SignedEvidence, options: Evidenc
   if (decision.reasons.length > 0) {
     pdf.table(
       [
-        { header: "Reason code", width: 168, style: MONO },
-        { header: "Reason", width: CONTENT_WIDTH - 168 },
+        { header: "Reason code", width: 150, style: MONO },
+        { header: "Reason", width: CONTENT_WIDTH - 150 },
       ],
       decision.reasons.map((reason) => [reason.code, reason.message]),
     );

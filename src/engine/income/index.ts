@@ -72,6 +72,17 @@ export {
   type WageSourceTier,
 } from "./reconcile";
 export {
+  householdMemberSchema,
+  householdMembersSchema,
+  idSchema,
+  incomeCertificationSchema,
+  incomeDocumentSourceSchema,
+  incomeItemSchema,
+  incomeItemsSchema,
+  incomeReviewFlagSchema,
+  incomeYearSchema,
+  isoDateSchema,
+  parseInput,
   INCOME_FLAG_CODES,
   MAX_AMOUNT_CENTS,
   MAX_HOUSEHOLD_MEMBERS,

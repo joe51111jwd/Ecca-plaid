@@ -1,0 +1,9 @@
+# SYNTHETIC TEST FIXTURE - not IRS data. The real IRS SGO list format is not public yet (see ../list-csv.ts).
+# Columns deliberately out of order and mixed case to exercise the header rules.
+Name,State,EIN,Status,Listed_From,Removed_On
+"Synthetic Scholars Fund, Inc.",tx,001234567,listed,2027-01-01,
+Synthetic Niños Educación Fund,TX,00-2345678,removed,2027-01-01,2027-03-15
+Synthetic Prairie Grants,OK,00-3456789,LISTED,,
+
+# a comment between rows is ignored
+Synthetic Lone Star Aid,TX,00-4567890,listed,2027-01-01,

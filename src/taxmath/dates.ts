@@ -6,6 +6,9 @@ import { invalid } from "@/lib/errors";
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
+/** Zone names are accepted in any letter case, so the cache is bounded rather than keyed on caller input forever. */
+const MAX_CACHED_FORMATTERS = 64;
+
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
   const cached = formatters.get(timeZone);
   if (cached) return cached;
@@ -28,6 +31,7 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
   } catch {
     throw unknownTimeZone(timeZone);
   }
+  if (formatters.size >= MAX_CACHED_FORMATTERS) formatters.clear();
   formatters.set(timeZone, formatter);
   return formatter;
 }

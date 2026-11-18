@@ -309,7 +309,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
           counted: true,
           basis: "Cash wages for the income year",
           source: "document",
-          documentId: "doc_SYNTHETICw2000000000001",
+          documentId: "doc_SYNTHETICw200000000001",
         },
         {
           id: "inc_SYNTHETICincome0000002",
@@ -321,7 +321,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
           counted: true,
           basis: "Cash wages for the income year",
           source: "reviewer",
-          documentId: "doc_SYNTHETICpaystub0000001",
+          documentId: "doc_SYNTHETICpaystub000001",
         },
         {
           id: "inc_SYNTHETICincome0000003",
@@ -333,7 +333,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
           counted: true,
           basis: "Counted whether or not it is taxable",
           source: "document",
-          documentId: "doc_SYNTHETICsupport0000001",
+          documentId: "doc_SYNTHETICsupport000001",
         },
         {
           id: "inc_SYNTHETICincome0000004",
@@ -351,7 +351,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
     categorical: null,
     documents: [
       {
-        id: "doc_SYNTHETICw2000000000001",
+        id: "doc_SYNTHETICw200000000001",
         kind: "w2",
         sha256: syntheticSha256("Form W-2"),
         filename: "synthetic-w2-2026.pdf",
@@ -367,7 +367,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
         ],
       },
       {
-        id: "doc_SYNTHETICpaystub0000001",
+        id: "doc_SYNTHETICpaystub000001",
         kind: "pay_stub",
         sha256: syntheticSha256("pay stub photo"),
         filename: "synthetic-pay-stub-photo.jpg",
@@ -384,7 +384,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
         ],
       },
       {
-        id: "doc_SYNTHETICsupport0000001",
+        id: "doc_SYNTHETICsupport000001",
         kind: "other_income",
         sha256: syntheticSha256("child support payment statement"),
         filename: "synthetic-child-support-statement.pdf",
@@ -468,7 +468,7 @@ export function syntheticDirectReviewedInput(): EvidenceInput {
       { at: "2027-01-29T20:24:05.000Z", event: "Submitted", actor: { type: "family" } },
       { at: "2027-01-30T08:02:10.000Z", event: "Sent to review", actor: { type: "engine" } },
       { at: "2027-02-03T15:12:44.000Z", event: "Decision made", actor: { type: "reviewer", id: "usr_SYNTHETICreviewer00001", name: "Riley Example (synthetic reviewer)" }, detail: "eligible, direct method" },
-      { at: "2027-03-05T09:00:00.000Z", event: "Raw file deleted under the retention policy", actor: { type: "system" }, detail: "doc_SYNTHETICpaystub0000001; hash retained" },
+      { at: "2027-03-05T09:00:00.000Z", event: "Raw file deleted under the retention policy", actor: { type: "system" }, detail: "doc_SYNTHETICpaystub000001; hash retained" },
       { at: "2027-03-05T09:00:04.000Z", event: "Evidence pack regenerated", actor: { type: "system" } },
     ],
     generatedAt: "2027-03-05T09:00:04.000Z",
@@ -481,7 +481,7 @@ export function syntheticDocuments(count: number): EvidenceDocumentInput[] {
   return Array.from({ length: count }, (_, index) => {
     const n = String(index + 1).padStart(3, "0");
     return {
-      id: `doc_SYNTHETICbulk00000000${n}`,
+      id: `doc_SYNTHETICbulkfile00${n}`,
       kind: index % 2 === 0 ? ("pay_stub" as const) : ("w2" as const),
       sha256: syntheticSha256(`bulk document ${n}`),
       filename: `synthetic-document-${n}.pdf`,

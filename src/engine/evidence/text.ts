@@ -74,8 +74,12 @@ export function containsSsnPattern(text: string): boolean {
 const SENSITIVE_FIELD =
   /\b(dob|birth\w*|born|ssn|ssns|itin|tin|social security (number|no|num|nbr)\w*|taxpayer id\w*|(account|acct|card|routing) ?(number|no|num|nbr)\w*|routing|passport\w*|driver\w* licen[cs]e\w*)\b/;
 
+/* Straight and typographic apostrophes, so that "driver's" reads as one word. */
+const APOSTROPHE = new RegExp(`['${charClass([[0x2019, 0x2019]])}]`, "gu");
+
 function words(name: string): string {
   return name
+    .replace(APOSTROPHE, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")

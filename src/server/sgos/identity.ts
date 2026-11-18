@@ -50,7 +50,6 @@ export function cleanText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 export function hasControlChars(value: string): boolean {

@@ -22,8 +22,7 @@ import type { CustodyDetermination, CustodyInfo, CustodyReviewCode, DecisionReas
 
 const HALF_YEAR_MONTHS = 6;
 
-const MESSAGES: Record<CustodyReviewCode | "custody_single_household" | "custody_this_household_longest" | "custody_equal_time_higher_income", string> = {
-  custody_single_household: "The student lived in one household during the income year.",
+const MESSAGES: Record<CustodyReviewCode | "custody_this_household_longest" | "custody_equal_time_higher_income", string> = {
   custody_this_household_longest:
     "The student lived in more than one household and spent more than half of the income year in this one, so under the proposed rules this is the relevant household.",
   custody_equal_time_higher_income:
@@ -39,7 +38,7 @@ const MESSAGES: Record<CustodyReviewCode | "custody_single_household" | "custody
 
 export interface CustodyEvaluation {
   determination: CustodyDetermination;
-  /** Explains the determination when the rule was applied. */
+  /** Explains the determination when the shared-custody rule was applied; null for a single household. */
   reason: DecisionReason | null;
   /** Set when a person has to settle it. */
   reviewReason: DecisionReason | null;
@@ -53,7 +52,7 @@ function reason(code: ReasonCode & keyof typeof MESSAGES): DecisionReason {
 export function evaluateCustody(custody: CustodyInfo | null): CustodyEvaluation {
   if (custody === null) return { determination: { outcome: "not_answered", facts: null }, reason: null, reviewReason: null };
 
-  const settled = (outcome: "single_household" | "this_household_longest" | "this_household_equal_time_higher_income", code: keyof typeof MESSAGES & ReasonCode): CustodyEvaluation => ({
+  const settled = (outcome: "this_household_longest" | "this_household_equal_time_higher_income", code: keyof typeof MESSAGES & ReasonCode): CustodyEvaluation => ({
     determination: { outcome, facts: custody },
     reason: reason(code),
     reviewReason: null,
@@ -66,7 +65,7 @@ export function evaluateCustody(custody: CustodyInfo | null): CustodyEvaluation 
   if (!custody.livesInMultipleHouseholds) {
     // "One household" together with a part-year stay or an equal-time answer is a contradiction, not a no.
     if (equalTime || (months !== null && months < 12)) return review("custody_answers_inconsistent");
-    return settled("single_household", "custody_single_household");
+    return { determination: { outcome: "single_household", facts: custody }, reason: null, reviewReason: null };
   }
 
   if (equalTime) {
