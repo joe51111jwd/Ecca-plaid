@@ -1,4 +1,4 @@
-import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, jsonb, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { createdAt, pk, ts, updatedAt, type Mode } from "./_shared";
 import { objects, organizations } from "./core";
 
@@ -51,6 +51,13 @@ export const partnerships = pgTable(
  */
 export type HandoffStatus = "started" | "verifying" | "held" | "eligible" | "awarded" | "completed" | "declined" | "expired" | "canceled";
 
+/** How a handoff was created: server-to-server with the business's secret API key, or from the embed with its publishable key. */
+export type HandoffCreatedVia = "api" | "embed";
+/** How the partner SGO was chosen: the business named it, it was the only active partner, or the family picked it. */
+export type HandoffSgoChoice = "business" | "single_partner" | "family";
+/** Who canceled a handoff. */
+export type HandoffCanceledBy = "business" | "family" | "system";
+
 export const handoffs = pgTable(
   "handoffs",
   {
@@ -73,14 +80,37 @@ export const handoffs = pgTable(
     /** Token that lets the family's browser resume the handoff (hash stored). */
     tokenHash: text("token_hash").notNull(),
     holdExpiresAt: ts("hold_expires_at"),
+    /** Internal reason code for a decline or cancellation (never sent to the business beyond "declined"). */
     declineReason: text("decline_reason"),
     metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
     completedAt: ts("completed_at"),
+    createdVia: text("created_via").$type<HandoffCreatedVia>().notNull().default("api"),
+    /** The secret API key that created it (server-to-server path). */
+    createdByApiKeyId: text("created_by_api_key_id"),
+    /** The business's own idempotency key for the server-to-server create call; unique per business and mode. */
+    idempotencyKey: text("idempotency_key"),
+    /**
+     * True when the business confirmed the booking amount server-side (API create or at completion). An amount that
+     * arrived from the embed came through the family's browser and is shown to the SGO as unconfirmed.
+     */
+    bookingAmountConfirmed: boolean("booking_amount_confirmed").notNull().default(false),
+    sgoChosenBy: text("sgo_chosen_by").$type<HandoffSgoChoice>(),
+    /**
+     * The linked verification's family link token, encrypted (encryptField purpose "handoff-family-link"). The
+     * verifications service stores only the hash of that token, and the hosted handoff page must link into the
+     * verification flow; holding the handoff token already grants that access. Never returned by API reads.
+     */
+    familyLinkEnc: text("family_link_enc"),
+    /** Total hours the business has added to the original hold window (bounded by a policy maximum). */
+    holdExtendedHours: integer("hold_extended_hours").notNull().default(0),
+    statusChangedAt: ts("status_changed_at"),
+    canceledBy: text("canceled_by").$type<HandoffCanceledBy>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex("handoffs_token_uq").on(t.tokenHash),
+    uniqueIndex("handoffs_idempotency_uq").on(t.businessOrgId, t.mode, t.idempotencyKey),
     index("handoffs_business_idx").on(t.businessOrgId, t.mode, t.createdAt),
     index("handoffs_sgo_idx").on(t.sgoOrgId),
     index("handoffs_verification_idx").on(t.verificationId),

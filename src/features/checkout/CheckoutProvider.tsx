@@ -156,6 +156,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
 
   const revealAllErrors = useCallback(() => setShowAll(true), []);
 
+  const shownStatementSha256 = view.designation.statement?.textSha256 ?? null;
   const placeOrder = useCallback(async (): Promise<boolean> => {
     const saved = await flush();
     if (!saved) {
@@ -164,7 +165,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
     }
     setPlacing(true);
     try {
-      const result = await placeOrderAction(access, view.designation.statement?.textSha256 ?? null);
+      const result = await placeOrderAction(access, shownStatementSha256);
       if (result.ok) {
         setView(result.data.view);
         setPayment(result.data.payment);
@@ -182,7 +183,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
     } finally {
       setPlacing(false);
     }
-  }, [access, flush, view.designation.statement?.textSha256]);
+  }, [access, flush, shownStatementSha256]);
 
   const backToForm = useCallback(() => setStage("form"), []);
 

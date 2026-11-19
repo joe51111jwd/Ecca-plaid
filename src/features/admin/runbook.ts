@@ -25,6 +25,6 @@ export const IRS_TABLE_SWAP_IN_STEPS: readonly RunbookStep[] = [
   { step: 5, what: "Second, independent transcription", command: "npm run ami:ingest -- --verify-transcription <second.csv> --against irs-<year>" },
   { step: 6, what: "Review the comparison with the active table", command: "npm run ami:ingest -- --diff irs-<year> --report <diff.csv>" },
   { step: 7, what: "Activate", command: "npm run ami:ingest -- --activate irs-<year>" },
-  { step: 8, what: "Re-run the full Texas suite on the new numbers", command: "npx vitest run src/engine/ami then npm test" },
+  { step: 8, what: "Re-run the full Texas suite on the new numbers", command: "npx vitest run src/engine/ami && npm test" },
   { step: 9, what: "Commit, review, deploy", command: null },
 ];

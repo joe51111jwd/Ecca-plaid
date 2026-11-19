@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 import { MS } from "@/lib/clock";
 import type { CheckoutView, CopyPlacement, ViewCopy } from "@/server/donations";
 import type { ClientPayment } from "@/server/payments";
@@ -212,6 +213,22 @@ function buildPanel(view: CheckoutView): ClientPanel {
     sections: view.panel.sections.map((s) => ({ key: s.key, heading: s.heading, lines: s.lines.map((l) => ({ id: l.id, label: l.label, amountCents: l.amountCents, role: l.role })) })),
     notes,
   };
+}
+
+/** The panel before a checkout exists (the start screen): no figures yet, every standing caveat. */
+export function standingPanel(locale: CheckoutView["locale"] = "en"): ClientPanel {
+  return {
+    title: renderCopyDynamic("panel.title", {}, { locale }),
+    status: "empty",
+    sections: [],
+    notes: STANDING_PANEL_NOTES.map((id) => ({ id, text: renderCopyDynamic(id, {}, { locale }) })),
+  };
+}
+
+/** The list notice for an organization found in the directory (the provisional list says what it is not). */
+export function directoryListNotice(source: CheckoutView["list"]["source"], locale: CheckoutView["locale"] = "en"): CopyText | null {
+  if (source !== "provisional_curated") return null;
+  return { id: "notice.sgo_list_provisional", text: renderCopy("notice.sgo_list_provisional", { platformName: BRAND.name }, { locale }) };
 }
 
 /* ------------------------------------------------------------------ review lines */

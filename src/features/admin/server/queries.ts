@@ -272,7 +272,7 @@ export interface RefundCandidate {
   orgId: string;
   orgName: string;
   mode: Mode;
-  status: string;
+  status: (typeof schema.donations.$inferSelect)["status"];
   designatedAmountCents: number;
   nonDesignatedAmountCents: number;
   donorServiceFeeCents: number;

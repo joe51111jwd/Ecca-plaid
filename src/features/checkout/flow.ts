@@ -3,6 +3,7 @@ import { isAppError } from "@/lib/errors";
 import type { AuditRequestInfo } from "@/server/audit";
 import { getCheckout, getCheckoutPayment, placeOrder, saveCheckout, startCheckout, type CheckoutPatch, type CheckoutView } from "@/server/donations";
 import type { ClientPayment } from "@/server/payments";
+import { stateName, US_STATE_CODES } from "@/server/sgos";
 import { toClientView, toReceiptSummary, type CheckoutClientView, type ReceiptSummary } from "./view-model";
 
 /**
@@ -84,4 +85,44 @@ export async function loadReceipt(token: string): Promise<LoadedReceipt> {
   const raw = await getCheckout(token);
   const payment = raw.session.paymentId ? await paymentOrNull(token) : null;
   return { view: toClientView(raw), receipt: toReceiptSummary(raw, payment, now()), payment };
+}
+
+/** What a checkout page should show for the token this browser holds (or none). */
+export type ResolvedCheckout =
+  | { kind: "none" }
+  /** The browser held a checkout that can no longer be used (expired, canceled, unknown). */
+  | { kind: "ended"; reason: "expired" | "canceled" | "unknown" }
+  | { kind: "active"; loaded: LoadedCheckout }
+  | { kind: "completed"; loaded: LoadedCheckout };
+
+/**
+ * Loads the checkout behind a token for a page. A token for another organization's checkout is treated as unknown,
+ * so a widget URL edited to another slug cannot show one SGO's page with another's checkout.
+ */
+export async function resolveCheckout(token: string | null | undefined, slug: string): Promise<ResolvedCheckout> {
+  if (!token) return { kind: "none" };
+  let loaded: LoadedCheckout;
+  try {
+    loaded = await loadCheckout(token);
+  } catch (e) {
+    if (isAppError(e) && e.code === "gone") return { kind: "ended", reason: "expired" };
+    if (isAppError(e) && (e.code === "not_found" || e.code === "validation_failed")) return { kind: "ended", reason: "unknown" };
+    throw e;
+  }
+  if (loaded.raw.sgo.slug !== slug) return { kind: "ended", reason: "unknown" };
+  switch (loaded.view.status) {
+    case "completed":
+      return { kind: "completed", loaded };
+    case "canceled":
+      return { kind: "ended", reason: "canceled" };
+    case "expired":
+      return { kind: "ended", reason: "expired" };
+    default:
+      return { kind: "active", loaded };
+  }
+}
+
+/** The 50 States and D.C. for the address field. */
+export function usStateOptions(): Array<{ code: string; name: string }> {
+  return US_STATE_CODES.map((code) => ({ code, name: stateName(code) }));
 }

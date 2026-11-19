@@ -30,7 +30,7 @@ export interface GateInput {
   listSource: SgoListSource;
   /** Entries of each list source currently marked listed. */
   listedEntries: Record<SgoListSource, number>;
-  incomeTable: { version: string; provisional: boolean; sourceName: string };
+  incomeTable: { version: string; provisional: boolean };
 }
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD); negative when `to` is earlier. */
@@ -105,12 +105,12 @@ export function summarizeGates(input: GateInput): GateSummary[] {
     ? {
         key: "income_table",
         title: "Income limits",
-        value: input.incomeTable.sourceName,
+        value: "HUD-derived",
         tone: "caution",
         detail: `Table ${input.incomeTable.version}. Every decision is labeled provisional; incomes between the two readings go to review.`,
         href: "/admin/income-limits",
       }
-    : { key: "income_table", title: "Income limits", value: input.incomeTable.sourceName, tone: "neutral", detail: `Table ${input.incomeTable.version}.`, href: "/admin/income-limits" };
+    : { key: "income_table", title: "Income limits", value: "IRS-published", tone: "neutral", detail: `Table ${input.incomeTable.version}.`, href: "/admin/income-limits" };
 
   return [fees, live, start, list, table];
 }

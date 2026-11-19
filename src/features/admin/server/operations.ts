@@ -1,8 +1,9 @@
 import { getDb } from "@/db/client";
 import { centralDateString, now } from "@/lib/clock";
-import { actionError, conflict, invalid, isAppError, type ActionResult } from "@/lib/errors";
+import { actionError, conflict, forbidden, invalid, isAppError, type ActionResult } from "@/lib/errors";
 import { formatUsd } from "@/lib/money";
 import { audit } from "@/server/audit";
+import { isPlatformAdmin } from "@/server/auth";
 import { createBusiness, formatBps, setSuccessFee } from "@/server/businesses";
 import { recordOperatorRefund, donationsPolicy } from "@/server/donations";
 import { processDeletionRequest } from "@/server/households";
@@ -62,10 +63,14 @@ export const LIST_SOURCE_MIN_LISTED_ENTRIES = 1;
 
 const ok = (notice: AdminNotice): ActionResult<AdminNotice> => ({ ok: true, data: notice });
 
-/** Wraps an operation body so thrown AppErrors become a failed ActionResult. */
+/**
+ * Wraps an operation body: re-checks that the actor is a platform admin (some services, such as settings and the job
+ * queue, leave authorization to their caller), and turns thrown AppErrors into a failed ActionResult.
+ */
 function operation(body: (actor: AdminActor, formData: FormData) => Promise<AdminNotice>): AdminOperation {
   return async (actor, formData) => {
     try {
+      if (typeof actor?.userId !== "string" || !(await isPlatformAdmin(actor.userId))) throw forbidden();
       return ok(await body(actor, formData));
     } catch (e) {
       return actionError(e);
