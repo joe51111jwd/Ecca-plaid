@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorFor, FIELD_ORDER, fieldId, isEmptyPatch, mergePatch, orderedErrors, patchAt, patchPaths, textValue, withoutPaths } from "./form-state";
+import { errorFor, FIELD_ORDER, fieldId, isEmptyPatch, mergePatch, orderedErrors, patchAt, patchPaths, textValue, withoutPaths, withoutRejected } from "./form-state";
 
 describe("mergePatch", () => {
   it("merges nested objects field by field so consecutive keystrokes in different fields land in one save", () => {
@@ -88,5 +88,36 @@ describe("errors", () => {
   it("makes DOM-safe ids", () => {
     expect(fieldId("contributors.primary.firstName")).toBe("give-contributors-primary-firstName");
     expect(fieldId("a b<c>")).toBe("give-a-b-c-");
+  });
+});
+
+describe("withoutRejected", () => {
+  it("keeps the fields the service did not object to when one field in the same save is refused", () => {
+    const patch = { email: "jane@", address: { line1: "100 Synthetic Way", city: "Austin" }, giftCents: 50_000 };
+    expect(withoutRejected(patch, ["email"])).toEqual({ address: { line1: "100 Synthetic Way", city: "Austin" }, giftCents: 50_000 });
+  });
+
+  it("drops a refused nested leaf but keeps its siblings, and prunes an object left empty", () => {
+    expect(withoutRejected({ address: { zip: "787", city: "Austin" } }, ["address.zip"])).toEqual({ address: { city: "Austin" } });
+    expect(withoutRejected({ address: { zip: "787" }, giftCents: 1 }, ["address.zip"])).toEqual({ giftCents: 1 });
+    expect(withoutRejected({ contributors: { primary: { giftCents: 1, firstName: "Ada" }, spouse: { giftCents: null } } }, ["contributors.primary.giftCents"])).toEqual({
+      contributors: { primary: { firstName: "Ada" }, spouse: { giftCents: null } },
+    });
+  });
+
+  it("drops a whole object refused at its own path, and a scalar that contains a refused path", () => {
+    expect(withoutRejected({ liability: { estimatedTaxCents: 1, otherCreditsCents: 2 }, email: "a@b.co" }, ["liability"])).toEqual({ email: "a@b.co" });
+    expect(withoutRejected({ address: null, email: "a@b.co" }, ["address.zip"])).toEqual({ email: "a@b.co" });
+  });
+
+  it("returns an empty patch when nothing refused matches, so a re-save can never loop", () => {
+    expect(withoutRejected({ giftCents: 1 }, ["form"])).toEqual({});
+    expect(withoutRejected({ giftCents: 1 }, [])).toEqual({});
+    expect(withoutRejected({ giftCents: 1 }, [""])).toEqual({});
+    expect(withoutRejected({ address: { city: "Austin" } }, ["address.cityX", "addr"])).toEqual({});
+  });
+
+  it("returns an empty patch when every field was refused", () => {
+    expect(withoutRejected({ email: "x", address: { zip: "1" } }, ["email", "address.zip"])).toEqual({});
   });
 });

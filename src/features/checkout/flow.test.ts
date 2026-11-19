@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTestDb } from "../../../tests/helpers/db";
 import { MS, setTestNow } from "@/lib/clock";
-import { isAppError } from "@/lib/errors";
+import { actionError, isAppError } from "@/lib/errors";
 import { donationsPolicy } from "@/server/donations";
 import { createListedSgo, drainJobs, jointPatch, paySandbox, singleFilerPatch } from "@/server/donations/test-support";
+import { withoutRejected } from "./form-state";
 import { beginGift, loadCheckout, loadReceipt, placeGift, resolveCheckout, saveGift, usStateOptions } from "./flow";
 
 /* All organizations and people are SYNTHETIC (see src/server/donations/test-support.ts). */
@@ -34,6 +35,19 @@ describe("checkout flow (screens → donations service)", () => {
 
   it("refuses an unknown organization", async () => {
     await expect(beginGift({ slug: "no-such-fund", source: "hosted" })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("a save refused for one field can be re-sent without it, so the other fields typed alongside are not lost", async () => {
+    const sgo = await createListedSgo();
+    const { token } = await beginGift({ slug: sgo.slug, source: "hosted" });
+    const patch = { email: "jane@", giftCents: 50_000, contributors: { primary: { firstName: "Synthetic", lastName: "Donor" } } };
+    const error = await saveGift(token, patch).catch((e: unknown) => e);
+    expect(isAppError(error) && error.code === "validation_failed").toBe(true);
+    const fields = actionError(error).error.fields ?? {};
+    expect(Object.keys(fields)).toEqual(["email"]);
+    const view = await saveGift(token, withoutRejected(patch, Object.keys(fields)));
+    expect(view.order.giftCents).toBe(50_000);
+    expect(view.order.contributors[0]).toMatchObject({ firstName: "Synthetic", lastName: "Donor" });
   });
 
   it("refuses fields the checkout does not have (an SSN, a student's name, a memo)", async () => {
