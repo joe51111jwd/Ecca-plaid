@@ -65,6 +65,15 @@ export const HTTP_SAMPLES = {
     output: "evidence.json",
     expectStatus: 200,
   },
+  evidencePdf: {
+    id: "evidencePdf",
+    title: "Download the evidence pack (PDF)",
+    method: "GET",
+    path: "/verifications/{verification_id}/evidence.pdf",
+    key: "sgo",
+    output: "evidence.pdf",
+    expectStatus: 200,
+  },
   createWebhookEndpoint: {
     id: "createWebhookEndpoint",
     title: "Register a webhook endpoint",

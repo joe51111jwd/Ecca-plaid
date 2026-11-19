@@ -41,8 +41,6 @@ describe("apiRoute", () => {
     it("answers every bad key with one uniform 401 body, a request id and no-store", async () => {
       const revoked = await makeKey(sgo, "test", "to revoke");
       const db = await getDb();
-      const [row] = await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.orgId, sgo));
-      void row;
       const keys = await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.name, "to revoke"));
       await revokeApiKey(sgo, keys[0].id, { type: "system", reason: "test" });
       const bodies = new Set<string>();

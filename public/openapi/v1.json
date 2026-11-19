@@ -283,11 +283,11 @@
                       "threshold_usd": "100000.00",
                       "threshold_readings": [
                         {
-                          "id": "ami_300pct",
+                          "id": "median_product",
                           "usd": "100000.00"
                         },
                         {
-                          "id": "vli_6x",
+                          "id": "section8_vli",
                           "usd": "105000.00"
                         }
                       ],
@@ -302,7 +302,7 @@
                       "evidence_pack_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.pdf",
                       "evidence_json_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.json",
                       "consent": {
-                        "version": "share-v1",
+                        "version": "verification_share.v1",
                         "granted_at": "2026-11-18T16:05:00.000Z"
                       },
                       "expires_at": "2026-12-31T23:59:59.999Z",
@@ -587,11 +587,11 @@
                   "threshold_usd": "100000.00",
                   "threshold_readings": [
                     {
-                      "id": "ami_300pct",
+                      "id": "median_product",
                       "usd": "100000.00"
                     },
                     {
-                      "id": "vli_6x",
+                      "id": "section8_vli",
                       "usd": "105000.00"
                     }
                   ],
@@ -606,7 +606,7 @@
                   "evidence_pack_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.pdf",
                   "evidence_json_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.json",
                   "consent": {
-                    "version": "share-v1",
+                    "version": "verification_share.v1",
                     "granted_at": "2026-11-18T16:05:00.000Z"
                   },
                   "expires_at": "2026-12-31T23:59:59.999Z",
@@ -745,11 +745,11 @@
                   "threshold_usd": "100000.00",
                   "threshold_readings": [
                     {
-                      "id": "ami_300pct",
+                      "id": "median_product",
                       "usd": "100000.00"
                     },
                     {
-                      "id": "vli_6x",
+                      "id": "section8_vli",
                       "usd": "105000.00"
                     }
                   ],
@@ -764,7 +764,7 @@
                   "evidence_pack_url": null,
                   "evidence_json_url": null,
                   "consent": {
-                    "version": "share-v1",
+                    "version": "verification_share.v1",
                     "granted_at": "2026-11-18T16:05:00.000Z"
                   },
                   "expires_at": "2026-12-31T23:59:59.999Z",
@@ -2572,11 +2572,11 @@
                         "threshold_usd": "100000.00",
                         "threshold_readings": [
                           {
-                            "id": "ami_300pct",
+                            "id": "median_product",
                             "usd": "100000.00"
                           },
                           {
-                            "id": "vli_6x",
+                            "id": "section8_vli",
                             "usd": "105000.00"
                           }
                         ],
@@ -2591,7 +2591,7 @@
                         "evidence_pack_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.pdf",
                         "evidence_json_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.json",
                         "consent": {
-                          "version": "share-v1",
+                          "version": "verification_share.v1",
                           "granted_at": "2026-11-18T16:05:00.000Z"
                         },
                         "expires_at": "2026-12-31T23:59:59.999Z",
@@ -2738,11 +2738,11 @@
                     "threshold_usd": "100000.00",
                     "threshold_readings": [
                       {
-                        "id": "ami_300pct",
+                        "id": "median_product",
                         "usd": "100000.00"
                       },
                       {
-                        "id": "vli_6x",
+                        "id": "section8_vli",
                         "usd": "105000.00"
                       }
                     ],
@@ -2757,7 +2757,7 @@
                     "evidence_pack_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.pdf",
                     "evidence_json_url": "https://passport.synthetic.example/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.json",
                     "consent": {
-                      "version": "share-v1",
+                      "version": "verification_share.v1",
                       "granted_at": "2026-11-18T16:05:00.000Z"
                     },
                     "expires_at": "2026-12-31T23:59:59.999Z",

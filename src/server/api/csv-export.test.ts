@@ -38,7 +38,7 @@ describe("CSV export columns", () => {
       threshold_readings: "median_product=100000.00;section8_vli=105000.00",
       threshold_source: "hud_provisional",
       provisional: "true",
-      consent_version: "share-v1",
+      consent_version: "verification_share.v1",
       passport_reused: "false",
       reasons: "",
     });

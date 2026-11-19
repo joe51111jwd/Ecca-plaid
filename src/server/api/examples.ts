@@ -82,7 +82,7 @@ export const EXAMPLE_DECIDED_VERIFICATION: z.input<typeof verificationSchema> = 
   income_year: 2025,
   evidence_pack_url: `${HOST}/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.pdf`,
   evidence_json_url: `${HOST}/api/v1/verifications/ver_SYNTHETIC0000000000000A/evidence.json`,
-  consent: { version: "share-v1", granted_at: "2026-11-18T16:05:00.000Z" },
+  consent: { version: "verification_share.v1", granted_at: "2026-11-18T16:05:00.000Z" },
   expires_at: "2026-12-31T23:59:59.999Z",
   decided_at: "2026-11-18T16:20:00.000Z",
   decided_by: "engine",

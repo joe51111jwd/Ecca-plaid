@@ -12,6 +12,7 @@ export {
   API_KEY_MANAGER_ROLE,
   API_ORG_TYPES,
   authenticateApiKey,
+  authenticateApiKey as authenticate,
   createApiKey,
   hasActiveLiveKey,
   listApiKeys,

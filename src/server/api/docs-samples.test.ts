@@ -128,6 +128,8 @@ describe("HTTP samples run against the route handlers", () => {
 
   it("downloads the signed evidence record and verifies it with both documented CLI commands", async () => {
     await attachSyntheticEvidence(sgoOrg, vars.verification_id);
+    const pdf = await run("evidencePdf");
+    expect(pdf.headers.get("content-type")).toBe("application/pdf");
     const res = await run("evidenceJson");
     writeFileSync(join(dir, "evidence.json"), Buffer.from(await res.arrayBuffer()));
 
