@@ -96,7 +96,7 @@ describe("verification lifecycle (synthetic documents)", () => {
     expect(api.consent?.version).toBe("verification_share.v1");
     expect(api.threshold_readings.length).toBeGreaterThanOrEqual(1);
     const json = JSON.stringify(api);
-    expect(json).not.toMatch(/Dana|Riley|dana@example|41250|4125000/);
+    expect(json).not.toMatch(/Dana|Riley|dana@example|41250|41,250|4125000/);
     expect(json).not.toContain("/v/");
 
     // Evidence: signed, verifiable, downloadable, carries the household income.
@@ -118,6 +118,9 @@ describe("verification lifecycle (synthetic documents)", () => {
     const [decided] = await listEvents({ orgId: sgo.orgId, type: "verification.decided" });
     expect(decided.payload.evidence_json_url).toBeTruthy();
     expect(decided.payload.status).toBe("eligible");
+    // The webhook payload is data-minimized too: the engine's reason wording states the income, the payload does not.
+    expect(row.decisionReasons.map((r) => r.message).join(" ")).toContain("41,250");
+    expect(JSON.stringify(decided.payload)).not.toMatch(/Dana|Riley|41,250|41250/);
 
     // The family was told in plain language; the handoff job was queued.
     const outcome = await listOutbox({ to: "dana@example.com", template: "verification_outcome" });

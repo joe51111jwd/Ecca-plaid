@@ -16,6 +16,7 @@ import { createVerification } from "./create";
 import { addDocument } from "./documents";
 import { recordSharingConsent, startVerification } from "./family";
 import { getFamilyView } from "./family-view";
+import { citeSha256 } from "./evidence";
 import { getEvidenceObject, getVerification } from "./org";
 import { findReusableResult, previewPassportConsent, reuseResult } from "./passport";
 import { purgeDueUploads } from "./retention";
@@ -104,7 +105,7 @@ describe("passport reuse", () => {
     expect(verifySignedEvidenceWithPlatformKey(evidence).valid).toBe(true);
     expect(evidence.record.reused_from_verification_id).toBe(source.id);
     expect(evidence.record.consent.kind).toBe("passport_reuse");
-    expect(JSON.stringify(evidence.record.timeline)).toContain(sourceEvidence.signature.record_sha256);
+    expect(JSON.stringify(evidence.record.timeline)).toContain(citeSha256(sourceEvidence.signature.record_sha256));
     expect(evidence.record.documents.map((d) => d.sha256)).toEqual(sourceEvidence.record.documents.map((d) => d.sha256));
     expect(await listEvents({ orgId: b.orgId, type: "verification.decided" })).toHaveLength(1);
 
@@ -129,6 +130,24 @@ describe("passport reuse", () => {
 
     // Once decided, nothing can be reused again.
     expect((await errorOf(reuseResult(target.id, source.id, { attestsNothingChanged: true }, family.actor))).code).toBe("conflict");
+  });
+
+  it("reuse still works after the earlier verification's raw files were purged (fields and hashes are what is reused)", async () => {
+    const a = await makeTestSgo("Synthetic Fund A");
+    const b = await makeTestSgo("Synthetic Fund B");
+    const family = await makeTestFamily();
+    const source = await decidedWithA(a, family);
+    setTestNow(new Date(Date.parse(TEST_NOW) + 31 * 86_400_000));
+    expect((await purgeDueUploads()).purged).toBe(1);
+    const target = await startedWithB(b, family);
+    const result = await reuseResult(target.id, source.id, { attestsNothingChanged: true }, family.actor);
+    expect(result.outcome).toBe("reused");
+    await drainJobs();
+    const row = await getVerification(b.orgId, target.id, { mode: "test" });
+    expect(row.status).toBe("eligible");
+    const evidence = JSON.parse((await getEvidenceObject(b.orgId, target.id, "json", { type: "api_key", id: "key_B", mode: "test" })).bytes.toString("utf8")) as SignedEvidence;
+    expect(verifySignedEvidenceWithPlatformKey(evidence).valid).toBe(true);
+    expect(evidence.record.documents[0]?.purged_at).toBeTruthy();
   });
 
   it("a stricter cap at the second SGO is honoured: the re-run is not eligible, so it falls back to the normal flow keeping everything", async () => {

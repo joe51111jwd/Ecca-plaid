@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { VerificationRow } from "./internal";
 import { centsToUsd, toApiVerification } from "./serialize";
 import { renderCertification } from "./copy";
+import { REASON_CODES } from "@/engine/decision";
+import { PUBLIC_REASON_FALLBACK, publicReasonMessage } from "./public-reasons";
 
 /** A SYNTHETIC verification row with everything a decided row carries. */
 function row(over: Partial<VerificationRow> = {}): VerificationRow {
@@ -60,7 +62,8 @@ function row(over: Partial<VerificationRow> = {}): VerificationRow {
     awardLetterDate: null,
     provisional: true,
     decision: { threshold: { readings: [{ id: "median_product", thresholdCents: 9_288_000 }, { id: "section8_vli", thresholdCents: 20_088_000 }, { id: "broken" }] } },
-    decisionReasons: [{ code: "direct_income_within_limit", message: "Household income is within the limit." }],
+    // The engine's real wording states the household income; the API must not carry it.
+    decisionReasons: [{ code: "direct_income_within_limit", message: "Household income for 2025 of $41,250.00 is not greater than the limit of $92,880.00 for a household of 2 in Starr County." }],
     decidedAt: at,
     decidedBy: "engine",
     expiresAt: new Date("2027-01-01T06:00:00.000Z"),
@@ -110,7 +113,7 @@ describe("toApiVerification", () => {
       income_year: 2025,
       award_program: null,
       award_letter_date: null,
-      reasons: [{ code: "direct_income_within_limit", message: "Household income is within the limit." }],
+      reasons: [{ code: "direct_income_within_limit", message: "Household income for the income year is not greater than the income limit." }],
       evidence_pack_url: "https://app.example.org/api/v1/verifications/ver_SYNTHETIC000000000000001/evidence.pdf",
       evidence_json_url: "https://app.example.org/api/v1/verifications/ver_SYNTHETIC000000000000001/evidence.json",
       consent: { version: "verification_share.v1", granted_at: "2026-11-18T16:00:00.000Z" },
@@ -123,7 +126,35 @@ describe("toApiVerification", () => {
       created_at: "2026-11-18T16:00:00.000Z",
     });
     const json = JSON.stringify(api);
-    for (const secret of ["dana@example.com", "Dana", "Riley", "4125000", "41250", "hh_1", "a".repeat(64), "https://sgo.example.org/done"]) expect(json).not.toContain(secret);
+    for (const secret of ["dana@example.com", "Dana", "Riley", "4125000", "41250", "41,250", "hh_1", "a".repeat(64), "https://sgo.example.org/done"]) expect(json).not.toContain(secret);
+  });
+
+  it("reason messages are the fixed public sentences: no figures from the engine's wording, one entry per code, unknown codes fall back", () => {
+    const api = toApiVerification(
+      row({
+        status: "needs_review",
+        decisionReasons: [
+          { code: "income_range_spans_limit", message: "Household income for 2025 is between $88,000.00 and $97,500.00 depending on points the sources leave open." },
+          { code: "income_figures_conflict", message: "Form W-2 $41,250.00 against Form 1040 $45,100.00" },
+          { code: "income_figures_conflict", message: "Forms W-2 total $52,000.00, more than the $45,100.00 on the Form 1040" },
+          { code: "some_future_code", message: "Dana Sample earned $1,234.56" },
+        ],
+      }),
+      { baseUrl: "https://x.example" },
+    );
+    expect(api.reasons.map((r) => r.code)).toEqual(["income_range_spans_limit", "income_figures_conflict", "some_future_code"]);
+    expect(api.reasons[2]!.message).toBe(PUBLIC_REASON_FALLBACK);
+    const json = JSON.stringify(api.reasons);
+    expect(json).not.toMatch(/\$|\d{1,3},\d{3}|Dana/);
+  });
+
+  it("every engine reason code has a public sentence without a figure", () => {
+    for (const code of REASON_CODES) {
+      const message = publicReasonMessage(code);
+      expect(message, code).not.toBe(PUBLIC_REASON_FALLBACK);
+      expect(message, code).not.toMatch(/\$|\{|\}/);
+    }
+    expect(publicReasonMessage("toString")).toBe(PUBLIC_REASON_FALLBACK);
   });
 
   it("an undecided row has nulls, a reviewer decision says reviewer, a passport reuse says so", () => {

@@ -151,6 +151,13 @@ describe("mapDocument: income documents", () => {
     expect(m.source?.extractionConfidence).toBe(0);
   });
 
+  it("a clean reading stays trusted after retention deletes the file; an unclean one stays untrusted", () => {
+    const ex = extraction({ subtype: "irs_w2", income: income({ amounts: [amount("w2_box1_wages", 100, { fieldKey: "w2_1.box_1_cents", person: "DANA SAMPLE" })] }) });
+    expect(mapDocument(doc({ extraction: ex }, { status: "purged" }), ROSTER).source?.extractionConfidence).toBe(0.95);
+    expect(mapDocument(doc({ extraction: ex, readerStatus: "needs_review" }, { status: "purged" }), ROSTER).source?.extractionConfidence).toBe(0);
+    expect(mapDocument(doc({ extraction: ex }, { status: "rejected" }), ROSTER).source?.extractionConfidence).toBe(0);
+  });
+
   it("pay stubs need a pay date and a member; nothing is projected", () => {
     const ex = extraction({ subtype: "pay_stub", income: income({ payDate: "2025-12-31", people: [{ name: "DANA SAMPLE", role: "employee", masked: false, ssnLast4: null }], amounts: [amount("paystub_gross_ytd", 5_000_000, { person: "DANA SAMPLE", payer: "FIXTURE FOODS LLC" })] }) });
     const m = mapDocument(doc({ detectedKind: "pay_stub", extraction: ex }, { declaredKind: "pay_stub" }), ROSTER);

@@ -2,11 +2,13 @@
  * The public JSON shape of a verification: what the HTTP API returns and what `verification.*` webhooks carry.
  *
  * Data minimization: no names, no email address, no household income figure and never the family link (it is
- * a credential, returned once by createVerification). Household income appears only in the evidence files the
+ * a credential, returned once by createVerification). Reason messages are the fixed public sentences of
+ * public-reasons.ts, never the engine's wording (which states income figures). Household income appears only in the evidence files the
  * SGO downloads. Schema policy: fields are only added, never renamed or removed.
  */
 import type { Mode, ThresholdSource, VerificationMethod, VerificationStage, VerificationStatus } from "@/db/schema";
 import { EVIDENCE_JSON_PATH, EVIDENCE_PDF_PATH } from "./policy";
+import { publicReasonMessage } from "./public-reasons";
 import type { VerificationRow } from "./internal";
 
 export interface ApiVerification {
@@ -30,6 +32,7 @@ export interface ApiVerification {
   income_year: number | null;
   award_program: string | null;
   award_letter_date: string | null;
+  /** Engine reason codes with a fixed, figure-free sentence each (PUBLIC_REASON_MESSAGES); the engine's own wording is in the evidence files. */
   reasons: Array<{ code: string; message: string }>;
   evidence_pack_url: string | null;
   evidence_json_url: string | null;
@@ -72,6 +75,18 @@ function readingsOf(decision: Record<string, unknown> | null): Array<{ id: strin
   return out;
 }
 
+/** One entry per code, in the stored order: the engine can give several messages for one code, the public sentence is per code. */
+function publicReasons(stored: ReadonlyArray<{ code: string }>): Array<{ code: string; message: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ code: string; message: string }> = [];
+  for (const r of stored) {
+    if (seen.has(r.code)) continue;
+    seen.add(r.code);
+    out.push({ code: r.code, message: publicReasonMessage(r.code) });
+  }
+  return out;
+}
+
 export function toApiVerification(row: VerificationRow, opts: { baseUrl: string }): ApiVerification {
   const base = opts.baseUrl.replace(/\/+$/, "");
   const decidedBy = row.decidedBy === null ? null : row.decidedBy === "engine" ? "engine" : "reviewer";
@@ -93,7 +108,7 @@ export function toApiVerification(row: VerificationRow, opts: { baseUrl: string 
     income_year: row.incomeYear,
     award_program: row.awardProgram,
     award_letter_date: row.awardLetterDate,
-    reasons: row.decisionReasons.map((r) => ({ code: r.code, message: r.message })),
+    reasons: publicReasons(row.decisionReasons),
     evidence_pack_url: row.evidencePdfObjectId ? `${base}${EVIDENCE_PDF_PATH(row.id)}` : null,
     evidence_json_url: row.evidenceJsonObjectId ? `${base}${EVIDENCE_JSON_PATH(row.id)}` : null,
     consent: row.consentVersion && row.consentGrantedAt ? { version: row.consentVersion, granted_at: row.consentGrantedAt.toISOString() } : null,

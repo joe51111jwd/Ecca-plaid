@@ -87,6 +87,16 @@ async function consentInput(db: DbOrTx, consentId: string, grantedBy: string): P
   return { id: c.id, kind: c.kind, copyVersion: c.copyVersion, copySha256: c.copySha256, locale: c.locale, grantedAt: c.grantedAt, grantedBy, scope: c.scope };
 }
 
+/**
+ * A SHA-256 written into free text of the evidence record, in groups of eight characters. The evidence engine
+ * removes anything shaped like a Social Security number from free text, and a hex digest can contain exactly
+ * nine digits in a row (about one digest in a few hundred does), which would cut the citation. No group of eight
+ * can hold nine digits, and no 3-2-4 pattern fits groups of eight, so the citation always survives intact.
+ */
+export function citeSha256(hex: string): string {
+  return (hex.match(/.{1,8}/g) ?? []).join(" ");
+}
+
 /** Timeline events that are review actions, with the words the review trail uses for them. */
 const REVIEW_ACTIONS: Readonly<Record<string, (data: Record<string, unknown>) => string>> = {
   "review.assigned": () => "Assigned the review",
@@ -176,7 +186,7 @@ export async function assembleEvidenceInput(db: DbOrTx, v: VerificationRow, gene
     at: e.createdAt,
     event: humanize(e.type),
     actor: e.actorType === "user" ? staffActor(e.actorId) : { type: e.actorType === "system" && e.type === "decision.made" ? "engine" : e.actorType, id: e.actorType === "family" ? null : e.actorId },
-    detail: e.type === "passport.reused" && v.passportSourceId ? `Reuses verification ${v.passportSourceId}${v.passportSourceRecordSha256 ? ` (evidence record SHA-256 ${v.passportSourceRecordSha256})` : ""} with a new consent.` : null,
+    detail: e.type === "passport.reused" && v.passportSourceId ? `Reuses verification ${v.passportSourceId}${v.passportSourceRecordSha256 ? ` (evidence record SHA-256 ${citeSha256(v.passportSourceRecordSha256)})` : ""} with a new consent.` : null,
   }));
   const reviewTrail: EvidenceReviewEntryInput[] = events
     .filter((e) => e.actorType === "user" && REVIEW_ACTIONS[e.type])

@@ -2,8 +2,10 @@
  * The "verification.decide" job: assembles the decision input from everything on file, calls the pure decision
  * engine and persists the outcome with its follow-up work in one transaction.
  *
- *   eligible / ineligible → decided, result expiry, raw-upload purge date, "evidence.generate" queued
- *   needs_review          → review task, stage in_review, verification.needs_review, reviewers emailed
+ *   eligible / ineligible → decided, result expiry, raw-upload purge date, "evidence.generate" queued; an open
+ *                           review task (a reviewer's re-run, a family's answer) is closed
+ *   needs_review          → the review task opened or updated (never a second one), stage in_review, and unless
+ *                           a reviewer's own re-run caused it: verification.needs_review and the SGO notified
  *   pending               → stage awaiting_family, the family emailed exactly what is missing, in its language
  */
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
