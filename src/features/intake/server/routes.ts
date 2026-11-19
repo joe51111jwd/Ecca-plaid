@@ -74,7 +74,8 @@ export async function handleContinue(request: NextRequest): Promise<NextResponse
 
 /**
  * GET /family/language?to=es&next=/v/… (and /embed/verify/language for the embedded flow) — remembers the choice
- * in a cookie and, for the household owner, saves it on the household so emails come in the same language.
+ * in a cookie and, for the household owner clicking it on our own page, saves it on the household so emails come in
+ * the same language.
  */
 export async function handleLanguage(request: NextRequest, surface: Surface): Promise<NextResponse> {
   const params = request.nextUrl.searchParams;
@@ -85,7 +86,9 @@ export async function handleLanguage(request: NextRequest, surface: Surface): Pr
   if (surface === "embed" && !next.startsWith("/embed/")) next = fallback;
   (await cookies()).set(LOCALE_COOKIE, locale, localeCookieOptions(surface, LOCALE_COOKIE_MAX_AGE_SECONDS));
 
-  const user = await getFamilyUser(surface);
+  // The switch is a GET, so it can be triggered from any site (an image tag, a link); and inside the embed the
+  // session cookie is SameSite=None. Only a click on our own page may change what is saved on the household.
+  const user = request.headers.get("sec-fetch-site") === "same-origin" ? await getFamilyUser(surface) : null;
   if (user) {
     try {
       const { household } = await getOrCreateHouseholdForUser(user.id);
@@ -122,6 +125,34 @@ export function isSameOriginRequest(request: Pick<NextRequest, "headers" | "next
   return allowed.has(origin);
 }
 
+/**
+ * The request body, or null as soon as it grows past `limit` bytes (the rest of the stream is canceled, so an
+ * oversized or endless body is never buffered).
+ */
+export async function readBodyWithin(request: Pick<Request, "body">, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 const STATUS_BY_CODE: Record<string, number> = { validation_failed: 422, unauthenticated: 401, forbidden: 403, not_found: 404, conflict: 409, gone: 410, rate_limited: 429 };
 
 /**
@@ -132,12 +163,16 @@ export async function handleUpload(request: NextRequest): Promise<NextResponse> 
   const queryLocale = parseLocale(request.nextUrl.searchParams.get("lang")) ?? "en";
   const t = getDictionary(queryLocale);
   if (!isSameOriginRequest(request)) return json(failure("forbidden", t.errors.forbidden), 403);
+  const limit = MAX_UPLOAD_BYTES + UPLOAD_OVERHEAD_BYTES;
   const length = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(length) && length > MAX_UPLOAD_BYTES + UPLOAD_OVERHEAD_BYTES) return json(failure("validation_failed", t.errors.files.tooLarge), 413);
+  if (Number.isFinite(length) && length > limit) return json(failure("validation_failed", t.errors.files.tooLarge), 413);
 
   let form: FormData;
   try {
-    form = await request.formData();
+    // Content-Length is optional (chunked uploads) and only advisory, so the body itself is read with a cap.
+    const body = await readBodyWithin(request, limit);
+    if (body === null) return json(failure("validation_failed", t.errors.files.tooLarge), 413);
+    form = await new Response(body, { headers: { "content-type": request.headers.get("content-type") ?? "" } }).formData();
   } catch {
     return json(failure("bad_request", t.errors.generic), 400);
   }
@@ -189,4 +224,3 @@ export async function handleExport(request: NextRequest): Promise<NextResponse> 
     throw e;
   }
 }
-export async function readBodyWithin(request: Pick<Request, "body">, limit: number): Promise<Uint8Array | null> { void request; void limit; return null; }

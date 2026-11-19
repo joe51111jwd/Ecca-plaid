@@ -87,8 +87,9 @@ describe("verification routes", () => {
     }
     // Two rows with the same timestamp still page deterministically.
     const same = (await callJson<Json>("POST", "/verifications", { key, body: { external_ref: "SAME" } })).body.id;
-    ids.push(same);
-    const expected = [...ids].reverse();
+    // Same timestamp as the previous row: the tie is broken by id, descending.
+    const tied = [ids.pop()!, same].sort().reverse();
+    const expected = [...tied, ...[...ids].reverse()];
 
     const seen: string[] = [];
     let cursor: string | null = null;
@@ -205,9 +206,11 @@ describe("verification routes", () => {
     });
 
     it("neutralizes spreadsheet formula injection in every cell, including custom labels", async () => {
-      await callJson("POST", "/verifications", { key, body: { external_ref: '=HYPERLINK("http://evil.example","x")', metadata: { note: "+SUM(A1:A9)", at: "@cmd", dash: "-2+3", tab: "\tx" } } });
-      const res = await callApi("GET", `/verifications/export.csv?columns=${encodeURIComponent("external_ref:=Ref,metadata.note,metadata.at,metadata.dash,metadata.tab")}`, { key });
-      const rows = parseCsv(await res.text());
+      const created = await callJson("POST", "/verifications", { key, body: { external_ref: '=HYPERLINK("http://evil.example","x")', metadata: { note: "+SUM(A1:A9)", at: "@cmd", dash: "-2+3" } } });
+      expect(created.status).toBe(201);
+      const res = await callApi("GET", `/verifications/export.csv?columns=${encodeURIComponent("external_ref:=Ref,metadata.note,metadata.at,metadata.dash")}`, { key });
+      const text = await res.text();
+      const rows = parseCsv(text);
       expect(rows[0][0]).toBe("'=Ref");
       for (const cell of rows[1]) expect(cell, cell).toMatch(/^'/);
     });

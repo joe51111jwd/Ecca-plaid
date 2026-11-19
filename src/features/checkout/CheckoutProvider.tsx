@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ClientPayment } from "@/server/payments";
 import { placeOrderAction, saveCheckoutAction } from "./actions";
-import { isEmptyPatch, mergePatch, patchPaths, withoutPaths, type Patch } from "./form-state";
+import { isEmptyPatch, mergePatch, patchPaths, withoutPaths, withoutRejected, type Patch } from "./form-state";
 import type { CheckoutClientView } from "./view-model";
 
 /** What identifies the checkout to the server actions. The hosted page never sees its token (it is in an HttpOnly cookie). */
@@ -79,6 +79,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(0);
   const sentTimeZone = useRef(false);
+  const flushRef = useRef<() => Promise<boolean>>(async () => true);
 
   const flush = useCallback(async (): Promise<boolean> => {
     if (timer.current) {
@@ -113,6 +114,12 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
         // A rejected time zone is not the donor's to fix: drop it and keep the rest of the form working.
         if (fields.donorTimeZone) sentTimeZone.current = true;
         setRejected((prev) => ({ ...withoutPaths(prev, patchPaths(patch)), ...fields }));
+        // The service refuses the whole patch; save the fields it did not object to rather than lose them.
+        const rest = withoutRejected(patch, Object.keys(fields));
+        if (!isEmptyPatch(rest)) {
+          pending.current = mergePatch(rest, pending.current);
+          if (!timer.current) timer.current = setTimeout(() => void flushRef.current(), 0);
+        }
       } else {
         setFormError(result.error.message);
       }
@@ -127,6 +134,9 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
       if (inFlight.current === 0) setSaving(false);
     }
   }, [access]);
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
 
   const queue = useCallback(
     (patch: Patch, options: { immediate?: boolean } = {}) => {

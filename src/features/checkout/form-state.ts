@@ -59,6 +59,38 @@ export function withoutPaths<T>(errors: Readonly<Record<string, T>>, paths: read
   return Object.fromEntries(Object.entries(errors).filter(([key]) => !touched.has(key)));
 }
 
+/**
+ * What is left of a patch the service refused field by field, once the refused fields are taken out. The service
+ * validates a patch as a whole, so one bad value (a half-typed email or ZIP) would otherwise drop every other field
+ * typed in the same debounce window. A leaf is dropped when it is a refused path, lies under one, or contains one
+ * (`address: null` when `address.zip` was refused). Returns an empty patch when no refused path matches anything,
+ * so a caller re-saving the remainder can never loop on the same refusal.
+ */
+export function withoutRejected(patch: Patch, rejectedPaths: readonly string[]): Patch {
+  const rejected = rejectedPaths.filter((p) => p !== "");
+  const hits = (path: string) => rejected.some((r) => r === path || r.startsWith(`${path}.`) || path.startsWith(`${r}.`));
+  let removed = false;
+  const prune = (node: Patch, prefix: string): Patch => {
+    const out: Patch = {};
+    for (const [key, value] of Object.entries(node)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (isPatch(value) && !rejected.includes(path) && !rejected.some((r) => path.startsWith(`${r}.`))) {
+        const inner = prune(value, path);
+        if (Object.keys(inner).length > 0) out[key] = inner;
+        else if (Object.keys(value).length > 0) removed = true;
+        else out[key] = inner;
+      } else if (hits(path)) {
+        removed = true;
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
+  };
+  const rest = prune(patch, "");
+  return removed ? rest : {};
+}
+
 export interface ErrorVisibility {
   /** Problems that block the order, from the service's view (shown once a field was touched, or all after "Review"). */
   blocking: Readonly<Record<string, string>>;
