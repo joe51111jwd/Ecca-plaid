@@ -39,9 +39,19 @@ interface DbHandle {
 
 const g = globalThis as unknown as { __eccaDb?: Promise<DbHandle>; __eccaTestDb?: DbHandle | null };
 
+/**
+ * drizzle-kit adds helpers such as `Array.prototype.random` by plain assignment, which makes them show up in
+ * `for...in` over any array. pdfjs refuses to read a document while that is the case, so every upload would be
+ * reported as unreadable. The helpers keep working when they are non-enumerable.
+ */
+function hideArrayPrototypeExtras(): void {
+  for (const key of Object.keys(Array.prototype)) Object.defineProperty(Array.prototype, key, { enumerable: false });
+}
+
 /** DDL that creates the whole current schema from an empty database (used for the embedded dev DB and tests). */
 export async function generateSchemaSql(): Promise<string[]> {
   const { generateDrizzleJson, generateMigration } = await import("drizzle-kit/api");
+  hideArrayPrototypeExtras();
   return generateMigration(generateDrizzleJson({}), generateDrizzleJson(schema as unknown as Record<string, unknown>));
 }
 

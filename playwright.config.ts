@@ -4,7 +4,8 @@ const PORT = Number(process.env.E2E_PORT || 3210);
 
 /**
  * End-to-end tests run against a dev server on a throwaway embedded database (.data-e2e) with its own
- * build directory, so they never touch local development data.
+ * build directory, so they never touch local development data. Both are deleted first: a build directory left
+ * over from an earlier run makes the dev server reload pages in a loop.
  */
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -21,7 +22,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `rm -rf .data-e2e && npx next dev -p ${PORT}`,
+    command: `rm -rf .data-e2e .next-e2e && npx next dev -p ${PORT}`,
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
