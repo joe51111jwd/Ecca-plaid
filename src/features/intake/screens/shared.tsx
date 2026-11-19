@@ -90,13 +90,13 @@ export function DocumentList({ ctx, documents, returnTo, headingLevel = 2 }: { c
       ) : (
         <ul className="divide-y divide-line rounded-card border border-line bg-surface">
           {shown.map((d) => (
-            <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <li key={d.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">
-                <p className="truncate font-medium text-fg">{d.filename}</p>
+                <p className="font-medium break-all text-fg">{d.filename}</p>
                 <p className="text-sm text-fg-muted">{t.upload.kinds[d.declaredKind as keyof Dictionary["upload"]["kinds"]]?.label ?? t.upload.kinds.other_income.label}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge tone={DOCUMENT_TONE[d.state]}>{pickBilingual(d.label, ctx.locale)}</Badge>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge tone={DOCUMENT_TONE[d.state]} className="text-left whitespace-normal!">{pickBilingual(d.label, ctx.locale)}</Badge>
                 {ctx.state.canEdit && !d.carriedOver ? (
                   <ConfirmButton
                     label={

@@ -14,7 +14,7 @@ import { STATUS_REFRESH_MS } from "../policy";
 import type { FlowContext } from "../server/context";
 import { StillNeeded } from "./proof";
 import { activeDocuments, DocumentList, formFields, hrefFor, memberName, QueryError, ScreenHeading } from "./shared";
-import { familyDate, type ScreenProps } from "./steps";
+import { lastValidDay, type ScreenProps } from "./steps";
 
 /* ------------------------------------------------------------------------------------------ review */
 
@@ -152,7 +152,7 @@ function ExitLinks({ ctx }: { ctx: FlowContext }) {
   return (
     <div className="mt-8 flex flex-col gap-3">
       {ctx.view.returnUrl ? (
-        <Button size="lg" fullWidth href={ctx.view.returnUrl}>
+        <Button size="lg" fullWidth href={ctx.view.returnUrl} className="h-auto! min-h-12 py-3 text-center whitespace-normal!">
           {t.common.returnTo(ctx.view.orgName)}
         </Button>
       ) : null}
@@ -170,11 +170,15 @@ function OutcomeView({ ctx }: { ctx: FlowContext }) {
   const o = t.outcome;
   const outcome = ctx.view.outcome!;
   const eligible = outcome.status === "eligible";
+  // The engine's explanation may already carry the provisional note and the last valid day; never say them twice.
+  const paragraphs = outcome.paragraphs.filter((p) => p !== outcome.provisionalNote);
+  const until = outcome.expiresAt ? lastValidDay(outcome.expiresAt, ctx.locale) : null;
+  const untilSaid = until !== null && paragraphs.some((p) => p.includes(until));
   return (
     <>
       <StatusHero icon={eligible ? <CircleCheck /> : <Info />} tone={eligible ? "success" : "neutral"} title={eligible ? o.eligibleTitle : o.ineligibleTitle}>
         <p className="font-medium text-fg">{outcome.headline}</p>
-        <Paragraphs items={outcome.paragraphs} />
+        <Paragraphs items={paragraphs} />
       </StatusHero>
       <div className="space-y-4">
         {outcome.provisional ? (
@@ -183,7 +187,7 @@ function OutcomeView({ ctx }: { ctx: FlowContext }) {
           </ProvisionalNotice>
         ) : null}
         <ul className="space-y-1 text-fg">
-          {outcome.expiresAt ? <li>{o.expires(familyDate(outcome.expiresAt, ctx.locale))}</li> : null}
+          {until && !untilSaid ? <li>{o.expires(until)}</li> : null}
           {outcome.decidedByReviewer ? <li>{o.reviewer}</li> : null}
           {outcome.reusedEarlierResult ? <li>{o.reused}</li> : null}
         </ul>
@@ -191,7 +195,6 @@ function OutcomeView({ ctx }: { ctx: FlowContext }) {
           {o.notAPromise}
         </Alert>
         {eligible ? <p className="text-fg-muted">{o.savedPassport}</p> : null}
-        <p className="text-fg-muted">{pickBilingual(ctx.view.whatHappensNext, ctx.locale)}</p>
       </div>
     </>
   );

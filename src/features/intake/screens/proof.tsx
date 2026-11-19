@@ -5,7 +5,7 @@
  */
 import { CircleCheck, FileText, Landmark } from "lucide-react";
 import { redirect } from "next/navigation";
-import { Alert, Badge, Button, Disclosure, SubmitButton } from "@/components/ui";
+import { Alert, Badge, Button, Disclosure, SubmitButton, TextLink } from "@/components/ui";
 import { pickBilingual } from "@/i18n";
 import { isAppError } from "@/lib/errors";
 import { customerFileNumberFor, getTranscriptGuide, listConnections, previewRailConsent, RAIL_POLICY, type RailConnectionView } from "@/server/rails";
@@ -138,9 +138,10 @@ function Statements({ ctx }: { ctx: FlowContext }) {
                   {withdraw(cert.id, u.withdraw)}
                 </>
               ) : (
-                <Button variant="link" href={hrefFor(ctx, "statement", { kind: "zero_income", member: m.id })} leadingIcon={<FileText aria-hidden="true" />}>
+                <TextLink standalone href={hrefFor(ctx, "statement", { kind: "zero_income", member: m.id })} className="inline-flex items-start gap-2">
+                  <FileText aria-hidden="true" className="mt-1 size-4 shrink-0" />
                   {u.noIncomeFor(memberName(m))}
-                </Button>
+                </TextLink>
               )}
             </li>
           );
@@ -160,9 +161,10 @@ function Statements({ ctx }: { ctx: FlowContext }) {
               {withdraw(otherIncome.id, u.withdraw)}
             </>
           ) : (
-            <Button variant="link" href={hrefFor(ctx, "statement", { kind: "no_other_income" })} leadingIcon={<FileText aria-hidden="true" />}>
+            <TextLink standalone href={hrefFor(ctx, "statement", { kind: "no_other_income" })} className="inline-flex items-start gap-2">
+                  <FileText aria-hidden="true" className="mt-1 size-4 shrink-0" />
               {u.otherIncomeButton}
-            </Button>
+            </TextLink>
           )}
         </div>
       </div>

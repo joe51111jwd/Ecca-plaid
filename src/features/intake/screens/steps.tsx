@@ -26,6 +26,14 @@ export function familyDate(value: Date | string | null | undefined, locale: Flow
   return formatConsentDate(iso, locale);
 }
 
+/**
+ * The last day a result can be used, in the family's words. Results expire at the first instant after their last
+ * valid day (US Central), so the day shown is the one just before that instant.
+ */
+export function lastValidDay(expiresAt: Date, locale: FlowContext["locale"]): string {
+  return familyDate(new Date(expiresAt.getTime() - 1), locale);
+}
+
 /** The calendar day of an instant in US Central time (the product's business time zone). */
 function centralIsoDate(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);

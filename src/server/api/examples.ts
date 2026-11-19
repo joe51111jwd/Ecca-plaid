@@ -6,6 +6,7 @@
  * Threshold figures in the verification example are placeholders shaped like real values, not a real county's limit.
  */
 import type { z } from "zod";
+import { BUSINESS_STATUS_DETAIL } from "@/server/handoffs";
 import type {
   createHandoffBody,
   createVerificationBody,
@@ -107,7 +108,7 @@ export const EXAMPLE_HANDOFF: z.input<typeof handoffSchema> = {
   mode: "test",
   channel: "redirect",
   created_via: "api",
-  status_detail: "The family is verifying income with the scholarship organization. The spot is held.",
+  status_detail: BUSINESS_STATUS_DETAIL.held,
   booking: { ref: "BK-2027-0042", description: "Synthetic Day Camp, week 1", amount_usd: "450.00", amount_confirmed: true },
   return_url: "https://camp.synthetic-example.org/booking/BK-2027-0042",
   completed_at: null,
@@ -118,6 +119,7 @@ export const EXAMPLE_HANDOFF: z.input<typeof handoffSchema> = {
 export const EXAMPLE_HANDOFF_CREATED: z.input<typeof handoffCreatedSchema> = {
   ...EXAMPLE_HANDOFF,
   status: "started",
+  status_detail: BUSINESS_STATUS_DETAIL.started,
   url: `${HOST}/h/SYNTHETIC-handoff-token-shown-once-0000000000`,
   embed_url: `${HOST}/embed/handoff/SYNTHETIC-handoff-token-shown-once-0000000000`,
 };

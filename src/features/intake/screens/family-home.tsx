@@ -24,7 +24,7 @@ import { EXPORT_PATH } from "../policy";
 import { firstParam, resolveLocale, type SearchParams } from "../server/context";
 import { getFamilyUser } from "../server/session";
 import { errorFromQuery, memberName } from "./shared";
-import { familyDate } from "./steps";
+import { familyDate, lastValidDay } from "./steps";
 
 /** Consent kinds that belong to one verification; their verification ids are the household's income checks. */
 const VERIFICATION_CONSENT_KINDS: ReadonlySet<string> = new Set(["verification_share", "passport_reuse", "rail_connect"]);
@@ -149,7 +149,7 @@ function PassportPanel({ views, locale }: { views: readonly FamilyView[]; locale
       {saved?.outcome ? (
         <div className="space-y-2 rounded-card border border-success-line bg-success-surface p-4">
           <p className="font-medium text-fg">{f.passportBody(saved.orgName)}</p>
-          {saved.outcome.expiresAt ? <p className="text-fg">{f.passportExpires(familyDate(saved.outcome.expiresAt, locale))}</p> : null}
+          {saved.outcome.expiresAt ? <p className="text-fg">{f.passportExpires(lastValidDay(saved.outcome.expiresAt, locale))}</p> : null}
           {saved.outcome.provisional ? <p className="text-sm text-fg-muted">{getDictionary(locale).reuse.provisional}</p> : null}
         </div>
       ) : (
@@ -182,7 +182,7 @@ function ConsentsPanel({ consents, views, locale, userId, isOwner }: { consents:
                 <p className="font-medium text-fg">{f.consentKinds[c.kind as keyof typeof f.consentKinds] ?? f.consentKinds.verification_share}</p>
                 <p className="text-sm text-fg-muted">
                   {f.consentFor(orgOf(c))} · {f.consentGiven(familyDate(c.grantedAt, locale))}
-                  {c.expiresAt ? ` · ${f.consentUntil(familyDate(c.expiresAt, locale))}` : ""}
+                  {c.expiresAt ? ` · ${f.consentUntil(lastValidDay(c.expiresAt, locale))}` : ""}
                 </p>
               </div>
               {isOwner || c.userId === userId ? (
