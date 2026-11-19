@@ -502,7 +502,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.pause();
         await r.page.getByRole("button", { name: "Save address" }).click();
         await r.page.getByRole("heading", { name: "First, tell us about you" }).waitFor();
-        await r.say("Resolved to Harris County. If a ZIP spans counties the family picks — a wrong county would be a wrong limit, so it is never guessed.");
+        await r.say("Resolved to Harris County. A ZIP that spans counties is never guessed: the family picks.");
         await r.type(r.page.getByLabel("First name"), "Dana");
         await r.type(r.page.getByLabel("Last name"), "Sample");
         await r.page.getByRole("button", { name: "Continue" }).click();
@@ -532,7 +532,8 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await docs.getByText("Received", { exact: true }).waitFor({ timeout: 30_000 });
         await r.show(docs, 120);
         await r.pause(1_500);
-        await r.caption("A W-2 shows wages only, so the parent also signs that the household had no other income.");
+        await r.show(r.page.getByRole("link", { name: "Sign a statement of no other income" }), 260);
+        await r.say("A W-2 shows wages only, so the parent also signs that the household had no other income.");
         await r.page.getByRole("link", { name: "Sign a statement of no other income" }).click();
         await r.page.getByRole("heading", { name: "Sign a statement" }).waitFor();
         await r.pause(1_500);
@@ -550,7 +551,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
         await r.say("Decided on the spot, with no person needed: the household's 2025 income is under the income limit for its county.");
         await r.scrollBy(450);
-        await r.say("The limit is provisional, and being eligible is not a promise of a scholarship: the SGO decides awards separately. Families never pay.");
+        await r.say("The limit is provisional, and being eligible is not a promise of a scholarship. Families never pay.");
       },
     },
     {
@@ -661,7 +662,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.pause(1_500);
         await r.say("The tax-math panel: $1,700 cap, joint returns, state-credit reduction, nonrefundable, five-year carryforward. A preview, never tax advice.");
         await r.show(r.page.getByRole("region", { name: "Federal tax credit preview" }), 90);
-        await r.say("The banner: a sandbox gift, not credit-eligible — the credit starts January 1, 2027, the list is provisional, and the SGO is not portal-registered.");
+        await r.say("The banner: a sandbox gift, not credit-eligible yet. The credit starts January 1, 2027, and the list is provisional.");
         await r.page.getByRole("button", { name: "Continue" }).click();
         await r.page.getByRole("radio", { name: "Single" }).check();
         await r.type(r.page.getByLabel("First name"), "Avery");
@@ -681,7 +682,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
           await r.pause(400);
         }
         await r.show(confirm.getByText(/I designate \$1,700/), 160);
-        await r.say("The designation is irrevocable and stored with the exact words and their hash. There is no un-designate and no self-serve refund.");
+        await r.say("The designation is irrevocable; the exact words and their hash are stored. No self-serve refund.");
         await r.page.getByRole("button", { name: "Continue" }).click();
         await r.page.getByRole("region", { name: "What you will be charged" }).waitFor();
         await r.say("The designated amount and any fee are always separate lines. With the fee structure at none, there is no fee at all.");
@@ -689,7 +690,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.getByRole("button", { name: /Use test number 4242 4242 4242 4242:/ }).click();
         await r.page.getByLabel("Expiry date").fill("12/30");
         await r.page.getByLabel("Security code").fill("123");
-        await r.say("Sandbox payment with a test card number: no money moves. In production this is a Stripe charge on the SGO's own account.");
+        await r.say("Sandbox payment with a test card number: no money moves.");
         await r.page.getByRole("button", { name: "Complete sandbox gift" }).click();
         await r.page.waitForURL(/\/thanks\?/);
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
@@ -740,7 +741,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
           await drain(ctx);
           await r.context.addCookies(campState.cookies);
           await r.goto("/partner/handoffs");
-          await r.say(`Back in the camp's portal, ${HANDOFF_BOOKING_REF} now reads Awarded. The camp completes the booking; its success fee goes on its own invoice.`);
+          await r.say(`Back in the camp's portal, ${HANDOFF_BOOKING_REF} now reads Awarded. The camp's success fee goes on its own invoice.`);
         }
       },
     },

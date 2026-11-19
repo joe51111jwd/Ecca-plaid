@@ -6,7 +6,7 @@ import { now } from "@/lib/clock";
 import { isAppError } from "@/lib/errors";
 import { roleAtLeast } from "@/server/auth";
 import { AWARD_PAYMENT_METHODS, getAwardContext, listAwards } from "@/server/awards";
-import { getVerificationDetail, INCOME_MEASURES } from "@/server/verifications";
+import { applicantLabels, getVerificationDetail, INCOME_MEASURES } from "@/server/verifications";
 import { DownloadLink } from "@/features/sgo/components/DownloadLink";
 import { HashValue } from "@/features/sgo/components/HashValue";
 import { AwardPanel } from "@/features/sgo/components/verification/AwardPanel";
@@ -79,7 +79,9 @@ export default async function VerificationDetailPage({ params, searchParams }: {
   const students = (detail.household?.members ?? []).filter((m) => detail.household?.studentMemberIds.includes(m.id)).map((m) => ({ id: m.id, name: `${m.firstName} ${m.lastName}` }));
   const measureOptions = INCOME_MEASURES.map((m) => ({ value: m, label: measureLabel(m), kind: MEASURE_KIND.find(([p]) => m.startsWith(p))?.[1] ?? "" }));
   const categories = INCOME_CATEGORIES.map((c) => ({ key: c.key, label: c.label.en }));
-  const title = v.applicantName ?? v.applicantEmail ?? "Verification";
+  // The same name the lists use: the SGO's, the family's own, or the camp and booking for a handoff.
+  const owner = detail.household?.members.find((m) => m.isOwner);
+  const title = v.applicantName ?? (owner ? `${owner.firstName} ${owner.lastName}` : (await applicantLabels(ctx.org.id, [{ ...v, householdId: null }]))[v.id]) ?? "Verification";
   const decided = v.status === "eligible" || v.status === "ineligible";
 
   return (

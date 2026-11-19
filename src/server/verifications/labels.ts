@@ -7,7 +7,9 @@ import type { VerificationRow } from "./internal";
  * for themselves (the household's owner); else, for a camp handoff, the camp and its booking reference; else the
  * family's email. Returns a label for every row given (keyed by verification id). Rows must belong to `orgId`.
  */
-export async function applicantLabels(orgId: string, rows: readonly VerificationRow[], dbOrTx?: DbOrTx): Promise<Record<string, string>> {
+export type LabelledRow = Pick<VerificationRow, "id" | "orgId" | "applicantName" | "applicantEmail" | "householdId" | "handoffId">;
+
+export async function applicantLabels(orgId: string, rows: readonly LabelledRow[], dbOrTx?: DbOrTx): Promise<Record<string, string>> {
   const labels: Record<string, string> = {};
   const unnamed = rows.filter((r) => r.orgId === orgId && !r.applicantName);
   if (unnamed.length > 0) {
