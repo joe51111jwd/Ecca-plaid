@@ -3,9 +3,12 @@ import type { AwardContext, AwardRow } from "@/server/awards";
 import { PAYMENT_METHOD_LABELS } from "../../labels";
 import type { SgoFormAction } from "../../types";
 import { SgoActionForm } from "../SgoActionForm";
+import type { Mode } from "@/db/schema";
 
 export interface AwardPanelProps {
   orgId: string;
+  /** The mode the page was rendered in (see SgoActionForm). */
+  mode: Mode;
   verificationId: string;
   context: AwardContext;
   awards: AwardRow[];
@@ -20,7 +23,7 @@ export interface AwardPanelProps {
  * The award decision, kept apart from the verification: a verified income is not an award, and offering one is the
  * organization's explicit choice, made after reading the compliance reminders the awards service returns.
  */
-export function AwardPanel({ orgId, verificationId, context, awards, canDecide, paymentMethods, students, offerAction, statusAction }: AwardPanelProps) {
+export function AwardPanel({ orgId, mode, verificationId, context, awards, canDecide, paymentMethods, students, offerAction, statusAction }: AwardPanelProps) {
   const live = awards.filter((a) => a.status !== "revoked");
   return (
     <Card id="award">
@@ -39,7 +42,7 @@ export function AwardPanel({ orgId, verificationId, context, awards, canDecide, 
                 </div>
                 {a.notes ? <p className="mt-1 text-fg-muted">{a.notes}</p> : null}
                 {canDecide && (a.status === "offered" || a.status === "accepted") ? (
-                  <SgoActionForm action={statusAction} orgId={orgId} submitLabel="Record" submitVariant="secondary" submitSize="sm" layout="inline" className="mt-2" aria-label="Record what happened to the award">
+                  <SgoActionForm action={statusAction} orgId={orgId} mode={mode} submitLabel="Record" submitVariant="secondary" submitSize="sm" layout="inline" className="mt-2" aria-label="Record what happened to the award">
                     <input type="hidden" name="awardId" value={a.id} />
                     <Field label="What happened">
                       <Select name="status" size="sm" defaultValue={a.status === "offered" ? "accepted" : "paid"}>
@@ -99,6 +102,7 @@ export function AwardPanel({ orgId, verificationId, context, awards, canDecide, 
             <SgoActionForm
               action={offerAction}
               orgId={orgId}
+              mode={mode}
               submitLabel="Offer award"
               pendingText="Offering…"
               fieldLabels={{ amount: "Amount", paymentMethod: "Payment method", remindersRead: "Reminders" }}

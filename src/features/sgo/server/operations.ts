@@ -18,6 +18,7 @@ import {
   assignReview,
   cancelVerification,
   createVerification,
+  FAMILY_LINK_TTL_DAYS,
   removeReviewerIncomeItem,
   requestMoreInfo,
   rerunDecision,
@@ -118,7 +119,7 @@ export const createVerificationOp = operation(REVIEW_ROLE, async (actor, formDat
     shownOnce: {
       label: "Family link",
       value: created.familyUrl,
-      hint: "This link is shown only now. It lets the family start; anyone with it can open the start page, so send it only to the family. It expires in 30 days.",
+      hint: `This link is shown only now. It lets the family start; anyone with it can open the start page, so send it only to the family. It expires in ${FAMILY_LINK_TTL_DAYS} days.`,
     },
     link: { href: SGO_PATHS.verification(created.verification.id), label: "Open the verification" },
   };
@@ -437,8 +438,18 @@ export async function signupOp(user: Pick<User, "id" | "email">, request: SgoAct
   }
 }
 
-/** Refuses a submission whose `orgId` hidden field (when present) is not the dashboard's organization: a stale tab after an org switch. */
+/**
+ * Refuses a submission rendered for another scope than the one the dashboard now resolves from its cookies: a stale
+ * tab after an org switch (`orgId` hidden field) or after the test/live switch was flipped in another tab (`mode`
+ * hidden field). Without the mode check, a form on a test-mode page (a new verification, an IRS report, an API key)
+ * would silently act on live data. Each field is checked when present.
+ */
 export function assertSameOrg(actor: SgoActor, formData: FormData): void {
   const posted = readOptional(formData, "orgId");
   if (posted !== null && posted !== actor.orgId) throw conflict("This page was opened for another organization. Reload it and try again.");
+  const mode = readOptional(formData, "mode");
+  if (mode !== null && mode !== actor.mode) {
+    const words = (m: string) => (m === "live" ? "live mode" : m === "test" ? "test mode" : "another mode");
+    throw conflict(`This page was opened in ${words(mode)}, but the dashboard is now in ${words(actor.mode)}. Reload it and try again.`);
+  }
 }

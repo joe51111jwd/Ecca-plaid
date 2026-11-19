@@ -2,10 +2,13 @@ import { Badge, Card, CardHeader, Disclosure, Field, Input, Money, Select, Texta
 import type { VerificationDetail } from "@/server/verifications";
 import type { SgoFormAction } from "../../types";
 import { SgoActionForm } from "../SgoActionForm";
+import type { Mode } from "@/db/schema";
 
 export interface IncomePanelProps {
   detail: VerificationDetail;
   orgId: string;
+  /** The mode the page was rendered in (see SgoActionForm). */
+  mode: Mode;
   canEdit: boolean;
   memberName: (id: string | null) => string;
   /** Income categories a reviewer may choose (key and English label). */
@@ -17,7 +20,7 @@ export interface IncomePanelProps {
 const SOURCE_LABEL: Readonly<Record<string, string>> = { document: "Document", rail: "Data connection", reviewer: "Reviewer", self_reported: "Family (self-reported)" };
 
 /** Every income line on file for the income year, which ones count, and the reviewer's add/remove tools. */
-export function IncomePanel({ detail, orgId, canEdit, memberName, categories, addIncomeLineAction, removeIncomeLineAction }: IncomePanelProps) {
+export function IncomePanel({ detail, orgId, mode, canEdit, memberName, categories, addIncomeLineAction, removeIncomeLineAction }: IncomePanelProps) {
   const lines = detail.incomeItems;
   const counted = lines.filter((l) => l.counted).reduce((sum, l) => sum + l.annualAmountCents, 0);
   return (
@@ -69,7 +72,7 @@ export function IncomePanel({ detail, orgId, canEdit, memberName, categories, ad
                 </td>
                 <td className="py-2 text-right">
                   {canEdit && l.source === "reviewer" ? (
-                    <SgoActionForm action={removeIncomeLineAction} orgId={orgId} submitLabel="Remove" submitVariant="ghost" submitSize="sm" layout="inline" aria-label={`Remove ${l.categoryLabel}`} confirm={{ title: "Remove this income line?", confirmLabel: "Remove", tone: "danger" }}>
+                    <SgoActionForm action={removeIncomeLineAction} orgId={orgId} mode={mode} submitLabel="Remove" submitVariant="ghost" submitSize="sm" layout="inline" aria-label={`Remove ${l.categoryLabel}`} confirm={{ title: "Remove this income line?", confirmLabel: "Remove", tone: "danger" }}>
                       <input type="hidden" name="itemId" value={l.id} />
                     </SgoActionForm>
                   ) : null}
@@ -93,7 +96,7 @@ export function IncomePanel({ detail, orgId, canEdit, memberName, categories, ad
       {canEdit ? (
         <Disclosure summary="Add an income line" className="mt-4">
           <div className="pt-3">
-            <SgoActionForm action={addIncomeLineAction} orgId={orgId} submitLabel="Add income line" pendingText="Adding…" resetOnSuccess>
+            <SgoActionForm action={addIncomeLineAction} orgId={orgId} mode={mode} submitLabel="Add income line" pendingText="Adding…" resetOnSuccess>
               <input type="hidden" name="verificationId" value={detail.verification.id} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Kind of income">

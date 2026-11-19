@@ -36,11 +36,11 @@ export default async function PartnersPage() {
       cell: ({ partnership, business }) =>
         !canManage ? null : partnership.status === "pending" ? (
           <div className="flex flex-wrap gap-2">
-            <SgoActionForm action={respondPartnershipAction} orgId={ctx.org.id} submitLabel="Accept" submitSize="sm" layout="inline" aria-label={`Accept ${business.displayName}`}>
+            <SgoActionForm action={respondPartnershipAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Accept" submitSize="sm" layout="inline" aria-label={`Accept ${business.displayName}`}>
               <input type="hidden" name="partnershipId" value={partnership.id} />
               <input type="hidden" name="decision" value="active" />
             </SgoActionForm>
-            <SgoActionForm action={respondPartnershipAction} orgId={ctx.org.id} submitLabel="Decline" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Decline ${business.displayName}`}>
+            <SgoActionForm action={respondPartnershipAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Decline" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Decline ${business.displayName}`}>
               <input type="hidden" name="partnershipId" value={partnership.id} />
               <input type="hidden" name="decision" value="ended" />
             </SgoActionForm>
@@ -49,6 +49,7 @@ export default async function PartnersPage() {
           <SgoActionForm
             action={endPartnershipAction}
             orgId={ctx.org.id}
+            mode={ctx.mode}
             submitLabel="End"
             submitVariant="ghost"
             submitSize="sm"

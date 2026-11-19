@@ -78,12 +78,12 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
         ) : canManage && i.designatedCents > 0 ? (
           <div className="space-y-2">
             {test ? (
-              <SgoActionForm action={generateSandboxNumberAction} orgId={ctx.org.id} submitLabel="Generate sandbox number" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Generate a sandbox number for ${i.donor.fullName}`}>
+              <SgoActionForm action={generateSandboxNumberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Generate sandbox number" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Generate a sandbox number for ${i.donor.fullName}`}>
                 <input type="hidden" name="donorId" value={i.donor.id} />
                 <input type="hidden" name="taxYear" value={year} />
               </SgoActionForm>
             ) : null}
-            <SgoActionForm action={setDonorNumberAction} orgId={ctx.org.id} submitLabel="Save" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Enter the unique donor number for ${i.donor.fullName}`}>
+            <SgoActionForm action={setDonorNumberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Enter the unique donor number for ${i.donor.fullName}`}>
               <input type="hidden" name="donorId" value={i.donor.id} />
               <input type="hidden" name="taxYear" value={year} />
               <Field label="From the IRS SGO portal" hideLabel>
@@ -141,6 +141,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
             <SgoActionForm
               action={issueAcknowledgmentAction}
               orgId={ctx.org.id}
+              mode={ctx.mode}
               submitLabel={i.acknowledgment.issued ? "Reissue" : "Issue"}
               submitSize="sm"
               layout="inline"
@@ -156,7 +157,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
             </SgoActionForm>
           ) : null}
           {canManage && i.action === "mail_paper" && i.acknowledgment.issued ? (
-            <SgoActionForm action={markMailedAction} orgId={ctx.org.id} submitLabel="Record mailing" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Record mailing for ${i.donor.fullName}`}>
+            <SgoActionForm action={markMailedAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Record mailing" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Record mailing for ${i.donor.fullName}`}>
               <input type="hidden" name="acknowledgmentId" value={i.acknowledgment.issued.acknowledgmentId} />
             </SgoActionForm>
           ) : null}
@@ -230,7 +231,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
                 <p className="text-fg-muted">
                   Columns: <code>{DONOR_NUMBER_IMPORT_COLUMNS.join(", ")}</code>. Donor ids are the ones in the donations export. Nothing is imported unless every row is valid.
                 </p>
-                <SgoActionForm action={importDonorNumbersAction} orgId={ctx.org.id} submitLabel="Import" submitVariant="secondary" encType="multipart/form-data">
+                <SgoActionForm action={importDonorNumbersAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Import" submitVariant="secondary" encType="multipart/form-data">
                   <Field label="CSV file">
                     <Input type="file" name="file" accept=".csv,text/csv" />
                   </Field>
@@ -242,7 +243,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
               <div className="space-y-2 text-sm">
                 <p className="font-semibold text-fg">Sandbox numbers</p>
                 <p className="text-fg-muted">In test mode you can generate numbers starting with TEST-. {SANDBOX_NUMBER_LABEL}; live mode refuses them.</p>
-                <SgoActionForm action={generateSandboxNumbersAction} orgId={ctx.org.id} submitLabel="Generate for every donor without one" submitVariant="secondary" submitSize="sm">
+                <SgoActionForm action={generateSandboxNumbersAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Generate for every donor without one" submitVariant="secondary" submitSize="sm">
                   <input type="hidden" name="taxYear" value={year} />
                 </SgoActionForm>
               </div>

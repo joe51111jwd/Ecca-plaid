@@ -24,7 +24,7 @@ export default async function SettingsPage() {
       <Card>
         <CardHeader title="Profile" level={2} description="Shown to donors on your giving page and printed on acknowledgments." />
         {canManage ? (
-          <SgoActionForm action={updateProfileAction} orgId={ctx.org.id} submitLabel="Save profile" className="mt-4" fieldLabels={{ displayName: "Name", ein: "EIN", website: "Website", supportEmail: "Support email" }}>
+          <SgoActionForm action={updateProfileAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save profile" className="mt-4" fieldLabels={{ displayName: "Name", ein: "EIN", website: "Website", supportEmail: "Support email" }}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name">
                 <Input name="displayName" defaultValue={p.displayName} maxLength={200} />
@@ -72,7 +72,7 @@ export default async function SettingsPage() {
       <Card>
         <CardHeader title="Verification policy" level={2} description="Used by every new decision. Decisions already made keep the policy they were made with." />
         {canManage ? (
-          <SgoActionForm action={updatePolicyAction} orgId={ctx.org.id} submitLabel="Save policy" className="mt-4" fieldLabels={{ incomeCapPct: "Income cap", reviewBandBps: "Review band", rawRetentionDays: "Retention" }}>
+          <SgoActionForm action={updatePolicyAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save policy" className="mt-4" fieldLabels={{ incomeCapPct: "Income cap", reviewBandBps: "Review band", rawRetentionDays: "Retention" }}>
             <Field
               label="Income cap (% of area median income)"
               hint={`The statute caps eligibility at ${STATUTORY_MAX_INCOME_CAP_PCT} percent of area median gross income. Your organization may focus below that with a lower cap, never a higher one.`}
@@ -105,10 +105,10 @@ export default async function SettingsPage() {
         <CardHeader title="IRS SGO portal and integration" level={2} />
         {canManage ? (
           <div className="mt-4 space-y-4">
-            <SgoActionForm action={setPortalRegisteredAction} orgId={ctx.org.id} submitLabel="Save" submitVariant="secondary" submitSize="sm">
+            <SgoActionForm action={setPortalRegisteredAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save" submitVariant="secondary" submitSize="sm">
               <Switch name="registered" label="Our organization is registered in the IRS SGO portal" description="Your own statement. Real unique donor numbers exist only after you register there." defaultChecked={p.irsPortalRegistered} />
             </SgoActionForm>
-            <SgoActionForm action={setDashboardOnlyAction} orgId={ctx.org.id} submitLabel="Save" submitVariant="secondary" submitSize="sm">
+            <SgoActionForm action={setDashboardOnlyAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save" submitVariant="secondary" submitSize="sm">
               <Switch name="dashboardOnly" label="We work in this dashboard only" description="No webhook endpoint is needed. You can add one later in Developers." defaultChecked={p.dashboardOnly} />
             </SgoActionForm>
           </div>
@@ -123,7 +123,7 @@ export default async function SettingsPage() {
       <Card>
         <CardHeader title="Notifications" level={2} description="Emails to your reviewers, owners and admins." />
         {canManage ? (
-          <SgoActionForm action={updateNotificationsAction} orgId={ctx.org.id} submitLabel="Save notifications" submitVariant="secondary" className="mt-4">
+          <SgoActionForm action={updateNotificationsAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save notifications" submitVariant="secondary" className="mt-4">
             <Switch name="needsReview" label="A verification needs review" defaultChecked={notifications.needsReview} />
             <Switch name="decided" label="A verification was decided" defaultChecked={notifications.decided} />
           </SgoActionForm>

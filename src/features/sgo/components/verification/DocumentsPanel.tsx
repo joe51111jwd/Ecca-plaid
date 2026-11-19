@@ -6,6 +6,7 @@ import { AMOUNT_ROWS } from "../../forms";
 import { APPROVAL_STATUS_LABELS, documentKindLabel, PROGRAM_LABELS } from "../../labels";
 import type { SgoFormAction } from "../../types";
 import { SgoActionForm } from "../SgoActionForm";
+import type { Mode } from "@/db/schema";
 
 export interface MeasureOption {
   value: string;
@@ -16,8 +17,12 @@ export interface MeasureOption {
 export interface DocumentsPanelProps {
   detail: VerificationDetail;
   orgId: string;
+  /** The mode the page was rendered in (see SgoActionForm). */
+  mode: Mode;
   /** The reviewer may key fields now (reviewer role and the verification waits on a person or the family). */
   canEdit: boolean;
+  /** The member's role may open raw uploads (see canOpenUploads); below it the file's state is shown without a link. */
+  canViewFiles: boolean;
   viewHref: (documentId: string) => string;
   memberName: (id: string | null) => string;
   measureOptions: MeasureOption[];
@@ -30,7 +35,8 @@ function confidenceTone(c: number): "success" | "warning" | "danger" {
   return c >= 0.9 ? "success" : c >= 0.6 ? "warning" : "danger";
 }
 
-function FileState({ doc, viewHref }: { doc: DetailDocument; viewHref: string }) {
+function FileState({ doc, viewHref, canView }: { doc: DetailDocument; viewHref: string; canView: boolean }) {
+  if (doc.viewable && !canView) return <span className="text-sm text-fg-muted">File kept. Reviewers and above can open it.</span>;
   if (doc.viewable) {
     return (
       <Link href={viewHref} scroll={false} prefetch={false} className={buttonClasses({ variant: "secondary", size: "sm" })}>
@@ -60,13 +66,13 @@ function FileState({ doc, viewHref }: { doc: DetailDocument; viewHref: string })
   );
 }
 
-function KeyFieldsForm({ doc, orgId, memberOptions, measureOptions, action }: { doc: DetailDocument; orgId: string; memberOptions: Array<{ id: string; name: string }>; measureOptions: MeasureOption[]; action: SgoFormAction }) {
+function KeyFieldsForm({ doc, orgId, mode, memberOptions, measureOptions, action }: { doc: DetailDocument; orgId: string; mode: Mode; memberOptions: Array<{ id: string; name: string }>; measureOptions: MeasureOption[]; action: SgoFormAction }) {
   const e = doc.extraction;
   const kindDefault = (KEYABLE as readonly string[]).includes(doc.detectedKind ?? "") ? doc.detectedKind! : (KEYABLE as readonly string[]).includes(doc.declaredKind) ? doc.declaredKind : "w2";
   const award = e?.award ?? null;
   const amounts = e?.income?.amounts ?? [];
   return (
-    <SgoActionForm action={action} orgId={orgId} submitLabel="Save keyed fields" pendingText="Saving…" aria-label={`Key fields for ${doc.filename}`}>
+    <SgoActionForm action={action} orgId={orgId} mode={mode} submitLabel="Save keyed fields" pendingText="Saving…" aria-label={`Key fields for ${doc.filename}`}>
       <input type="hidden" name="documentId" value={doc.id} />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="What this document is">
@@ -185,7 +191,7 @@ function KeyFieldsForm({ doc, orgId, memberOptions, measureOptions, action }: { 
 }
 
 /** Every document with what was read from it (values, confidences, review reasons) and the file's state. */
-export function DocumentsPanel({ detail, orgId, canEdit, viewHref, memberName, measureOptions, keyFieldsAction }: DocumentsPanelProps) {
+export function DocumentsPanel({ detail, orgId, mode, canEdit, canViewFiles, viewHref, memberName, measureOptions, keyFieldsAction }: DocumentsPanelProps) {
   const memberOptions = (detail.household?.members ?? []).map((m) => ({ id: m.id, name: `${m.firstName} ${m.lastName}` }));
   return (
     <Card id="documents">
@@ -208,7 +214,7 @@ export function DocumentsPanel({ detail, orgId, canEdit, viewHref, memberName, m
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <StatusBadge kind="document" status={doc.status} size="sm" />
-                  <FileState doc={doc} viewHref={viewHref(doc.id)} />
+                  <FileState doc={doc} viewHref={viewHref(doc.id)} canView={canViewFiles} />
                 </div>
               </div>
 
@@ -287,7 +293,7 @@ export function DocumentsPanel({ detail, orgId, canEdit, viewHref, memberName, m
               {canEdit && doc.removedAt === null && doc.sourceDocumentId === null ? (
                 <Disclosure summary={doc.extraction?.readBy === "reviewer" ? "Correct the keyed fields" : "Key or correct the fields"} className="mt-3">
                   <div className="pt-3">
-                    <KeyFieldsForm doc={doc} orgId={orgId} memberOptions={memberOptions} measureOptions={measureOptions} action={keyFieldsAction} />
+                    <KeyFieldsForm doc={doc} orgId={orgId} mode={mode} memberOptions={memberOptions} measureOptions={measureOptions} action={keyFieldsAction} />
                   </div>
                 </Disclosure>
               ) : null}

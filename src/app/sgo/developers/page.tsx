@@ -94,6 +94,7 @@ export default async function DevelopersPage() {
           <SgoActionForm
             action={revokeApiKeyAction}
             orgId={ctx.org.id}
+            mode={ctx.mode}
             submitLabel="Revoke"
             submitVariant="ghost"
             submitSize="sm"
@@ -123,7 +124,7 @@ export default async function DevelopersPage() {
         <Table caption="API keys" density="compact" columns={keyColumns} rows={keys} rowKey={(k) => k.id} empty={<EmptyState size="sm" title="No keys in this mode" />} />
         {canManage ? (
           <div className="border-t border-line px-5 py-4 sm:px-6">
-            <SgoActionForm action={createApiKeyAction} orgId={ctx.org.id} submitLabel={`Create ${ctx.mode} key`} submitVariant="secondary" layout="inline" resetOnSuccess>
+            <SgoActionForm action={createApiKeyAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={`Create ${ctx.mode} key`} submitVariant="secondary" layout="inline" resetOnSuccess>
               <Field label="Key name" hint="Where it will be used, e.g. “Admissions system”.">
                 <Input name="name" maxLength={100} autoComplete="off" />
               </Field>
@@ -163,7 +164,7 @@ export default async function DevelopersPage() {
                 <div className="flex flex-wrap gap-2">
                   <Disclosure summary="Choose events">
                     <div className="pt-3">
-                      <SgoActionForm action={updateWebhookEventsAction} orgId={ctx.org.id} submitLabel="Save events" submitVariant="secondary" submitSize="sm">
+                      <SgoActionForm action={updateWebhookEventsAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save events" submitVariant="secondary" submitSize="sm">
                         <input type="hidden" name="endpointId" value={e.id} />
                         <EventPicker selected={e.eventTypes} />
                       </SgoActionForm>
@@ -171,19 +172,20 @@ export default async function DevelopersPage() {
                   </Disclosure>
                   <Disclosure summary="Rotate the signing secret">
                     <div className="pt-3">
-                      <SgoActionForm action={rotateWebhookSecretAction} orgId={ctx.org.id} submitLabel="Rotate secret" submitVariant="secondary" submitSize="sm" confirm={{ title: "Rotate the signing secret?", confirmLabel: "Rotate" }}>
+                      <SgoActionForm action={rotateWebhookSecretAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Rotate secret" submitVariant="secondary" submitSize="sm" confirm={{ title: "Rotate the signing secret?", confirmLabel: "Rotate" }}>
                         <input type="hidden" name="endpointId" value={e.id} />
                         <Checkbox name="immediate" label="Stop the old secret now" description="Only if it leaked. Otherwise both secrets sign deliveries for 24 hours." />
                       </SgoActionForm>
                     </div>
                   </Disclosure>
-                  <SgoActionForm action={setWebhookStatusAction} orgId={ctx.org.id} submitLabel={e.status === "active" ? "Disable" : "Enable"} submitVariant="secondary" submitSize="sm" layout="inline">
+                  <SgoActionForm action={setWebhookStatusAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={e.status === "active" ? "Disable" : "Enable"} submitVariant="secondary" submitSize="sm" layout="inline">
                     <input type="hidden" name="endpointId" value={e.id} />
                     <input type="hidden" name="status" value={e.status === "active" ? "disabled" : "active"} />
                   </SgoActionForm>
                   <SgoActionForm
                     action={deleteWebhookAction}
                     orgId={ctx.org.id}
+                    mode={ctx.mode}
                     submitLabel="Delete"
                     submitVariant="ghost"
                     submitSize="sm"
@@ -195,13 +197,13 @@ export default async function DevelopersPage() {
                 </div>
               ) : null}
             </div>
-            <DeliveryLog deliveries={logs.get(e.id) ?? []} orgId={ctx.org.id} canManage={canManage} resend={resendDeliveryAction} />
+            <DeliveryLog deliveries={logs.get(e.id) ?? []} orgId={ctx.org.id} mode={ctx.mode} canManage={canManage} resend={resendDeliveryAction} />
           </Card>
         ))}
         {canManage ? (
           <Card>
             <CardHeader title="Add an endpoint" level={3} description="An https address that accepts POST requests. Private and local addresses are refused." />
-            <SgoActionForm action={createWebhookAction} orgId={ctx.org.id} submitLabel="Add endpoint" className="mt-4" resetOnSuccess>
+            <SgoActionForm action={createWebhookAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Add endpoint" className="mt-4" resetOnSuccess>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Endpoint URL">
                   <Input name="url" type="url" placeholder="https://example.org/webhooks/passport" autoComplete="off" />

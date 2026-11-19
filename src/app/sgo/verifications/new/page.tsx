@@ -25,6 +25,7 @@ export default async function NewVerificationPage() {
         <SgoActionForm
           action={createVerificationAction}
           orgId={ctx.org.id}
+          mode={ctx.mode}
           submitLabel="Create verification"
           pendingText="Creating…"
           resetOnSuccess

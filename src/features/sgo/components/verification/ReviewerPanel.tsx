@@ -3,10 +3,13 @@ import type { VerificationDetail } from "@/server/verifications";
 import { documentKindLabel } from "../../labels";
 import type { SgoFormAction } from "../../types";
 import { SgoActionForm } from "../SgoActionForm";
+import type { Mode } from "@/db/schema";
 
 export interface ReviewerPanelProps {
   detail: VerificationDetail;
   orgId: string;
+  /** The mode the page was rendered in (see SgoActionForm). */
+  mode: Mode;
   currentUserId: string;
   reviewers: Array<{ id: string; name: string }>;
   /** Waiting on a person (needs review) or on the family's answer: the reviewer tools apply. */
@@ -15,7 +18,7 @@ export interface ReviewerPanelProps {
 }
 
 /** The reviewer's decisions: re-run the check, resolve with mandatory notes, ask the family for more, assign, cancel. */
-export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editable, actions }: ReviewerPanelProps) {
+export function ReviewerPanel({ detail, orgId, mode, currentUserId, reviewers, editable, actions }: ReviewerPanelProps) {
   const v = detail.verification;
   const openTask = detail.reviewTasks.find((t) => t.status === "open") ?? null;
   const letters = detail.documents.filter((d) => (d.detectedKind ?? d.declaredKind) === "award_letter" && d.removedAt === null);
@@ -28,7 +31,7 @@ export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editabl
       <CardHeader title="Reviewer actions" level={2} description={editable ? "Settle what the check could not, then resolve or re-run." : "Nothing is waiting on a reviewer right now."} />
       <div className="mt-4 space-y-6">
         {openTask ? (
-          <SgoActionForm action={actions.assign} orgId={orgId} submitLabel="Assign" submitVariant="secondary" submitSize="sm" layout="inline" aria-label="Assign the review">
+          <SgoActionForm action={actions.assign} orgId={orgId} mode={mode} submitLabel="Assign" submitVariant="secondary" submitSize="sm" layout="inline" aria-label="Assign the review">
             <input type="hidden" name="verificationId" value={v.id} />
             <Field label="Assigned to">
               <Select name="assignee" size="sm" defaultValue={openTask.assignedTo === currentUserId ? "me" : (openTask.assignedTo ?? "none")}>
@@ -52,7 +55,7 @@ export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editabl
               Re-run the check
             </h3>
             <p className="text-sm text-fg-muted">Runs the engine again with everything on file, including fields and income lines you keyed. It may decide on its own.</p>
-            <SgoActionForm action={actions.rerun} orgId={orgId} submitLabel="Re-run the check" submitVariant="secondary" pendingText="Running…">
+            <SgoActionForm action={actions.rerun} orgId={orgId} mode={mode} submitLabel="Re-run the check" submitVariant="secondary" pendingText="Running…">
               <input type="hidden" name="verificationId" value={v.id} />
             </SgoActionForm>
           </section>
@@ -66,6 +69,7 @@ export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editabl
             <SgoActionForm
               action={actions.resolve}
               orgId={orgId}
+              mode={mode}
               submitLabel="Resolve"
               pendingText="Resolving…"
               fieldLabels={{ notes: "Notes", resolution: "Result", method: "Method", documentId: "Award letter" }}
@@ -111,7 +115,7 @@ export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editabl
             <h3 id="ask-heading" className="text-sm font-semibold text-fg">
               Ask the family for more
             </h3>
-            <SgoActionForm action={actions.requestMoreInfo} orgId={orgId} submitLabel="Send the request" submitVariant="secondary" pendingText="Sending…" resetOnSuccess>
+            <SgoActionForm action={actions.requestMoreInfo} orgId={orgId} mode={mode} submitLabel="Send the request" submitVariant="secondary" pendingText="Sending…" resetOnSuccess>
               <input type="hidden" name="verificationId" value={v.id} />
               <Field label="Message to the family" hint="Shown on their screen and emailed in their language, as you write it.">
                 <Textarea name="message" rows={3} maxLength={2000} />
@@ -138,6 +142,7 @@ export function ReviewerPanel({ detail, orgId, currentUserId, reviewers, editabl
             <SgoActionForm
               action={actions.cancel}
               orgId={orgId}
+              mode={mode}
               submitLabel="Cancel verification"
               submitVariant="danger"
               confirm={{ title: "Cancel this verification?", description: "The family link stops working. This cannot be undone.", confirmLabel: "Cancel verification", tone: "danger" }}

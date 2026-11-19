@@ -4,6 +4,7 @@ import type { MemberRole, Mode } from "@/db/schema";
 import { forbidden, isAppError, unauthenticated } from "@/lib/errors";
 import { assertOrgMember, getCurrentUser, getPrimaryOrg, getRequestInfo, requireUser, roleAtLeast, type Membership, type Organization, type User } from "@/server/auth";
 import { getSgoProfile, type SgoProfile } from "@/server/sgos";
+import { REVIEW_ACCESS } from "@/server/verifications";
 import { DEFAULT_MODE, LIVE_MODE_REQUIRES_VERIFIED_LISTING, SGO_MODE_COOKIE, SGO_ORG_COOKIE, VIEW_ROLE } from "../policy";
 import type { SgoActor } from "../types";
 
@@ -35,6 +36,14 @@ export function parseMode(raw: string | undefined | null): Mode | null {
 /** Whether live mode may be shown for this profile. */
 export function liveModeAvailable(profile: Pick<SgoProfile, "listEntryId">): boolean {
   return !LIVE_MODE_REQUIRES_VERIFIED_LISTING || profile.listEntryId !== null;
+}
+
+/**
+ * Whether a member with `role` may open a family's raw uploads. The verifications service refuses anyone below
+ * REVIEW_ACCESS.viewDocument, so the dashboard offers the viewer only to them instead of a link that answers 404.
+ */
+export function canOpenUploads(role: MemberRole): boolean {
+  return roleAtLeast(role, REVIEW_ACCESS.viewDocument);
 }
 
 /** The mode on screen: the cookie's choice when live is available, otherwise test. */

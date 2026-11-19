@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { Alert, ConfirmDialog, CopyField, Form, FormError, SubmitButton, TextLink, cn, type ButtonSize, type ButtonVariant } from "@/components/ui";
+import type { Mode } from "@/db/schema";
 import type { SgoActionState } from "../types";
 
 export interface SgoActionFormProps {
@@ -12,6 +13,11 @@ export interface SgoActionFormProps {
    * Omitted only on the signup form, which acts before there is an organization.
    */
   orgId: string | null;
+  /**
+   * The test/live mode the page was rendered in; sent as a hidden field so a tab left open in one mode cannot act in
+   * the other after the switch was flipped elsewhere (the server reads the mode from a cookie shared by every tab).
+   */
+  mode?: Mode | null;
   submitLabel: ReactNode;
   pendingText?: ReactNode;
   submitVariant?: ButtonVariant;
@@ -38,6 +44,7 @@ export interface SgoActionFormProps {
 export function SgoActionForm({
   action,
   orgId,
+  mode,
   submitLabel,
   pendingText,
   submitVariant = "primary",
@@ -65,6 +72,7 @@ export function SgoActionForm({
   const body = (
     <>
       {orgId ? <input type="hidden" name="orgId" value={orgId} /> : null}
+      {mode ? <input type="hidden" name="mode" value={mode} /> : null}
       <FormError state={state} fieldLabels={fieldLabels} focusOnError={!inline} className={inline ? "w-full" : undefined} />
       {inline ? (
         <div className="flex flex-wrap items-end gap-2">

@@ -18,7 +18,7 @@ import { summarizeDecision } from "@/features/sgo/decision-summary";
 import { measureLabel } from "@/features/sgo/forms";
 import { SGO_PATHS } from "@/features/sgo/nav";
 import { REVIEW_ROLE } from "@/features/sgo/policy";
-import { requireSgoPage } from "@/features/sgo/server/context";
+import { canOpenUploads, requireSgoPage } from "@/features/sgo/server/context";
 import { loadTeam, teamNames } from "@/features/sgo/server/queries";
 import { timelineActor, timelineLabel } from "@/features/sgo/timeline";
 import {
@@ -71,7 +71,8 @@ export default async function VerificationDetailPage({ params, searchParams }: {
   const memberName = (memberId: string | null) => (memberId ? (members.get(memberId) ?? "a former household member") : "the household");
   const summary = summarizeDecision(detail.decision);
   const viewId = typeof query.view === "string" ? query.view : null;
-  const viewing = viewId ? (detail.documents.find((d) => d.id === viewId && d.viewable) ?? null) : null;
+  const canViewFiles = canOpenUploads(ctx.role);
+  const viewing = viewId && canViewFiles ? (detail.documents.find((d) => d.id === viewId && d.viewable) ?? null) : null;
   const fileHref = (documentId: string) => `${path}/documents/${encodeURIComponent(documentId)}`;
   const reviewers = team.filter((m) => roleAtLeast(m.membership.role, REVIEW_ROLE)).map((m) => ({ id: m.user.id, name: m.user.name?.trim() || m.user.email }));
   const students = (detail.household?.members ?? []).filter((m) => detail.household?.studentMemberIds.includes(m.id)).map((m) => ({ id: m.id, name: `${m.firstName} ${m.lastName}` }));
@@ -117,19 +118,22 @@ export default async function VerificationDetailPage({ params, searchParams }: {
           <DocumentsPanel
             detail={detail}
             orgId={ctx.org.id}
+            mode={ctx.mode}
             canEdit={editable}
+            canViewFiles={canViewFiles}
             viewHref={(documentId) => `${path}?view=${encodeURIComponent(documentId)}#documents`}
             memberName={memberName}
             measureOptions={measureOptions}
             keyFieldsAction={keyFieldsAction}
           />
-          <IncomePanel detail={detail} orgId={ctx.org.id} canEdit={editable} memberName={memberName} categories={categories} addIncomeLineAction={addIncomeLineAction} removeIncomeLineAction={removeIncomeLineAction} />
+          <IncomePanel detail={detail} orgId={ctx.org.id} mode={ctx.mode} canEdit={editable} memberName={memberName} categories={categories} addIncomeLineAction={addIncomeLineAction} removeIncomeLineAction={removeIncomeLineAction} />
         </div>
         <div className="space-y-6">
           {canReview ? (
             <ReviewerPanel
               detail={detail}
               orgId={ctx.org.id}
+              mode={ctx.mode}
               currentUserId={ctx.user.id}
               reviewers={reviewers}
               editable={editable}
@@ -138,6 +142,7 @@ export default async function VerificationDetailPage({ params, searchParams }: {
           ) : null}
           <AwardPanel
             orgId={ctx.org.id}
+            mode={ctx.mode}
             verificationId={v.id}
             context={awardContext}
             awards={awards.data}

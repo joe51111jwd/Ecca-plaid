@@ -55,7 +55,7 @@ export default async function TeamPage() {
       header: "Role",
       cell: (m) =>
         canManage && m.user.id !== ctx.user.id && (isOwner || m.membership.role !== "owner") ? (
-          <SgoActionForm action={changeRoleAction} orgId={ctx.org.id} submitLabel="Change" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Change role of ${m.user.email}`}>
+          <SgoActionForm action={changeRoleAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Change" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Change role of ${m.user.email}`}>
             <input type="hidden" name="userId" value={m.user.id} />
             <Field label="Role" hideLabel>
               <RoleSelect name="role" defaultValue={m.membership.role} allowOwner={isOwner} />
@@ -75,6 +75,7 @@ export default async function TeamPage() {
           <SgoActionForm
             action={removeMemberAction}
             orgId={ctx.org.id}
+            mode={ctx.mode}
             submitLabel={m.user.id === ctx.user.id ? "Leave" : "Remove"}
             submitVariant="ghost"
             submitSize="sm"
@@ -97,7 +98,7 @@ export default async function TeamPage() {
       {canManage ? (
         <Card>
           <CardHeader title="Add a person" level={2} />
-          <SgoActionForm action={addMemberAction} orgId={ctx.org.id} submitLabel="Add" className="mt-4" resetOnSuccess>
+          <SgoActionForm action={addMemberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Add" className="mt-4" resetOnSuccess>
             <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
               <Field label="Email address">
                 <Input name="email" type="email" autoComplete="off" />

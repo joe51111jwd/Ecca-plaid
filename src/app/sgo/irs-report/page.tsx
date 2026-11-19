@@ -75,7 +75,7 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
         ) : test ? (
           <span className="text-fg-subtle">Test reports are never filed</span>
         ) : canManage ? (
-          <SgoActionForm action={recordReportSubmissionAction} orgId={ctx.org.id} submitLabel="Record" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Record submission of version ${r.version}`}>
+          <SgoActionForm action={recordReportSubmissionAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Record" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Record submission of version ${r.version}`}>
             <input type="hidden" name="reportId" value={r.id} />
             <Field label="Date entered">
               <Input type="date" name="submittedOn" size="sm" />
@@ -134,7 +134,7 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
       {canManage ? (
         <Card>
           <CardHeader title={latest ? "Generate a new version" : "Generate the report"} level={2} description="Built from received designated gifts, your donor numbers and the acknowledgments you issued. A correction is a new version; earlier versions are kept." />
-          <SgoActionForm action={generateIrsReportAction} orgId={ctx.org.id} submitLabel={`Generate for ${year}`} pendingText="Generating…" className="mt-4">
+          <SgoActionForm action={generateIrsReportAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={`Generate for ${year}`} pendingText="Generating…" className="mt-4">
             <input type="hidden" name="taxYear" value={year} />
           </SgoActionForm>
         </Card>
