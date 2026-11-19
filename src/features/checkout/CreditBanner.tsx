@@ -29,12 +29,12 @@ export function CreditBanner({ banner, compact, className }: CreditBannerProps) 
       data-testid="credit-banner"
       data-state={banner.state}
       data-reasons={banner.reasonCodes.join(" ")}
-      className={cn("rounded-card border p-4", box, compact ? "text-sm" : "text-base", className)}
+      className={cn("rounded-card border", box, compact ? "p-3 text-sm leading-5" : "p-4 text-base", className)}
     >
       <div className="flex items-start gap-3">
         <Icon aria-hidden="true" className={cn("mt-0.5 shrink-0", compact ? "size-4" : "size-5")} />
-        <div className="min-w-0 space-y-2">
-          <p className="font-semibold">{banner.title}</p>
+        <div className={cn("min-w-0", compact ? "space-y-1.5" : "space-y-2")}>
+          <p className={compact ? "font-medium" : "font-semibold"}>{banner.title}</p>
           {banner.details.length > 0 ? (
             <ul className="list-disc space-y-1 pl-5">
               {banner.details.map((d) => (

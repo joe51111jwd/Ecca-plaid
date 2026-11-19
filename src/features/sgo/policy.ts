@@ -1,4 +1,5 @@
 import type { MemberRole, Mode } from "@/db/schema";
+import { MS } from "@/lib/clock";
 
 /**
  * Product policy of the SGO dashboard. None of these values comes from the spec or the regulations; each is a
@@ -65,3 +66,19 @@ export const FIRST_TAX_YEAR = 2026;
 
 /** Label used everywhere a sandbox donor number appears. */
 export const SANDBOX_NUMBER_LABEL = "Sandbox number: not valid for filing";
+
+/**
+ * POLICY: self-serve workspaces a person may create. Signup is open to anyone who can sign in, and every workspace can
+ * then send family invitations under a name its creator chose, so creation is bounded per person.
+ */
+export const SIGNUP_RATE_LIMIT = { limit: 3, windowMs: MS.day } as const;
+
+/**
+ * POLICY: family-link emails ("Email the link to the family") one organization may send from the dashboard per hour,
+ * by mode. Test mode is a sandbox, so it needs few real emails; live allows a busy application season. Creating a
+ * verification without the email is not limited here (it sends nothing). The API has its own per-key limits.
+ */
+export const INVITE_EMAIL_RATE_LIMIT: Readonly<Record<Mode, { limit: number; windowMs: number }>> = {
+  test: { limit: 25, windowMs: MS.hour },
+  live: { limit: 300, windowMs: MS.hour },
+};

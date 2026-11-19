@@ -9,12 +9,14 @@ import type { MemberRole, Mode } from "@/db/schema";
 import { setTestNow } from "@/lib/clock";
 import { AppError } from "@/lib/errors";
 import { emitEvent } from "@/server/events";
-import { addDocument, getVerification, signCertification, submit } from "@/server/verifications";
+import { rateLimit } from "@/server/ratelimit";
+import { addDocument, FAMILY_LINK_TTL_DAYS, getVerification, signCertification, submit } from "@/server/verifications";
 import { drainJobs, hideEnumerableArrayExtensions, makeStaff, makeTestFamily, makeTestSgo, startedVerification, syntheticW2, TEST_NOW, userByEmail, type TestSgo } from "@/server/verifications/test-support";
 import { listDeliveries, setWebhookResolverForTests } from "@/server/webhooks";
 import { useTestDb } from "../../../../tests/helpers/db";
+import { INVITE_EMAIL_RATE_LIMIT, SIGNUP_RATE_LIMIT } from "../policy";
 import type { SgoActor } from "../types";
-import { resolveSgoContext } from "./context";
+import { canOpenUploads, resolveSgoContext } from "./context";
 import { contentDisposition, documentFile, downloadErrorResponse, evidenceFile, fileResponse, serveDashboardFile } from "./downloads";
 import * as ops from "./operations";
 import { loadHome, loadShellCounts } from "./queries";
@@ -76,6 +78,8 @@ describe("SGO dashboard operations", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.shownOnce?.value).toMatch(/\/v\/[A-Za-z0-9_-]{20,}$/);
+    // The lifetime stated to staff is the service's, not a copy of it.
+    expect(result.data.shownOnce?.hint).toContain(`expires in ${FAMILY_LINK_TTL_DAYS} days`);
     const db = await getDb();
     const [row] = await db.select().from(schema.verifications).where(eq(schema.verifications.orgId, a.orgId));
     expect(row).toMatchObject({ mode: "test", externalRef: "SYN-1", createdByType: "user", createdById: owner.userId });
@@ -227,6 +231,69 @@ describe("SGO dashboard operations", () => {
     expect(() => ops.assertSameOrg(owner, fd({ orgId: "org_other" }))).toThrow(/another organization/);
     expect(() => ops.assertSameOrg(owner, fd({ orgId: a.orgId }))).not.toThrow();
     expect(() => ops.assertSameOrg(owner, fd({}))).not.toThrow();
+  });
+
+  it("bounds family-link emails per organization and mode; creating without the email is not limited", async () => {
+    const a = await makeTestSgo("Synthetic Fund A");
+    const owner = await actorFor(a.ownerEmail, a.orgId, "owner");
+    const invite = fd({ applicantEmail: "family-invite@example.com", sendInvite: "on", locale: "en" });
+    const first = await ops.createVerificationOp(owner, invite);
+    expect(first.ok).toBe(true);
+    // Use up the rest of the hour's test-mode allowance on the same key the operation uses.
+    for (let i = 1; i < INVITE_EMAIL_RATE_LIMIT.test.limit; i++) await rateLimit(`sgo:dashboard:invite-email:${a.orgId}:test`, INVITE_EMAIL_RATE_LIMIT.test);
+    const db = await getDb();
+    const before = (await db.select().from(schema.verifications).where(eq(schema.verifications.orgId, a.orgId))).length;
+    const limited = await ops.createVerificationOp(owner, invite);
+    expect(limited.ok ? "ok" : limited.error.code).toBe("rate_limited");
+    expect((await db.select().from(schema.verifications).where(eq(schema.verifications.orgId, a.orgId))).length).toBe(before);
+    // No email, no limit; and live mode has its own allowance.
+    expect((await ops.createVerificationOp(owner, fd({ applicantName: "Dana Sample", locale: "en" }))).ok).toBe(true);
+    expect(INVITE_EMAIL_RATE_LIMIT.live.limit).toBeGreaterThan(INVITE_EMAIL_RATE_LIMIT.test.limit);
+    // An hour later the allowance is back.
+    setTestNow(new Date(Date.parse(TEST_NOW) + INVITE_EMAIL_RATE_LIMIT.test.windowMs + 1000));
+    expect((await ops.createVerificationOp(owner, invite)).ok).toBe(true);
+  });
+
+  it("bounds self-serve workspace creation per person", async () => {
+    const user = await userByEmail("founder-many@example.org");
+    for (let i = 0; i < SIGNUP_RATE_LIMIT.limit; i++) {
+      const r = await ops.signupOp(user, null, fd({ name: `Synthetic Fund ${i}`, state: "TX", testModeUnderstood: "on" }));
+      expect(r.ok).toBe(true);
+    }
+    const over = await ops.signupOp(user, null, fd({ name: "Synthetic Fund Extra", state: "TX", testModeUnderstood: "on" }));
+    expect(over.ok ? "ok" : over.error.code).toBe("rate_limited");
+    const db = await getDb();
+    expect(await db.select().from(schema.organizations).where(eq(schema.organizations.name, "Synthetic Fund Extra"))).toHaveLength(0);
+  });
+
+  it("refuses a form rendered in the other mode (the mode cookie is shared by every tab)", async () => {
+    const a = await makeTestSgo("Synthetic Fund A");
+    const liveOwner = await actorFor(a.ownerEmail, a.orgId, "owner", "live");
+    // A test-mode tab left open after the switch was flipped to live in another tab.
+    expect(() => ops.assertSameOrg(liveOwner, fd({ orgId: a.orgId, mode: "test" }))).toThrow(/opened in test mode.*now in live mode/);
+    expect(() => ops.assertSameOrg({ ...liveOwner, mode: "test" }, fd({ orgId: a.orgId, mode: "live" }))).toThrow(/opened in live mode.*now in test mode/);
+    expect(() => ops.assertSameOrg(liveOwner, fd({ orgId: a.orgId, mode: "bogus" }))).toThrow(AppError);
+    expect(() => ops.assertSameOrg(liveOwner, fd({ orgId: a.orgId, mode: "live" }))).not.toThrow();
+    expect(await codeOf(Promise.resolve().then(() => ops.assertSameOrg(liveOwner, fd({ mode: "test" }))))).toBe("conflict");
+  });
+
+  it("raw uploads open for reviewers and above only, and the dashboard offers the viewer to exactly those roles", async () => {
+    expect(canOpenUploads("viewer")).toBe(false);
+    expect(canOpenUploads("reviewer")).toBe(true);
+    expect(canOpenUploads("admin")).toBe(true);
+    expect(canOpenUploads("owner")).toBe(true);
+
+    const b = await makeTestSgo("Synthetic Fund B");
+    const bId = await decidedIn(b, "family-viewer@example.com");
+    const db = await getDb();
+    const [doc] = await db.select().from(schema.documents).where(eq(schema.documents.verificationId, bId));
+    const viewer = await staff(b, "viewer", "viewer-b@example.org");
+    const reviewer = await actorFor(b.reviewerEmail, b.orgId, "reviewer");
+    // The gate in the page must agree with the service: a viewer is refused (and the route answers 404).
+    expect(await codeOf(documentFile(viewer, doc!.id))).toBe("forbidden");
+    const res = await serveDashboardFile((actor) => documentFile(actor, doc!.id), async () => ({ actor: viewer }));
+    expect(res.status).toBe(404);
+    expect((await documentFile(reviewer, doc!.id)).verificationId).toBe(bId);
   });
 
   it("self-serve signup makes the signed-in person the owner of a new SGO", async () => {

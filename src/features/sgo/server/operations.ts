@@ -7,6 +7,7 @@ import { formatUsd } from "@/lib/money";
 import { generateSandboxDonorNumber, generateSandboxDonorNumbers, generateIrsReport, importDonorNumbers, issueAcknowledgment, markAcknowledgmentMailed, recordIrsReportSubmission, setDonorNumber } from "@/server/acknowledgments";
 import { createApiKey, revokeApiKey } from "@/server/api";
 import { audit } from "@/server/audit";
+import { enforceRateLimit } from "@/server/ratelimit";
 import { assertOrgMember, requireOrgType, roleAtLeast, type User } from "@/server/auth";
 import { offerAward, updateAwardStatus, type AwardPaymentMethod } from "@/server/awards";
 import { endPartnership, respondToPartnership } from "@/server/businesses";
@@ -47,7 +48,7 @@ import {
   webhookFromForm,
 } from "../forms";
 import { SGO_PATHS } from "../nav";
-import { DONOR_NUMBER_UPLOAD_MAX_BYTES, MANAGE_ROLE, REVIEW_ROLE, SANDBOX_NUMBER_LABEL, VIEW_ROLE } from "../policy";
+import { DONOR_NUMBER_UPLOAD_MAX_BYTES, INVITE_EMAIL_RATE_LIMIT, MANAGE_ROLE, REVIEW_ROLE, SANDBOX_NUMBER_LABEL, SIGNUP_RATE_LIMIT, VIEW_ROLE } from "../policy";
 import type { SgoActor, SgoNotice, SgoOperation } from "../types";
 
 /**
@@ -102,6 +103,9 @@ const auditActor = (a: SgoActor) => ({ type: "user" as const, id: a.userId });
 
 export const createVerificationOp = operation(REVIEW_ROLE, async (actor, formData) => {
   const input = newVerificationFromForm(formData);
+  if (input.sendInvite) {
+    await enforceRateLimit(`sgo:dashboard:invite-email:${actor.orgId}:${actor.mode}`, { ...INVITE_EMAIL_RATE_LIMIT[actor.mode], message: "Your organization has emailed many family links in the last hour. Create the verification without the email and copy the link instead." });
+  }
   const created = await createVerification({
     orgId: actor.orgId,
     mode: actor.mode,
@@ -431,6 +435,7 @@ export async function signupOp(user: Pick<User, "id" | "email">, request: SgoAct
   try {
     const input = signupFromForm(formData);
     if (!user?.email) throw forbidden();
+    await enforceRateLimit(`sgo:signup:user:${user.id}`, { ...SIGNUP_RATE_LIMIT, message: "You have created several workspaces today." });
     const record = await createSgo({ name: input.name, ein: input.ein, city: input.city, state: input.state, ownerEmail: user.email }, { userId: user.id, request });
     return { ok: true, data: { record } };
   } catch (e) {

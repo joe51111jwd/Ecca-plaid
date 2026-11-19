@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { Mode } from "@/db/schema";
 import { Badge, Card, CardHeader, PageHeader, Checkbox, CheckboxGroup, DateTime, Disclosure, EmptyState, Field, Fieldset, Input, Select, StatusBadge, Table, TextLink, type TableColumn } from "@/components/ui";
 import { roleAtLeast } from "@/server/auth";
 import { EVENT_CATALOGUE, listApiKeys, listDeliveriesForMode, type ApiKeySummary } from "@/server/api";
@@ -43,7 +44,7 @@ function EventPicker({ selected }: { selected: readonly string[] }) {
   );
 }
 
-function DeliveryLog({ deliveries, orgId, canManage, resend }: { deliveries: WebhookDelivery[]; orgId: string; canManage: boolean; resend: SgoFormAction }) {
+function DeliveryLog({ deliveries, orgId, mode, canManage, resend }: { deliveries: WebhookDelivery[]; orgId: string; mode: Mode; canManage: boolean; resend: SgoFormAction }) {
   const columns: Array<TableColumn<WebhookDelivery>> = [
     { key: "event", header: "Event", primary: true, cell: (d) => <code className="text-xs">{d.eventType}</code> },
     { key: "status", header: "Status", cell: (d) => <StatusBadge kind="webhook_delivery" status={d.status} size="sm" /> },
@@ -55,7 +56,7 @@ function DeliveryLog({ deliveries, orgId, canManage, resend }: { deliveries: Web
       header: <span className="sr-only">Resend</span>,
       cell: (d) =>
         canManage ? (
-          <SgoActionForm action={resend} orgId={orgId} submitLabel="Resend" submitVariant="ghost" submitSize="sm" layout="inline" aria-label={`Resend ${d.eventType}`}>
+          <SgoActionForm action={resend} orgId={orgId} mode={mode} submitLabel="Resend" submitVariant="ghost" submitSize="sm" layout="inline" aria-label={`Resend ${d.eventType}`}>
             <input type="hidden" name="deliveryId" value={d.id} />
           </SgoActionForm>
         ) : null,

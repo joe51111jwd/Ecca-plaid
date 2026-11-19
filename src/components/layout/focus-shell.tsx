@@ -32,6 +32,12 @@ export interface FocusShellProps {
   banner?: ReactNode;
   /** A second column beside the card on wide screens (the donor tax-math panel). Stacks under the card on phones. */
   aside?: ReactNode;
+  /**
+   * Where the aside sits on phones. "below" (default) stacks it under the card; "pinned" puts it above the card and
+   * keeps it stuck to the top of the screen while the card scrolls (the donor tax-math summary bar). On wide screens
+   * the aside is always a sticky column beside the card.
+   */
+  asidePlacement?: "below" | "pinned";
   /** Card width: sm sign-in, md (default) one question per screen, lg/xl wider forms and summaries. */
   width?: keyof typeof WIDTH;
   /** false = render children without the card frame (the page supplies its own cards). */
@@ -53,7 +59,7 @@ export interface FocusShellProps {
  * The single-task shell: sign-in, each family intake step, donor checkout. One calm column, one card,
  * large touch targets (it sets data-density="touch", so every control inside is at least 44px tall).
  */
-export function FocusShell({ children, partner, languageToggle, progress, back, exit, banner, aside, width = "md", card = true, homeHref = "/", locale = "en", secureNote, footer }: FocusShellProps) {
+export function FocusShell({ children, partner, languageToggle, progress, back, exit, banner, aside, asidePlacement = "below", width = "md", card = true, homeHref = "/", locale = "en", secureNote, footer }: FocusShellProps) {
   const t = uiStrings(locale);
   const column = aside ? "max-w-5xl" : WIDTH[width];
   const body = card ? <div className="rounded-panel border border-line bg-surface p-5 shadow-sm sm:p-8">{children}</div> : children;
@@ -89,9 +95,10 @@ export function FocusShell({ children, partner, languageToggle, progress, back, 
             </Link>
           ) : null}
           {aside ? (
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-8">
+            // Pinned uses a flex column on phones: a sticky grid item could only move within its own row.
+            <div className={cn("items-start gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-8", asidePlacement === "pinned" ? "flex flex-col *:w-full lg:*:w-auto" : "grid")}>
               <div className="min-w-0">{body}</div>
-              <aside className="min-w-0 lg:sticky lg:top-6">{aside}</aside>
+              <aside className={cn("min-w-0 lg:sticky lg:top-6", asidePlacement === "pinned" && "sticky top-2 z-sticky order-first lg:order-none")}>{aside}</aside>
             </div>
           ) : (
             body

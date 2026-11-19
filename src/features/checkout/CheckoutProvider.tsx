@@ -36,6 +36,11 @@ interface CheckoutState {
   placeOrder: () => Promise<boolean>;
   backToForm: () => void;
   revealAllErrors: () => void;
+  /**
+   * Saves anything queued now (no debounce) and reports what the server said: the latest view and the typed
+   * values it refused. The stepped form uses it before moving on, so a step is checked against fresh problems.
+   */
+  saveNow: () => Promise<{ saved: boolean; view: CheckoutClientView; rejected: Readonly<Record<string, string>> }>;
 }
 
 const CheckoutContext = createContext<CheckoutState | null>(null);
@@ -69,7 +74,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   const [stage, setStage] = useState<"form" | "payment">(initialView.status === "awaiting_payment" && initialPayment ? "payment" : "form");
   const [saving, setSaving] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const [rejected, setRejected] = useState<Record<string, string>>({});
+  const [rejected, setRejectedState] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
@@ -80,6 +85,18 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   const inFlight = useRef(0);
   const sentTimeZone = useRef(false);
   const flushRef = useRef<() => Promise<boolean>>(async () => true);
+  // Mirrors of the latest view and refusals, readable right after an await (state is only seen on the next render).
+  const viewRef = useRef(initialView);
+  const rejectedRef = useRef<Record<string, string>>({});
+  const applyView = useCallback((next: CheckoutClientView) => {
+    viewRef.current = next;
+    setView(next);
+  }, []);
+  const setRejected = useCallback((update: (prev: Record<string, string>) => Record<string, string>) => {
+    const next = update(rejectedRef.current);
+    rejectedRef.current = next;
+    setRejectedState(next);
+  }, []);
 
   const flush = useCallback(async (): Promise<boolean> => {
     if (timer.current) {
@@ -102,7 +119,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
       const result = await saveCheckoutAction(access, patch);
       if (result.ok) {
         sentTimeZone.current = true;
-        setView(result.data);
+        applyView(result.data);
         setRejected((prev) => withoutPaths(prev, patchPaths(patch)));
         setFormError(null);
         // A change voids a placed order (the service cancels its payment); the donor reviews again.
@@ -133,7 +150,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
       inFlight.current -= 1;
       if (inFlight.current === 0) setSaving(false);
     }
-  }, [access]);
+  }, [access, applyView, setRejected]);
   useEffect(() => {
     flushRef.current = flush;
   }, [flush]);
@@ -195,7 +212,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
     try {
       const result = await placeOrderAction(access, shownStatementSha256);
       if (result.ok) {
-        setView(result.data.view);
+        applyView(result.data.view);
         setPayment(result.data.payment);
         setStage("payment");
         setFormError(null);
@@ -211,14 +228,19 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
     } finally {
       setPlacing(false);
     }
-  }, [access, flush, shownStatementSha256]);
+  }, [access, applyView, flush, setRejected, shownStatementSha256]);
+
+  const saveNow = useCallback(async () => {
+    const saved = await flush();
+    return { saved, view: viewRef.current, rejected: rejectedRef.current };
+  }, [flush]);
 
   const backToForm = useCallback(() => setStage("form"), []);
   const optimistic = useCallback((path: string, serverValue: boolean | string | null) => (path in pendingChoices ? pendingChoices[path] : serverValue), [pendingChoices]);
 
   const value = useMemo<CheckoutState>(
-    () => ({ access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors }),
-    [access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors],
+    () => ({ access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors, saveNow }),
+    [access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors, saveNow],
   );
   return <CheckoutContext.Provider value={value}>{children}</CheckoutContext.Provider>;
 }

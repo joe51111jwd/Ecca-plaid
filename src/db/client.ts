@@ -77,7 +77,9 @@ const SCHEMA_STAMP_TABLE = "_ecca_schema";
 async function syncEmbeddedSchema(db: Db, dataDir: string): Promise<void> {
   const statements = await generateSchemaSql();
   const { createHash } = await import("node:crypto");
-  const hash = createHash("sha256").update(statements.join("\n")).digest("hex");
+  // Hash the statements in sorted order: the order they are generated in depends on how the runtime
+  // enumerates the schema module (a script and the web server differ), but the set does not.
+  const hash = `v2:${createHash("sha256").update([...statements].sort().join("\n")).digest("hex")}`;
   const tables = await execRows<{ n: number }>(
     db,
     sql`select count(*)::int as n from information_schema.tables where table_schema = 'public' and table_name <> ${SCHEMA_STAMP_TABLE}`,
@@ -89,10 +91,11 @@ async function syncEmbeddedSchema(db: Db, dataDir: string): Promise<void> {
     return;
   }
   const stamp = await execRows<{ hash: string }>(db, sql.raw(`select hash from "${SCHEMA_STAMP_TABLE}" where id = 1`));
-  if (stamp.length === 0) {
-    // Created before stamps existed: accept it as current rather than block, and stamp it now.
-    console.warn(`[db] ${dataDir} has no schema stamp; assuming it matches the current schema.`);
-    await db.execute(sql.raw(`insert into "${SCHEMA_STAMP_TABLE}" (id, hash) values (1, '${hash}')`));
+  if (stamp.length === 0 || !stamp[0].hash.startsWith("v2:")) {
+    // Created before stamps existed (or with the first, order-sensitive stamp): accept it as current
+    // rather than block, and stamp it now.
+    console.warn(`[db] ${dataDir} has no usable schema stamp; assuming it matches the current schema.`);
+    await db.execute(sql.raw(`insert into "${SCHEMA_STAMP_TABLE}" (id, hash) values (1, '${hash}') on conflict (id) do update set hash = excluded.hash`));
     return;
   }
   if (stamp[0].hash !== hash) {

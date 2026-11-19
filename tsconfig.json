@@ -48,7 +48,9 @@
     ".next-donor-ui/types/**/*.ts",
     ".next-donor-ui/dev/types/**/*.ts",
     ".next-family-ui/types/**/*.ts",
-    ".next-family-ui/dev/types/**/*.ts"
+    ".next-family-ui/dev/types/**/*.ts",
+    ".next-polish-donor/types/**/*.ts",
+    ".next-polish-donor/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

@@ -28,7 +28,8 @@ const nextConfig: NextConfig = {
       { source: "/embed/:path*", headers: securityHeaders },
       {
         source: "/((?!embed/).*)",
-        headers: [...securityHeaders, { key: "X-Frame-Options", value: "DENY" }],
+        // SAMEORIGIN (not DENY) so the dashboard can show an uploaded PDF inline; other sites still cannot frame us.
+        headers: [...securityHeaders, { key: "X-Frame-Options", value: "SAMEORIGIN" }],
       },
     ];
   },
