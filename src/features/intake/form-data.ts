@@ -73,12 +73,16 @@ export function parseMemberForm(form: FormData, locale: Locale): Parsed<MemberFo
   if (!firstName) fields.firstName = t.firstName;
   if (!lastName) fields.lastName = t.lastName;
   const dob = text(form, "dob").trim();
-  if (kind === "other" && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) fields.dob = t.dob;
+  const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(dob);
+  // Editing a person whose date of birth is already on file: a blank date keeps the stored one (it is never sent
+  // back to the browser, so it cannot be pre-filled).
+  const keepStored = text(form, "hasDob") === "1" && dob === "";
+  if (kind === "other" && !hasDate && !keepStored) fields.dob = t.dob;
   if (Object.keys(fields).length > 0) return { ok: false, fields };
   const memberKind = kind as MemberKind;
   return {
     ok: true,
-    data: { kind: memberKind, firstName, lastName, relationship: relationship as RelationshipChoice, ...(asksDateOfBirth(memberKind) ? { dob } : {}) },
+    data: { kind: memberKind, firstName, lastName, relationship: relationship as RelationshipChoice, ...(asksDateOfBirth(memberKind) && hasDate ? { dob } : {}) },
   };
 }
 

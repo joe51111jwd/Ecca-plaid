@@ -8,7 +8,7 @@ import { buildReview, checkoutLabels, creditBanner, directoryListNotice, FORM_BL
 const BEFORE_START = new Date("2026-11-18T15:00:00Z");
 const AFTER_START = new Date("2027-03-01T15:00:00Z");
 
-function eligibility(overrides: Partial<CreditEligibilityInput> & { sgo?: Partial<CreditEligibilityInput["sgo"]>; attestations?: Partial<CreditEligibilityInput["attestations"]> } = {}) {
+function eligibility(overrides: Partial<Omit<CreditEligibilityInput, "sgo" | "attestations">> & { sgo?: Partial<CreditEligibilityInput["sgo"]>; attestations?: Partial<CreditEligibilityInput["attestations"]> } = {}) {
   const allAttested = { individual: true, usCitizenOrResident: true, noEarmark: true, notInExchangeForScholarship: true };
   return assessCreditEligibility({
     paidAt: overrides.paidAt ?? AFTER_START,

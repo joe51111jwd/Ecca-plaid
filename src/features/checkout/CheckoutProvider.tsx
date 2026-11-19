@@ -26,6 +26,8 @@ interface CheckoutState {
   formError: string | null;
   touched: ReadonlySet<string>;
   showAll: boolean;
+  /** A choice the donor just made, shown until the server's view (which may overrule it) arrives. */
+  optimistic: (path: string, serverValue: boolean | string | null) => boolean | string | null;
   returnUrl: string;
   /** Queue part of the form for saving. `immediate` saves now (checkboxes, choices). */
   queue: (patch: Patch, options?: { immediate?: boolean }) => void;
@@ -71,6 +73,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   const [formError, setFormError] = useState<string | null>(null);
   const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
+  const [pendingChoices, setPendingChoices] = useState<Record<string, boolean | string | null>>({});
 
   const pending = useRef<Patch>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -90,6 +93,8 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
       if (tz) patch = mergePatch({ donorTimeZone: tz }, patch);
     }
     if (isEmptyPatch(patch)) return true;
+    const sentPaths = patchPaths(patch);
+    const settle = () => setPendingChoices((prev) => withoutPaths(prev, sentPaths));
     inFlight.current += 1;
     setSaving(true);
     try {
@@ -117,6 +122,7 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
       pending.current = mergePatch(patch, pending.current);
       return false;
     } finally {
+      settle();
       inFlight.current -= 1;
       if (inFlight.current === 0) setSaving(false);
     }
@@ -125,6 +131,18 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   const queue = useCallback(
     (patch: Patch, options: { immediate?: boolean } = {}) => {
       pending.current = mergePatch(pending.current, patch);
+      if (options.immediate) {
+        const choices: Record<string, boolean | string | null> = {};
+        const walk = (node: Patch, prefix: string) => {
+          for (const [k, v] of Object.entries(node)) {
+            const path = prefix ? `${prefix}.${k}` : k;
+            if (v !== null && typeof v === "object") walk(v, path);
+            else if (typeof v !== "number") choices[path] = v;
+          }
+        };
+        walk(patch, "");
+        setPendingChoices((prev) => ({ ...prev, ...choices }));
+      }
       setTouched((prev) => {
         const next = new Set(prev);
         for (const path of patchPaths(patch)) next.add(path);
@@ -186,10 +204,11 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
   }, [access, flush, shownStatementSha256]);
 
   const backToForm = useCallback(() => setStage("form"), []);
+  const optimistic = useCallback((path: string, serverValue: boolean | string | null) => (path in pendingChoices ? pendingChoices[path] : serverValue), [pendingChoices]);
 
   const value = useMemo<CheckoutState>(
-    () => ({ access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors }),
-    [access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors],
+    () => ({ access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors }),
+    [access, view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm, revealAllErrors],
   );
   return <CheckoutContext.Provider value={value}>{children}</CheckoutContext.Provider>;
 }

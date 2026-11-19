@@ -54,7 +54,7 @@ export function textValue(raw: string): string | null {
 }
 
 /** Drops the errors of the fields a successful save just touched (the service reports the new ones). */
-export function withoutPaths(errors: Readonly<Record<string, string>>, paths: readonly string[]): Record<string, string> {
+export function withoutPaths<T>(errors: Readonly<Record<string, T>>, paths: readonly string[]): Record<string, T> {
   const touched = new Set(paths);
   return Object.fromEntries(Object.entries(errors).filter(([key]) => !touched.has(key)));
 }

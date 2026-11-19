@@ -58,7 +58,7 @@ function Step({ n, title, children, id }: { n: number; title: string; children: 
  * back from the server. Nothing here computes a tax figure or words a tax statement.
  */
 export function CheckoutForm({ states }: CheckoutFormProps) {
-  const { view, payment, stage, saving, placing, rejected, formError, touched, showAll, returnUrl, queue, touch, placeOrder, backToForm } = useCheckout();
+  const { view, payment, stage, saving, placing, rejected, formError, touched, showAll, optimistic, returnUrl, queue, touch, placeOrder, backToForm } = useCheckout();
   const visibility = { blocking: view.errors, rejected, touched, showAll };
   const err = (path: string) => errorFor(path, visibility);
   const primary = view.order.contributors.find((c) => c.key === "primary");
@@ -158,7 +158,10 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
   };
 
   const editable = view.editable && view.status !== "completed";
-  const bothSpouses = view.order.bothSpouses;
+  const filingStatus = optimistic("filingStatus", view.order.filingStatus);
+  const joint = filingStatus === "married_joint";
+  const bothSpouses = joint && optimistic("bothSpousesContribute", view.order.joint ? view.order.bothSpouses : true) === true;
+  const checked = (path: string, serverValue: boolean) => optimistic(path, serverValue) === true;
   const errorList = showAll ? orderedErrors({ ...view.errors, ...rejected }) : [];
 
   /* ---------- pieces ---------- */
@@ -315,13 +318,13 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
               <RadioGroup
                 name="filingStatus"
                 columns={2}
-                value={view.order.filingStatus ?? ""}
+                value={typeof filingStatus === "string" ? filingStatus : ""}
                 onChange={(value) => queue({ filingStatus: value }, { immediate: true })}
                 options={view.labels.filingStatusOptions.map((o) => ({ value: o.value, label: o.label }))}
                 disabled={!editable}
               />
             </Field>
-            {view.order.joint ? (
+            {joint ? (
               <div className="space-y-5 rounded-card border border-line bg-sunken p-4" data-testid="joint-section">
                 <Switch
                   label="Both spouses are making this gift"
@@ -435,7 +438,7 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
                     id={fieldId(path)}
                     variant="card"
                     label={a.text}
-                    checked={a.confirmed}
+                    checked={checked(path, a.confirmed)}
                     error={err(path)}
                     onChange={(e) => queue({ attestations: { [a.key]: e.target.checked } }, { immediate: true })}
                     disabled={!editable}
@@ -452,7 +455,7 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
                 variant="card"
                 data-testid="designation-statement"
                 label={<span className="font-medium text-fg">{view.designation.statement.text}</span>}
-                checked={view.designation.confirmed}
+                checked={checked("designationConfirmed", view.designation.confirmed)}
                 error={err("designationConfirmed")}
                 onChange={(e) => queue({ designationConfirmed: e.target.checked }, { immediate: true })}
                 disabled={!editable}
@@ -480,7 +483,7 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
                   id={fieldId(path)}
                   variant="card"
                   label={c.text}
-                  checked={c.given}
+                  checked={checked(path, c.given)}
                   error={err(path)}
                   onChange={(e) => queue({ contributors: { [c.key]: { eDeliveryConsent: e.target.checked } } }, { immediate: true })}
                   disabled={!editable}
@@ -538,7 +541,7 @@ export function CheckoutForm({ states }: CheckoutFormProps) {
 
         {formHidden && payment ? (
           <div data-testid="payment-step">
-            <PaymentForm payment={payment} returnUrl={returnUrl} refreshWhilePending submitLabel={view.mode === "test" ? "Complete sandbox gift" : undefined} />
+            <PaymentForm payment={payment} returnUrl={returnUrl} refreshWhilePending showLines={false} showSandboxNotice={false} submitLabel={view.mode === "test" ? "Complete sandbox gift" : undefined} />
           </div>
         ) : (
           <Button fullWidth size="lg" onClick={onContinue} loading={placing} loadingText="Placing your order…" disabled={!editable || placing} data-testid="continue-to-payment">

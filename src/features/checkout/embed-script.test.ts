@@ -128,7 +128,7 @@ describe("public/embed/donate.js", () => {
   });
 
   it("refuses a missing or malformed slug and a relative src, without throwing on the host page", () => {
-    for (const attrs of [{}, { "data-sgo": "../admin" }, { "data-sgo": "a b" }, { "data-sgo": "<x>" }]) {
+    for (const attrs of [{} as Record<string, string>, { "data-sgo": "../admin" }, { "data-sgo": "a b" }, { "data-sgo": "<x>" }]) {
       const p = page({ attrs });
       p.run();
       expect(p.frames()).toHaveLength(0);

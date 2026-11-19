@@ -78,7 +78,8 @@ function validationError(error: z.ZodError, message: string): never {
 const id = z.string().trim().min(1).max(128);
 const optionalText = (max: number) =>
   z
-    .union([z.string(), z.null(), z.undefined()])
+    .string()
+    .nullish()
     .transform((v) => (v === null || v === undefined || v.trim() === "" ? null : v.trim()))
     .refine((v) => v === null || v.length <= max, `At most ${max} characters.`);
 

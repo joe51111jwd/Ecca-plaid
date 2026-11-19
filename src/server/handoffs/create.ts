@@ -27,8 +27,20 @@ import { isFinal } from "./state";
  */
 
 export type HandoffSource =
-  | { kind: "api"; businessOrgId: string; mode: Mode; apiKeyId: string; request?: AuditRequestInfo | null }
-  | { kind: "embed"; publishableKey: string; origin: string | null | undefined; ip: string | null | undefined; userAgent?: string | null };
+  | {
+      kind: "api";
+      businessOrgId: string;
+      mode: Mode;
+      apiKeyId: string;
+      request?: AuditRequestInfo | null;
+    }
+  | {
+      kind: "embed";
+      publishableKey: string;
+      origin: string | null | undefined;
+      ip: string | null | undefined;
+      userAgent?: string | null;
+    };
 
 export interface CreateHandoffInput {
   bookingRef: string;
@@ -64,6 +76,7 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 function displayText(max: number, label: string, required: boolean) {
   return z
     .unknown()
+    .optional()
     .transform((raw, ctx) => {
       if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) {
         if (required) {
@@ -77,12 +90,18 @@ function displayText(max: number, label: string, required: boolean) {
         return z.NEVER;
       }
       if (CONTROL.test(raw.replace(/[\t\n\r]/g, " "))) {
-        ctx.addIssue({ code: "custom", message: `${label} contains characters that are not allowed.` });
+        ctx.addIssue({
+          code: "custom",
+          message: `${label} contains characters that are not allowed.`,
+        });
         return z.NEVER;
       }
       const v = raw.replace(/\s+/g, " ").trim();
       if (Array.from(v).length > max) {
-        ctx.addIssue({ code: "custom", message: `${label} must be at most ${max} characters.` });
+        ctx.addIssue({
+          code: "custom",
+          message: `${label} must be at most ${max} characters.`,
+        });
         return z.NEVER;
       }
       return v;
@@ -91,64 +110,108 @@ function displayText(max: number, label: string, required: boolean) {
 
 const METADATA_KEY = /^[A-Za-z0-9_.-]+$/;
 
-const metadataSchema = z.unknown().transform((raw, ctx): Record<string, string> => {
-  if (raw === null || raw === undefined) return {};
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    ctx.addIssue({ code: "custom", message: "metadata must be an object of text values." });
-    return z.NEVER;
-  }
-  const entries = Object.entries(raw as Record<string, unknown>);
-  if (entries.length > METADATA_LIMITS.maxKeys) {
-    ctx.addIssue({ code: "custom", message: `At most ${METADATA_LIMITS.maxKeys} metadata keys.` });
-    return z.NEVER;
-  }
-  const out: Record<string, string> = {};
-  for (const [key, value] of entries) {
-    if (key.length === 0 || key.length > METADATA_LIMITS.maxKeyLength || !METADATA_KEY.test(key)) {
-      ctx.addIssue({ code: "custom", path: [key], message: `Metadata keys are 1 to ${METADATA_LIMITS.maxKeyLength} letters, digits, "_", "-" or ".".` });
+const metadataSchema = z
+  .unknown()
+  .optional()
+  .transform((raw, ctx): Record<string, string> => {
+    if (raw === null || raw === undefined) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "metadata must be an object of text values.",
+      });
       return z.NEVER;
     }
-    if (typeof value !== "string" || Array.from(value).length > METADATA_LIMITS.maxValueLength || CONTROL.test(value)) {
-      ctx.addIssue({ code: "custom", path: [key], message: `Metadata values are text of at most ${METADATA_LIMITS.maxValueLength} characters without control characters.` });
+    const entries = Object.entries(raw as Record<string, unknown>);
+    if (entries.length > METADATA_LIMITS.maxKeys) {
+      ctx.addIssue({
+        code: "custom",
+        message: `At most ${METADATA_LIMITS.maxKeys} metadata keys.`,
+      });
       return z.NEVER;
     }
-    out[key] = value;
-  }
-  if (Buffer.byteLength(JSON.stringify(out), "utf8") > METADATA_LIMITS.maxTotalBytes) {
-    ctx.addIssue({ code: "custom", message: `Metadata must be at most ${METADATA_LIMITS.maxTotalBytes} bytes as JSON.` });
-    return z.NEVER;
-  }
-  return out;
-});
+    const out: Record<string, string> = {};
+    for (const [key, value] of entries) {
+      if (key.length === 0 || key.length > METADATA_LIMITS.maxKeyLength || !METADATA_KEY.test(key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `Metadata keys are 1 to ${METADATA_LIMITS.maxKeyLength} letters, digits, "_", "-" or ".".`,
+        });
+        return z.NEVER;
+      }
+      if (typeof value !== "string" || Array.from(value).length > METADATA_LIMITS.maxValueLength || CONTROL.test(value)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `Metadata values are text of at most ${METADATA_LIMITS.maxValueLength} characters without control characters.`,
+        });
+        return z.NEVER;
+      }
+      out[key] = value;
+    }
+    if (Buffer.byteLength(JSON.stringify(out), "utf8") > METADATA_LIMITS.maxTotalBytes) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Metadata must be at most ${METADATA_LIMITS.maxTotalBytes} bytes as JSON.`,
+      });
+      return z.NEVER;
+    }
+    return out;
+  });
 
 const optionalId = z
-  .union([z.string().trim().min(1).max(128), z.null(), z.undefined()])
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .nullish()
   .transform((v) => v ?? null);
 
 const inputSchema = z.object({
   bookingRef: displayText(BOOKING_LIMITS.maxRefLength, "bookingRef", true),
   bookingDescription: displayText(BOOKING_LIMITS.maxDescriptionLength, "bookingDescription", false),
   bookingAmountCents: z
-    .union([z.number().int("bookingAmountCents must be whole cents.").positive("bookingAmountCents must be positive.").max(BOOKING_LIMITS.maxAmountCents, "bookingAmountCents is too large."), z.null(), z.undefined()])
+    .number()
+    .int("bookingAmountCents must be whole cents.")
+    .positive("bookingAmountCents must be positive.")
+    .max(BOOKING_LIMITS.maxAmountCents, "bookingAmountCents is too large.")
+    .nullish()
     .transform((v) => v ?? null),
-  familyEmail: z.unknown().transform((raw, ctx) => {
-    if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) return null;
-    const parsed = emailAddressSchema.safeParse(raw);
-    if (!parsed.success) {
-      ctx.addIssue({ code: "custom", message: "Enter a valid email address." });
-      return z.NEVER;
-    }
-    return parsed.data;
-  }),
+  familyEmail: z
+    .unknown()
+    .optional()
+    .transform((raw, ctx) => {
+      if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) return null;
+      const parsed = emailAddressSchema.safeParse(raw);
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter a valid email address.",
+        });
+        return z.NEVER;
+      }
+      return parsed.data;
+    }),
   studentFirstName: displayText(BOOKING_LIMITS.maxStudentNameLength, "studentFirstName", false),
   studentLastName: displayText(BOOKING_LIMITS.maxStudentNameLength, "studentLastName", false),
-  returnUrl: z.union([z.string(), z.null(), z.undefined()]).transform((v) => (v === null || v === undefined || v.trim() === "" ? null : v.trim())),
-  channel: z.enum(["embed", "redirect"], { error: "channel must be embed or redirect." }),
+  returnUrl: z
+    .string()
+    .nullish()
+    .transform((v) => (v === null || v === undefined || v.trim() === "" ? null : v.trim())),
+  channel: z.enum(["embed", "redirect"], {
+    error: "channel must be embed or redirect.",
+  }),
   metadata: metadataSchema,
   sgoOrgId: optionalId,
   locale: z.enum(["en", "es"]).optional(),
   idempotencyKey: z
-    .union([z.string().trim().min(1).max(BOOKING_LIMITS.maxIdempotencyKeyLength).regex(/^[\x21-\x7e]+$/, "idempotencyKey must be printable ASCII without spaces."), z.null(), z.undefined()])
+    .string()
+    .trim()
+    .min(1)
+    .max(BOOKING_LIMITS.maxIdempotencyKeyLength)
+    .regex(/^[\x21-\x7e]+$/, "idempotencyKey must be printable ASCII without spaces.")
+    .nullish()
     .transform((v) => v ?? null),
 });
 
@@ -158,8 +221,7 @@ function validationError(error: z.ZodError): never {
   throw invalid("The handoff request is not valid.", { fields });
 }
 
-const NO_PARTNER_MESSAGE =
-  "No scholarship organization is accepting families from your booking flow yet. Ask a partner SGO to accept your partnership request before sending families.";
+const NO_PARTNER_MESSAGE = "No scholarship organization is accepting families from your booking flow yet. Ask a partner SGO to accept your partnership request before sending families.";
 
 interface ResolvedSource {
   business: BusinessRecord;
@@ -178,7 +240,14 @@ async function resolveSource(source: HandoffSource): Promise<ResolvedSource> {
     await authorizeOperator(db, { type: "api_key", apiKeyId: source.apiKeyId, mode: source.mode }, source.businessOrgId);
     const business = await getBusinessProfile(source.businessOrgId, db);
     if (business.org.status !== "active") throw forbidden("This business cannot start handoffs.");
-    return { business, mode: source.mode, createdVia: "api", apiKeyId: source.apiKeyId, actor: { type: "api_key", id: source.apiKeyId }, request: source.request ?? null };
+    return {
+      business,
+      mode: source.mode,
+      createdVia: "api",
+      apiKeyId: source.apiKeyId,
+      actor: { type: "api_key", id: source.apiKeyId },
+      request: source.request ?? null,
+    };
   }
   if (source.kind !== "embed") throw forbidden();
   // An unknown key and a disallowed origin get the same answer, so the endpoint cannot be used to probe keys.
@@ -186,7 +255,10 @@ async function resolveSource(source: HandoffSource): Promise<ResolvedSource> {
   if (!resolved || !isAllowedOrigin(resolved.profile, source.origin ?? null)) throw forbidden("This page is not allowed to start a scholarship check.");
   const ip = typeof source.ip === "string" && source.ip.length > 0 ? source.ip : "unknown";
   const message = "Too many scholarship checks were started from this page.";
-  await enforceRateLimit(`handoff:embed:key:${resolved.profile.orgId}`, { ...EMBED_RATE_LIMITS.perKey, message });
+  await enforceRateLimit(`handoff:embed:key:${resolved.profile.orgId}`, {
+    ...EMBED_RATE_LIMITS.perKey,
+    message,
+  });
   await enforceRateLimit(`handoff:embed:key-ip:${resolved.profile.orgId}:${ip}`, { ...EMBED_RATE_LIMITS.perKeyAndIp, message });
   return {
     business: { org: resolved.org, profile: resolved.profile },
@@ -199,7 +271,10 @@ async function resolveSource(source: HandoffSource): Promise<ResolvedSource> {
 }
 
 function handoffUrls(token: string): { url: string; embedUrl: string } {
-  return { url: appUrl(`${HANDOFF_PAGE_PATH}/${token}`), embedUrl: appUrl(`${HANDOFF_EMBED_PATH}/${token}`) };
+  return {
+    url: appUrl(`${HANDOFF_PAGE_PATH}/${token}`),
+    embedUrl: appUrl(`${HANDOFF_EMBED_PATH}/${token}`),
+  };
 }
 
 /**
@@ -222,7 +297,13 @@ async function attachVerification(tx: DbOrTx, handoff: HandoffRow, sgoOrgId: str
   );
   const [updated] = await tx
     .update(schema.handoffs)
-    .set({ sgoOrgId, sgoChosenBy: choice, verificationId: created.verification.id, familyLinkEnc: encryptField(created.familyToken, FAMILY_LINK_PURPOSE), updatedAt: now() })
+    .set({
+      sgoOrgId,
+      sgoChosenBy: choice,
+      verificationId: created.verification.id,
+      familyLinkEnc: encryptField(created.familyToken, FAMILY_LINK_PURPOSE),
+      updatedAt: now(),
+    })
     .where(eq(schema.handoffs.id, handoff.id))
     .returning();
   return updated;
@@ -247,7 +328,11 @@ export async function createHandoff(input: CreateHandoffInput, source: HandoffSo
   const { business, mode } = resolved;
 
   if (data.returnUrl !== null && !isAllowedReturnUrl(business.profile, data.returnUrl)) {
-    throw invalid("The return URL must be on one of your allowed origins.", { fields: { returnUrl: "Use an https address on one of the origins listed in your business settings." } });
+    throw invalid("The return URL must be on one of your allowed origins.", {
+      fields: {
+        returnUrl: "Use an https address on one of the origins listed in your business settings.",
+      },
+    });
   }
   if (resolved.createdVia === "embed" && data.idempotencyKey !== null) {
     throw invalid("idempotencyKey is only accepted on server-to-server requests.", { fields: { idempotencyKey: "Not accepted from the browser." } });
@@ -308,7 +393,9 @@ export async function createHandoff(input: CreateHandoffInput, source: HandoffSo
         createdAt: at,
         updatedAt: at,
       })
-      .onConflictDoNothing({ target: [schema.handoffs.businessOrgId, schema.handoffs.mode, schema.handoffs.idempotencyKey] })
+      .onConflictDoNothing({
+        target: [schema.handoffs.businessOrgId, schema.handoffs.mode, schema.handoffs.idempotencyKey],
+      })
       .returning();
     // A concurrent create with the same idempotency key won the insert.
     if (!inserted[0]) throw conflict("A handoff was already created with this idempotency key.");
@@ -350,7 +437,11 @@ export function isWellFormedHandoffToken(token: unknown): token is string {
 /** The handoff behind a family token (locked when `forUpdate`), or null for a malformed or unknown token. */
 export async function findByToken(db: DbOrTx, token: unknown, opts: { forUpdate?: boolean } = {}): Promise<HandoffRow | null> {
   if (!isWellFormedHandoffToken(token)) return null;
-  const q = db.select().from(schema.handoffs).where(eq(schema.handoffs.tokenHash, hashToken(token))).limit(1);
+  const q = db
+    .select()
+    .from(schema.handoffs)
+    .where(eq(schema.handoffs.tokenHash, hashToken(token)))
+    .limit(1);
   const [row] = opts.forUpdate ? await q.for("update") : await q;
   return row ?? null;
 }
@@ -360,7 +451,10 @@ export async function findByToken(db: DbOrTx, token: unknown, opts: { forUpdate?
  * named none). The choice must be an active partner at this moment; it is made once. Creates the linked verification.
  */
 export async function chooseHandoffSgo(token: string, sgoOrgId: string, opts: { locale?: "en" | "es"; request?: AuditRequestInfo | null } = {}): Promise<HandoffRow> {
-  if (typeof sgoOrgId !== "string" || sgoOrgId.length === 0 || sgoOrgId.length > 128) throw invalid("Choose a scholarship organization.", { fields: { sgoOrgId: "Choose one of the listed organizations." } });
+  if (typeof sgoOrgId !== "string" || sgoOrgId.length === 0 || sgoOrgId.length > 128)
+    throw invalid("Choose a scholarship organization.", {
+      fields: { sgoOrgId: "Choose one of the listed organizations." },
+    });
   const db = await getDb();
   return db.transaction(async (tx) => {
     const handoff = await findByToken(tx, token, { forUpdate: true });
@@ -373,7 +467,14 @@ export async function chooseHandoffSgo(token: string, sgoOrgId: string, opts: { 
     await assertActivePartnership(handoff.businessOrgId, sgoOrgId, tx);
     const updated = await attachVerification(tx, handoff, sgoOrgId, "family", opts.locale ?? "en");
     await audit(
-      { actor: { type: "family" }, orgId: handoff.businessOrgId, action: "handoff.sgo_chosen", target: { type: "handoff", id: handoff.id }, metadata: { sgoOrgId, chosenBy: "family" }, request: opts.request ?? null },
+      {
+        actor: { type: "family" },
+        orgId: handoff.businessOrgId,
+        action: "handoff.sgo_chosen",
+        target: { type: "handoff", id: handoff.id },
+        metadata: { sgoOrgId, chosenBy: "family" },
+        request: opts.request ?? null,
+      },
       tx,
     );
     return updated;
@@ -388,13 +489,30 @@ export async function reissueHandoffLink(businessOrgId: string, handoffId: strin
   const db = await getDb();
   const result = await db.transaction(async (tx) => {
     await authorizeOperator(tx, actor, businessOrgId);
-    const handoff = await lockHandoff(tx, handoffId, { businessOrgId, ...(actor.type === "api_key" ? { mode: actor.mode } : {}) });
+    const handoff = await lockHandoff(tx, handoffId, {
+      businessOrgId,
+      ...(actor.type === "api_key" ? { mode: actor.mode } : {}),
+    });
     if (!handoff) throw notFound("Handoff");
     if (isFinal(handoff.status)) throw conflict(`A handoff that is ${handoff.status} has no link to resend.`);
     const token = newToken(HANDOFF_TOKEN_BYTES);
-    const [updated] = await tx.update(schema.handoffs).set({ tokenHash: hashToken(token), updatedAt: now() }).where(eq(schema.handoffs.id, handoff.id)).returning();
+    const [updated] = await tx
+      .update(schema.handoffs)
+      .set({ tokenHash: hashToken(token), updatedAt: now() })
+      .where(eq(schema.handoffs.id, handoff.id))
+      .returning();
     const ctx = auditContextOf(actor);
-    await audit({ actor: ctx.actor, orgId: businessOrgId, action: "handoff.link_reissued", target: { type: "handoff", id: handoff.id }, metadata: { ...ctx.extra }, request: ctx.request }, tx);
+    await audit(
+      {
+        actor: ctx.actor,
+        orgId: businessOrgId,
+        action: "handoff.link_reissued",
+        target: { type: "handoff", id: handoff.id },
+        metadata: { ...ctx.extra },
+        request: ctx.request,
+      },
+      tx,
+    );
     return { handoff: updated, token };
   });
   return { ...result, ...handoffUrls(result.token) };
