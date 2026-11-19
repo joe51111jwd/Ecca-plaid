@@ -193,7 +193,7 @@ export function apiRoute<QS extends z.ZodType | undefined = undefined, BS extend
 
       if (auth.org.type !== "sgo" && auth.org.type !== "business") throw forbidden();
       if (!spec.orgTypes.includes(auth.org.type)) {
-        throw forbidden(spec.orgTypes.length === 1 ? `This endpoint is for ${spec.orgTypes[0] === "sgo" ? "scholarship organization" : "business"} keys.` : "This key cannot call this endpoint.", { reason: "wrong_organization_type" });
+        throw new AppError("forbidden", spec.orgTypes.length === 1 ? `This endpoint is for ${spec.orgTypes[0] === "sgo" ? "scholarship organization" : "business"} keys.` : "This key cannot call this endpoint.", { reason: "wrong_organization_type" });
       }
 
       const params = await readParams(context);
