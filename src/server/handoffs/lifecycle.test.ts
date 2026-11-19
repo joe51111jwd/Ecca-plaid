@@ -220,6 +220,32 @@ describe("handoff lifecycle", () => {
       expect(await codeOf(extendHold(biz.orgId, res.handoff.id, 2, { type: "user", userId: staff }))).toBe("conflict");
     });
 
+    it("an award cannot be offered once the hold deadline passed, even before the expiry job runs", async () => {
+      const res = await toEligible();
+      setTestNow(new Date(Date.parse(NOW) + 72 * HOUR));
+      const award = offerAward(sgo, { verificationId: res.handoff.verificationId!, amountCents: 100, paymentMethod: "other" }, { type: "user", userId: sgoReviewer, mode: "test" });
+      expect(await codeOf(award)).toBe("conflict");
+      expect((await statusOf(res.handoff.id)).status).toBe("eligible");
+      const db = await getDb();
+      expect(await db.select().from(schema.awards)).toHaveLength(0);
+      expect(await eventsOf(biz.orgId, "handoff.awarded")).toHaveLength(0);
+      // One millisecond before the deadline the award still goes through.
+      const fresh = await toEligible();
+      setTestNow(new Date(Date.parse(NOW) + 72 * HOUR - 1));
+      expect(await codeOf(offerAward(sgo, { verificationId: fresh.handoff.verificationId!, amountCents: 100, paymentMethod: "other" }, { type: "user", userId: sgoReviewer, mode: "test" }))).toBe("ok");
+    });
+
+    it("a verification result that lands after the deadline expires the hold instead of announcing eligible", async () => {
+      const res = await newHandoff();
+      setTestNow(new Date(Date.parse(NOW) + 73 * HOUR));
+      await setVerificationState(res.handoff.verificationId!, { status: "eligible", expiresAt: new Date("2026-12-31T23:59:59Z") });
+      await runVerificationUpdated(res.handoff.id, res.handoff.verificationId!);
+      expect((await statusOf(res.handoff.id)).status).toBe("expired");
+      expect(await eventsOf(biz.orgId, "handoff.eligible")).toHaveLength(0);
+      expect(await eventsOf(biz.orgId, "handoff.expired")).toHaveLength(1);
+      expect(await expireDueHolds()).toBe(0);
+    });
+
     it("only the business's own operators can extend", async () => {
       const res = await newHandoff();
       const viewer = await makeUser();
@@ -262,6 +288,22 @@ describe("handoff lifecycle", () => {
       const done = await completeHandoff(biz.orgId, res.handoff.id, { type: "user", userId: staff }, { bookingAmountCents: 50_000 });
       expect(done.handoff).toMatchObject({ bookingAmountCents: 50_000, bookingAmountConfirmed: true });
       expect(done.fee?.amountCents).toBe(2500 + 1250);
+    });
+
+    it("an amount that came through the family's browser must be confirmed before the fee is computed on it", async () => {
+      const embedded = await createHandoff({ ...booking, channel: "embed" }, { kind: "embed", publishableKey: biz.publishableKey, origin: SYNTHETIC_ORIGIN, ip: "203.0.113.9" });
+      expect(embedded.handoff.bookingAmountConfirmed).toBe(false);
+      await setVerificationState(embedded.handoff.verificationId!, { status: "eligible", expiresAt: new Date("2026-12-31T23:59:59Z") });
+      await runVerificationUpdated(embedded.handoff.id, embedded.handoff.verificationId!);
+      await offerAward(sgo, { verificationId: embedded.handoff.verificationId!, amountCents: 40_000, paymentMethod: "direct_to_vendor" }, { type: "user", userId: sgoReviewer, mode: "test" });
+      expect(await codeOf(completeHandoff(biz.orgId, embedded.handoff.id, { type: "user", userId: staff }))).toBe("validation_failed");
+      expect((await statusOf(embedded.handoff.id)).status).toBe("awarded");
+      const db = await getDb();
+      expect(await db.select().from(schema.feeLedger)).toHaveLength(0);
+      const done = await completeHandoff(biz.orgId, embedded.handoff.id, { type: "user", userId: staff }, { bookingAmountCents: 45_000 });
+      expect(done.handoff).toMatchObject({ status: "completed", bookingAmountCents: 45_000, bookingAmountConfirmed: true });
+      // $25 flat + 2.5% of the confirmed $450, not of the browser-reported $600.
+      expect(done.fee?.amountCents).toBe(2500 + 1125);
     });
 
     it("writes no fee row when the business's fee is zero", async () => {

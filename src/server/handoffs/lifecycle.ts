@@ -9,7 +9,7 @@ import { applyTransition, auditContextOf, authorizeOperator, lockHandoff, type H
 import { findByToken } from "./create";
 import { BOOKING_LIMITS, HANDOFF_JOB_BATCH, HOLD_EXTENSION_LIMITS } from "./policy";
 import type { HandoffRow } from "./serialize";
-import { HOLDING_STATUSES, isFinal, isHolding, targetForVerification } from "./state";
+import { holdIsActive, HOLDING_STATUSES, isFinal, isHolding, targetForVerification } from "./state";
 
 const SYSTEM = { actor: SYSTEM_ACTOR, request: null, extra: {} };
 
@@ -31,6 +31,9 @@ export async function syncHandoffWithVerification(handoffId: string, dbOrTx?: Db
   return db.transaction(async (tx) => {
     const handoff = await lockHandoff(tx, handoffId);
     if (!handoff || !handoff.verificationId) return handoff;
+    // A hold whose deadline passed ends as expired, even if the expiry job has not reached it yet: a late
+    // verification result must not announce "eligible" for a reservation that is no longer held.
+    if (isHolding(handoff.status) && handoff.holdExpiresAt !== null && !holdIsActive(handoff, now())) return expireLocked(tx, handoff);
     const [v] = await tx
       .select({ status: schema.verifications.status, startedAt: schema.verifications.startedAt, submittedAt: schema.verifications.submittedAt, handoffId: schema.verifications.handoffId })
       .from(schema.verifications)
@@ -87,6 +90,11 @@ export async function syncDueProgress(limit = HANDOFF_JOB_BATCH): Promise<number
 
 /* ------------------------------------------------------------------------------------------- holds */
 
+/** Expires a locked handoff whose hold deadline has passed (caller checked). */
+function expireLocked(tx: DbOrTx, handoff: HandoffRow): Promise<HandoffRow> {
+  return applyTransition(tx, handoff, "expired", { ...SYSTEM, patch: { declineReason: "hold_expired" }, metadata: { holdExpiresAt: handoff.holdExpiresAt?.toISOString() ?? null } });
+}
+
 /**
  * Recurring "handoff.expire_holds": every handoff still holding a reservation whose hold window has passed becomes
  * expired (no award arrived in time). Returns how many expired.
@@ -105,8 +113,8 @@ export async function expireDueHolds(limit = HANDOFF_JOB_BATCH): Promise<number>
   for (const { id } of due) {
     const changed = await db.transaction(async (tx) => {
       const handoff = await lockHandoff(tx, id);
-      if (!handoff || !isHolding(handoff.status) || !handoff.holdExpiresAt || handoff.holdExpiresAt.getTime() > now().getTime()) return false;
-      await applyTransition(tx, handoff, "expired", { ...SYSTEM, patch: { declineReason: "hold_expired" }, metadata: { holdExpiresAt: handoff.holdExpiresAt.toISOString() } });
+      if (!handoff || !isHolding(handoff.status) || !handoff.holdExpiresAt || holdIsActive(handoff, now())) return false;
+      await expireLocked(tx, handoff);
       return true;
     });
     if (changed) expired++;
@@ -186,6 +194,10 @@ export async function completeHandoff(businessOrgId: string, handoffId: string, 
     await authorizeOperator(tx, actor, businessOrgId);
     const handoff = await lockHandoff(tx, handoffId, scopeOf(actor, businessOrgId));
     if (!handoff) throw notFound("Handoff");
+    if (handoff.status === "awarded" && confirmed === undefined && handoff.bookingAmountCents !== null && !handoff.bookingAmountConfirmed) {
+      // The amount came through the family's browser (embed); the success fee is never computed on an amount the business did not confirm.
+      throw invalid("Confirm the final booking amount to complete this booking.", { fields: { bookingAmountCents: "Required: the amount on this booking was not confirmed by your server." } });
+    }
     if (handoff.status !== "awarded") throw conflict(handoff.status === "completed" ? "This booking is already completed." : "A booking can be completed with scholarship funds only after the SGO has offered an award.");
     if (confirmed !== undefined && handoff.awardId) {
       const [award] = await tx.select({ amountCents: schema.awards.amountCents }).from(schema.awards).where(eq(schema.awards.id, handoff.awardId)).limit(1);
@@ -255,6 +267,8 @@ export async function markHandoffAwarded(tx: DbOrTx, input: { handoffId: string;
   if (handoff.status !== "eligible") {
     throw conflict(handoff.status === "awarded" ? "An award was already offered for this booking." : `An award can be offered only once the household is eligible and the hold is active (this handoff is ${handoff.status}).`);
   }
+  // The recurring expiry job runs every few minutes; a deadline that has passed ends the hold whether or not it ran.
+  if (!holdIsActive(handoff, now())) throw conflict("The reservation hold for this booking has ended, so an award can no longer be offered for it.");
   return applyTransition(tx, handoff, "awarded", { actor: ctx.actor, request: ctx.request ?? null, extra: {}, patch: { awardId: input.awardId }, metadata: { awardId: input.awardId, cause: "sgo_award" } });
 }
 

@@ -8,7 +8,7 @@ import { newId } from "@/lib/ids";
 import { audit, type AuditActor, type AuditRequestInfo } from "@/server/audit";
 import { assertOrgMember, type User } from "@/server/auth";
 import { emitEvent } from "@/server/events";
-import { centsToUsdString, declineHandoffForSgo, getHandoffForSgo, markHandoffAwarded, type HandoffRow, type SgoHandoffView } from "@/server/handoffs";
+import { centsToUsdString, declineHandoffForSgo, getHandoffForSgo, holdIsActive, markHandoffAwarded, type HandoffRow, type SgoHandoffView } from "@/server/handoffs";
 import {
   AWARD_DECIDER_ROLE,
   AWARD_PAYMENT_METHODS,
@@ -288,20 +288,23 @@ export async function updateAwardStatus(sgoOrgId: string, awardId: string, input
     if (!canChangeAwardStatus(award.status, status)) throw conflict(`An award that is ${award.status} cannot become ${status}.`);
 
     const auditActor = auditActorOf(actor);
-    let handoff: HandoffRow | null = null;
+    let declineLinked = false;
     if (status === "revoked" && award.handoffId) {
       const [linked] = await tx.select({ status: schema.handoffs.status, awardId: schema.handoffs.awardId }).from(schema.handoffs).where(eq(schema.handoffs.id, award.handoffId)).limit(1);
       if (linked && linked.awardId === award.id) {
         if (linked.status === "completed" && !REVOKE_AFTER_COMPLETION_ALLOWED) {
           throw conflict("The business already completed this booking with the award. Contact the business and the platform team to unwind it.");
         }
-        if (linked.status === "awarded") {
-          handoff = await declineHandoffForSgo(tx, { handoffId: award.handoffId, sgoOrgId, reasonCode: "award_revoked", allowAwarded: true }, { actor: auditActor, request: actor.request ?? null });
-        }
+        declineLinked = linked.status === "awarded";
       }
     }
     const [updated] = await tx.update(schema.awards).set({ status }).where(and(eq(schema.awards.id, award.id), eq(schema.awards.status, award.status))).returning();
     if (!updated) throw conflict("The award changed while this request was being handled. Try again.");
+    // After the award row says "revoked", so the handoff.declined event no longer carries the award.
+    const handoff =
+      declineLinked && award.handoffId
+        ? await declineHandoffForSgo(tx, { handoffId: award.handoffId, sgoOrgId, reasonCode: "award_revoked", allowAwarded: true }, { actor: auditActor, request: actor.request ?? null })
+        : null;
     await audit(
       {
         actor: auditActor,
@@ -388,7 +391,7 @@ export async function getAwardContext(sgoOrgId: string, verificationId: string, 
       status: verification.status,
       expiresAt: verification.expiresAt,
       provisional: verification.provisional,
-      awardable: verification.status === "eligible" && unexpired && (handoff === null || handoff.status === "eligible"),
+      awardable: verification.status === "eligible" && unexpired && (handoff === null || (handoff.status === "eligible" && holdIsActive(handoff, now()))),
     },
     handoff,
     maxAmountCents: handoff?.booking.amountCents ?? null,

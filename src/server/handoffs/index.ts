@@ -63,6 +63,7 @@ export {
   HOLDING_STATUSES,
   isFinal,
   isHandoffStatus,
+  holdIsActive,
   isHolding,
   publicVerificationStatus,
   targetForVerification,

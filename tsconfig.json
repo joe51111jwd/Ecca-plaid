@@ -46,7 +46,9 @@
     ".next-site/types/**/*.ts",
     ".next-site/dev/types/**/*.ts",
     ".next-donor-ui/types/**/*.ts",
-    ".next-donor-ui/dev/types/**/*.ts"
+    ".next-donor-ui/dev/types/**/*.ts",
+    ".next-family-ui/types/**/*.ts",
+    ".next-family-ui/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

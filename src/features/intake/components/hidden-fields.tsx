@@ -8,8 +8,8 @@ export function HiddenFields({ values }: { values: Record<string, string | null 
 }
 
 /** The fields every intake form posts: the flow's base path, the verification and the language. */
-export interface FlowFormFields {
+export type FlowFormFields = {
   base: string;
   v: string;
   lang: "en" | "es";
-}
+};

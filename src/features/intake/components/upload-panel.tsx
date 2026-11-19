@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Field, FileDropzone, RadioGroup, Select, type DropzoneFile, type FileRejection, type RadioOption } from "@/components/ui";
 import { getDictionary } from "@/i18n";
 import { UPLOAD_KIND_CHOICES, type UploadKindChoice } from "../form-data";
@@ -64,22 +64,19 @@ export function UploadPanel({ fields, members, accept, maxSizeBytes, maxFiles, i
   const [notice, setNotice] = useState<string | null>(null);
   const counter = useRef(0);
 
-  const update = useCallback((id: string, patch: Partial<Row>) => setRows((list) => list.map((r) => (r.id === id ? { ...r, ...patch } : r))), []);
+  const update = (id: string, patch: Partial<Row>) => setRows((list) => list.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-  const upload = useCallback(
-    async (row: Row) => {
-      update(row.id, { status: "uploading", progress: 0, error: undefined });
-      const outcome = await send(row.file, row.kind, row.memberId, fields, (fraction) => update(row.id, { progress: fraction }));
-      const verdict = readUploadOutcome(outcome, fields.lang);
-      if (verdict.kind === "error") {
-        update(row.id, { status: "error", error: verdict.message, progress: undefined });
-        return;
-      }
-      update(row.id, { status: "done", progress: undefined, detail: verdict.kind === "duplicate" ? verdict.message : row.detail });
-      router.refresh();
-    },
-    [fields, router, update],
-  );
+  const upload = async (row: Row) => {
+    update(row.id, { status: "uploading", progress: 0, error: undefined });
+    const outcome = await send(row.file, row.kind, row.memberId, fields, (fraction) => update(row.id, { progress: fraction }));
+    const verdict = readUploadOutcome(outcome, fields.lang);
+    if (verdict.kind === "error") {
+      update(row.id, { status: "error", error: verdict.message, progress: undefined });
+      return;
+    }
+    update(row.id, { status: "done", progress: undefined, detail: verdict.kind === "duplicate" ? verdict.message : row.detail });
+    router.refresh();
+  };
 
   const onFilesAdded = (files: File[]) => {
     setNotice(null);

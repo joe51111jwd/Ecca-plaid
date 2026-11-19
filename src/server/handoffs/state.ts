@@ -55,6 +55,14 @@ export function isHolding(status: HandoffStatus): boolean {
 }
 
 /**
+ * Is the reservation still held at `at`? A holding status AND a deadline still in the future. The deadline itself
+ * already counts as passed, matching the expiry job (`holdExpiresAt <= now` expires).
+ */
+export function holdIsActive(h: { status: HandoffStatus; holdExpiresAt: Date | null }, at: Date): boolean {
+  return isHolding(h.status) && h.holdExpiresAt !== null && h.holdExpiresAt.getTime() > at.getTime();
+}
+
+/**
  * What the business (and anyone outside the SGO) may learn about the verification: eligible, not eligible, or
  * pending. Review states, expiry and cancellation all read as pending; never income, documents or reasons.
  */

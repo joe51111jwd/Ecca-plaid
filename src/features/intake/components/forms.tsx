@@ -44,13 +44,15 @@ export function ContinueForm({ base, locale, label }: { base: string; locale: Lo
 
 /* ---------------------------------------------------------------------------------------- passport */
 
-export function ReuseForm({ fields, sourceId, consentSha }: { fields: FlowFormFields; sourceId: string; consentSha: string }) {
+export function ReuseForm({ fields, sourceId, consentSha, consentLabel }: { fields: FlowFormFields; sourceId: string; consentSha: string; consentLabel: string }) {
   const t = getDictionary(fields.lang);
   const [state, action, pending] = useActionState(reuseAction, null);
   return (
-    <Form action={action} className="space-y-5">
+    <Form action={action} className="space-y-4">
       <HiddenFields values={{ ...fields, source: sourceId, sha: consentSha }} />
-      <FormError state={state} locale={fields.lang} title={t.errors.title} fieldIds={{ attest: "attest" }} />
+      <FormError state={state} locale={fields.lang} title={t.errors.title} fieldIds={{ agree: "reuse-agree", attest: "attest" }} />
+      {/* Neither box is pre-ticked: the first is the fresh permission, the second the nothing-changed statement. */}
+      <Checkbox id="reuse-agree" name="agree" variant="card" label={consentLabel} error={fieldError(state, "agree")} />
       <Checkbox id="attest" name="attest" variant="card" label={t.reuse.attestLabel} description={t.reuse.attestHint} error={fieldError(state, "attest")} />
       <SubmitButton pending={pending} pendingText={t.reuse.using} size="lg" fullWidth>
         {t.reuse.useButton}

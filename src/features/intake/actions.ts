@@ -12,9 +12,10 @@ import type { MemberKind } from "@/db/schema";
 import { getDictionary, isLocale, type Locale } from "@/i18n";
 import { isAppError, type ActionResult } from "@/lib/errors";
 import { audit } from "@/server/audit";
-import { consumeCode, getRequestInfo, requestSignIn, type User } from "@/server/auth";
+import { clearSessionCookie, consumeCode, getRequestInfo, getSessionCookieToken, requestSignIn, revokeSessionByToken, type User } from "@/server/auth";
+import { revokeConsent } from "@/server/consents";
 import { addMember, getOrCreateHouseholdForUser, inviteAdult, removeMember, selectCounty, updateAddress, updateMember, upsertOwnerMember } from "@/server/households";
-import { completeConnection, declineConnection, getConnection, startConnection, type RailConnectionView, type StartedConnectionView } from "@/server/rails";
+import { completeConnection, declineConnection, getConnection, revokeConnectionsForConsent, startConnection, type RailConnectionView, type StartedConnectionView } from "@/server/rails";
 import {
   completeHousehold,
   getFamilyVerification,
@@ -131,12 +132,25 @@ export async function startAction(_prev: unknown, form: FormData): Promise<Resul
   redirect(langHref(basePath(address), locale));
 }
 
-/** Leaves the embedded session ("Use a different email" inside a partner's frame). */
-export async function embedSignOutAction(form: FormData): Promise<void> {
+/**
+ * Signs out from a family screen ("Not you?", "Sign out" on the household page) and stays in the flow: the page
+ * session (main cookie) or the embedded session (partitioned cookie) is revoked, then the person goes back to the
+ * link's landing page, or to the sign-in page when there is no link.
+ */
+export async function familySignOutAction(form: FormData): Promise<void> {
   const address = parseBasePath(text(form, "base"));
-  const userId = await endEmbedSession();
-  if (userId) await audit({ actor: { type: "user", id: userId }, action: "auth.sign_out", target: { type: "user", id: userId }, metadata: { surface: "embed" }, request: await getRequestInfo() });
-  redirect(address ? langHref(basePath(address), localeOf(form)) : "/");
+  const locale = localeOf(form);
+  let userId: string | null;
+  if (address && surfaceOf(address) === "embed") {
+    userId = await endEmbedSession();
+  } else {
+    const token = await getSessionCookieToken();
+    userId = token ? ((await revokeSessionByToken(token))?.userId ?? null) : null;
+    await clearSessionCookie();
+  }
+  if (userId) await audit({ actor: { type: "user", id: userId }, action: "auth.sign_out", target: { type: "user", id: userId }, metadata: { surface: address ? surfaceOf(address) : "page" }, request: await getRequestInfo() });
+  if (address && address.kind === "token") redirect(langHref(basePath(address), locale));
+  redirect(`/sign-in?signed_out=1${locale === "es" ? "&lang=es" : ""}`);
 }
 
 function langHref(path: string, locale: Locale): string {
@@ -157,7 +171,11 @@ export async function reuseAction(_prev: unknown, form: FormData): Promise<Resul
   const a = await acting(form);
   if (isFailure(a)) return a;
   const t = getDictionary(a.locale);
-  if (!isChecked(form, "attest")) return failure("validation_failed", t.errors.attestRequired, { attest: t.errors.attestRequired });
+  const fields: Record<string, string> = {};
+  if (!isChecked(form, "agree")) fields.agree = t.errors.consentRequired;
+  if (!isChecked(form, "attest")) fields.attest = t.errors.attestRequired;
+  const firstProblem = Object.values(fields)[0];
+  if (firstProblem) return failure("validation_failed", firstProblem, fields);
   let outcome: "reused" | "fallback";
   try {
     const result = await reuseResult(a.verificationId, text(form, "source"), { attestsNothingChanged: true, locale: a.locale, shownSha256: shownSha(form) }, a.actor);
@@ -457,6 +475,26 @@ export async function inviteAdultAction(_prev: unknown, form: FormData): Promise
     if (isAppError(e) && e.code === "validation_failed" && e.details && typeof e.details === "object" && "fields" in e.details) return localizeError(e, locale);
     return localizeError(e, locale, { fallback: isAppError(e) && e.code === "conflict" ? "inviteConflict" : undefined });
   }
+}
+
+/**
+ * "Take back" a permission from the household page: the consents service withdraws it (the person who gave it or the
+ * owner may), then any payroll or bank connection it covered is disconnected. Reports back on the household page.
+ */
+export async function revokeConsentAction(form: FormData): Promise<void> {
+  const locale = localeOf(form);
+  const lang = locale === "es" ? "&lang=es" : "";
+  const user = await getFamilyUser("page");
+  if (!user) redirect(`/sign-in?next=${encodeURIComponent("/family")}${lang}`);
+  const actor = { userId: user.id, request: await getRequestInfo() };
+  let outcome = "notice=revoked";
+  try {
+    const result = await revokeConsent(text(form, "consentId"), actor);
+    if (result.mustStop.railConnectionIds.length > 0) await revokeConnectionsForConsent(result.mustStop.railConnectionIds, { actor });
+  } catch (e) {
+    outcome = `error=${errorKeyOf(e)}`;
+  }
+  redirect(`/family?${outcome}${lang}`);
 }
 
 function withKind(form: FormData, kind: MemberKind): FormData {

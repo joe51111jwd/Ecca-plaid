@@ -12,7 +12,7 @@ import { findByToken } from "./create";
 import { syncHandoffWithVerification } from "./lifecycle";
 import { FAMILY_LINK_PURPOSE } from "./policy";
 import { centsToUsdString } from "./serialize";
-import { isHolding, publicVerificationStatus, type PublicVerificationStatus } from "./state";
+import { holdIsActive, publicVerificationStatus, type PublicVerificationStatus } from "./state";
 
 /** Where the family is in the handoff, for the page to choose its layout. */
 export type HandoffStep = "choose_sgo" | "verify" | "waiting" | "eligible" | "awarded" | "completed" | "declined" | "expired" | "canceled";
@@ -94,7 +94,7 @@ export async function getHandoffView(token: string): Promise<HandoffView> {
   const step = stepOf(handoff.status, handoff.sgoOrgId !== null);
   const partnerChoices = step === "choose_sgo" ? (await getActivePartnerSgos(handoff.businessOrgId, db)).map((p) => ({ sgoOrgId: p.sgoOrgId, displayName: p.displayName, website: p.website, logoUrl: p.logoUrl })) : [];
 
-  const holdActive = isHolding(handoff.status) && handoff.holdExpiresAt !== null && handoff.holdExpiresAt.getTime() > now().getTime();
+  const holdActive = holdIsActive(handoff, now());
   const deadline = holdActive && handoff.holdExpiresAt ? { en: formatDeadline("en", handoff.holdExpiresAt), es: formatDeadline("es", handoff.holdExpiresAt) } : null;
 
   // The verification flow stays reachable after the handoff ends so the family can see its result; not once canceled.
