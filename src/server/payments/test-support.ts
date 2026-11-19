@@ -1,4 +1,5 @@
 import { getDb, schema } from "@/db/client";
+import { now } from "@/lib/clock";
 import type { CheckoutStatus, Mode } from "@/db/schema";
 import { hashToken } from "@/lib/crypto";
 import { newId, newToken } from "@/lib/ids";
@@ -35,7 +36,14 @@ export async function createTestBusiness(options: { name?: string; billingEmail?
 export async function createTestCheckout(orgId: string, options: { mode?: Mode; status?: CheckoutStatus } = {}): Promise<string> {
   const db = await getDb();
   const id = newId("checkout");
-  await db.insert(schema.checkoutSessions).values({ id, orgId, mode: options.mode ?? "test", status: options.status ?? "open", tokenHash: hashToken(newToken()) });
+  await db.insert(schema.checkoutSessions).values({
+    id,
+    orgId,
+    mode: options.mode ?? "test",
+    status: options.status ?? "open",
+    tokenHash: hashToken(newToken()),
+    expiresAt: new Date(now().getTime() + 24 * 60 * 60 * 1000),
+  });
   return id;
 }
 
