@@ -38,7 +38,7 @@ export const PHONE = { width: 390, height: 844 } as const;
 /** Pause after an action so a viewer sees what changed. */
 const BEAT_MS = 550;
 const TYPE_DELAY_MS = 35;
-const SNAP_FIXTURE = join(process.cwd(), "tests", "fixtures", "synthetic", "SYNTHETIC_tf0001_snap_approved.pdf");
+const W2_FIXTURE = join(process.cwd(), "tests", "fixtures", "synthetic", "SYNTHETIC_w2_2025_copyB.pdf");
 
 export function readingMs(text: string, min = MIN_CAPTION_MS, msPerChar = MS_PER_CHAR): number {
   return Math.max(min, Math.round(text.length * msPerChar));
@@ -459,7 +459,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.show('section[aria-labelledby="site-honest-title"]', 40);
         await r.say("The ground rules, stated up front: proposed rules, provisional limits, eligible is not an award, families never pay.");
         await r.scrollBy(900, 14, 18);
-        await r.say("Each audience has its own door: donors give, families apply, organizations verify, camps add the button.");
+        await r.say("A door for each audience: donors, families, organizations, camps.");
       },
     },
     {
@@ -489,10 +489,10 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.type(r.page.getByLabel("Digit 1 of 6"), code);
         await r.page.waitForURL(/\/consent$/);
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
-        await r.say("Permission first, in plain language: who gets what, for what purpose and for how long. The exact wording and its version are stored.");
+        await r.say("Permission first, in plain words: who gets what, why and for how long. The exact wording and its version are stored.");
         await r.scrollBy(1200, 12, 20);
         await r.page.getByRole("checkbox", { name: /I am the adult in charge/ }).check();
-        await r.say("Checking the box is the parent's written instruction to share — the consumer-directed design the FCRA constraint calls for.");
+        await r.say("Checking the box is the parent's written instruction to share (the consumer-directed design the FCRA calls for).");
         await r.page.getByRole("button", { name: "Give permission and continue" }).click();
         await r.page.getByRole("heading", { name: "Where do you live?" }).waitFor();
         await r.caption("The address decides the Texas county, and the county decides the income limit.");
@@ -522,24 +522,35 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.getByRole("radio", { name: "No, only in my home" }).check();
         await r.page.getByRole("button", { name: "Save and continue" }).click();
         await r.page.getByRole("heading", { name: "How do you want to show your income?" }).waitFor();
-        await r.say("Upload, or connect a licensed payroll or bank rail (simulated here). Switching loses nothing.");
+        await r.say("Upload, or connect a payroll or bank account (simulated here).");
         await r.page.getByRole("button", { name: "Continue" }).click();
         await r.page.getByRole("heading", { name: "Upload your documents" }).waitFor();
-        await r.page.getByRole("radio", { name: /^Benefits letter/ }).check();
-        await r.caption("A SNAP approval letter dated within 12 months proves eligibility by the categorical method. This one is synthetic.");
-        await r.page.getByLabel("Choose files").setInputFiles(SNAP_FIXTURE);
-        await r.page.getByRole("region", { name: "Your documents" }).getByRole("button", { name: /^Remove / }).waitFor();
-        await r.pause(2_000);
+        await r.page.getByRole("radio", { name: /^W-2 form/ }).check();
+        await r.caption("A 2025 W-2, synthetic. It is a PDF with a text layer, so it is read right away; nobody has to type it in.");
+        await r.page.getByLabel("Choose files").setInputFiles(W2_FIXTURE);
+        const docs = r.page.getByRole("region", { name: "Your documents" });
+        await docs.getByText("Received", { exact: true }).waitFor({ timeout: 30_000 });
+        await r.show(docs, 120);
+        await r.pause(1_500);
+        await r.caption("A W-2 shows wages only, so the parent also signs that the household had no other income.");
+        await r.page.getByRole("link", { name: "Sign a statement of no other income" }).click();
+        await r.page.getByRole("heading", { name: "Sign a statement" }).waitFor();
+        await r.pause(1_500);
+        await r.page.getByRole("checkbox", { name: "I have read this statement. It is true and complete." }).check();
+        await r.page.getByRole("button", { name: "Sign statement" }).click();
+        await r.page.getByRole("heading", { name: "Upload your documents" }).waitFor();
         await r.page.getByRole("link", { name: "Review and send" }).click();
         await r.page.getByRole("heading", { name: "Review and send" }).waitFor();
         await r.page.getByRole("button", { name: "Send for checking" }).click();
         await r.page.waitForURL(/\/status$/);
+        await r.caption("Sent. The engine checks the W-2 and the statement against the limit for the family's county.");
         await drain(ctx);
         await r.page.reload();
+        await r.page.getByRole("heading", { name: "You meet the income requirement" }).waitFor({ timeout: 30_000 });
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
-        await r.say("Result: a person will look. The TF0001 letter layout is not yet verified, so the engine never says yes on it alone — no silent yes.");
-        await r.scrollBy(500);
-        await r.say("Families never pay to verify. And eligible is not a promise of a scholarship: the SGO decides awards separately.");
+        await r.say("Decided on the spot, with no person needed: the household's 2025 income is under the income limit for its county.");
+        await r.scrollBy(450);
+        await r.say("The limit is provisional, and being eligible is not a promise of a scholarship: the SGO decides awards separately. Families never pay.");
       },
     },
     {
@@ -551,36 +562,15 @@ function chapters(ctx: Ctx): ChapterSpec[] {
           `Signed in as the owner of “${DEMO_SGOS.primary.name}”, a fictional sandbox SGO.`,
         ]);
         await r.goto("/sgo");
-        await r.say("Home: what needs attention — cases waiting for a reviewer, donors who need donor numbers, setup steps left.");
-        await r.show('section[aria-labelledby], [aria-label="Verifications by status"]', 120);
-        await r.say("Verifications by status, with the reminders built in: limits are provisional, and eligible is not an award.");
+        await r.say("Home: what needs attention — cases waiting for a reviewer, donors who need donor numbers, setup steps left. Limits are provisional; eligible is not an award.");
         await r.goto("/sgo/verifications");
-        await r.say("The verification queue: every family the SGO asked to verify, with status and the SGO's own reference.");
-        await r.goto("/sgo/review");
-        await r.say("The review queue: what the engine could not decide, oldest first, each with the reason in plain words.");
+        await r.say("Every family the SGO asked to verify, with status and the SGO's own reference.");
 
-        // The family's letter from chapter 2.
-        if (ctx.familyVerificationId) {
-          await r.goto(`/sgo/verifications/${ctx.familyVerificationId}`);
-          await r.say("This is the family from chapter 2. A reviewer reads the letter and confirms what it shows.");
-          await confirmSnapLetter(r, ctx, "SYNTHETIC_tf0001_snap_approved.pdf", "DANA SAMPLE", "2026-09-15", "Dana Sample");
-          await r.show(r.page.getByRole("heading", { name: "Decision" }), 90);
-          await r.say("Eligible by the categorical method: SNAP approval dated within 12 months. Marked PROVISIONAL, because the limit table is HUD-derived.");
-          await r.show(r.page.getByRole("region", { name: /The limit used/ }), 90);
-          await r.say("The limit used, its source, table version and effective date are recorded with every decision.");
-          await r.show(r.page.getByRole("region", { name: "Timeline" }), 90);
-          await r.say("The timeline: every step by the family, the system and the reviewer.");
-        }
-
-        // Two readings where they differ.
-        await r.goto(`/sgo/verifications/${v.betweenReadings}`);
-        await r.say("Starr County. The proposed rule can be read two ways, and here the readings differ: $92,880 versus $201,000 for two people.");
-        await r.show(r.page.getByRole("table", { name: "Readings of the limit" }), 160);
-        await r.say("This household's income falls between them. The engine decides only where both readings agree, so a person decides this one.");
-
-        // A decided verification and its evidence pack.
-        await r.goto(`/sgo/verifications/${v.w2Eligible}`);
-        await r.say("A W-2 case read automatically and decided by the engine: direct method, prior-year wages compared with the Travis County limit.");
+        // The family's case from chapter 2, decided by the engine, and its evidence pack.
+        await r.goto(`/sgo/verifications/${ctx.familyVerificationId ?? v.w2Eligible}`);
+        await r.say("The family from chapter 2. Their W-2 was read and the engine decided: eligible by the direct method, decided automatically.");
+        await r.show(r.page.getByRole("region", { name: /The limit used/ }), 90);
+        await r.say("The limit used is labeled PROVISIONAL (HUD-derived). Its source, table version and effective date are recorded with the decision.");
         const evidence = await waitForEvidence(r, ctx);
         await r.show(r.page.getByRole("link", { name: "Signed JSON" }), 250);
         await r.say("Every decided case has an evidence pack: a PDF for people and a signed JSON record for machines. Downloads are audited.");
@@ -590,18 +580,27 @@ function chapters(ctx: Ctx): ChapterSpec[] {
           await r.page.setContent(pdfViewerHtml("Evidence pack (PDF) — synthetic", images));
           await r.say("The evidence pack PDF: decision, method, household, area, the limit, its source and both readings.");
           await r.scrollBy(1300, 16, 18);
-          await r.say("Extracted fields, file hashes instead of raw files, the consent record with version and timestamp, and who reviewed what.");
-          await r.scrollBy(2600, 20, 16);
-
+          await r.say("Extracted fields, file hashes instead of raw files, and the consent record with its version and timestamp.");
+          await r.scrollBy(2000, 24, 16);
         }
         const json = await r.page.request.get(evidence.json);
         await r.page.setContent(jsonViewerHtml("Evidence record (signed JSON) — synthetic", JSON.stringify(await json.json(), null, 2)));
+        await r.page.evaluate(() => window.scrollTo(0, 0));
         await r.say("The same facts as a signed JSON record (Ed25519). Anyone can check it against /.well-known/jwks.json with npm run evidence:verify.");
 
-        // The review queue: an unreadable scan resolved by a reviewer.
+        // What the engine does not decide: the review queue.
         await r.goto("/sgo/review");
-        await r.say("Back to the review queue: a family uploaded a phone photo of a W-2. Photos have no text layer, so nothing is guessed.");
+        await r.say("The review queue: what the engine could not decide, oldest first, each with a short reason.");
+
+        // Two readings where they differ.
+        await r.goto(`/sgo/verifications/${v.betweenReadings}`);
+        await r.say("Starr County. The proposed rule can be read two ways, and here the readings differ: $92,880 versus $201,000 for two people.");
+        await r.show(r.page.getByRole("table", { name: "Readings of the limit" }), 160);
+        await r.say("This household's income falls between them. The engine decides only where both readings agree, so a person decides this one.");
+
+        // The review queue: an unreadable scan resolved by a reviewer.
         await r.goto(`/sgo/verifications/${v.unreadableScan}`);
+        await r.say("Another case from the queue: a phone photo of a W-2. Photos have no text layer, so nothing is guessed from it.");
         await r.page.getByRole("link", { name: "View file" }).first().click();
         await r.page.getByRole("dialog").waitFor();
         await r.say("The reviewer opens the file. Opening it is written to the audit log.");
@@ -632,12 +631,11 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.goto("/sgo/donations");
         await r.say("Donations: each gift's designated amount, kept separate from any fee.");
         await r.goto("/sgo/acknowledgments");
-        await r.say("Acknowledgments: one per donor per year, with the SGO's EIN and a unique donor number from the IRS SGO portal — never invented.");
+        await r.say("Acknowledgments: one per donor per year, with a unique donor number from the IRS SGO portal — never invented.");
         await r.goto("/sgo/irs-report");
-        await r.say("The IRS report: the annual contribution report, due February 28.");
+        await r.say("The IRS report, due February 28.");
         await r.goto("/sgo/developers");
         await r.say("Developers: test API keys (stored only as hashes) and webhook endpoints with a log of every signed delivery.");
-        await r.scrollBy(500);
         await r.goto("/docs");
         await r.say("The API docs: create a verification, read it, get a signed webhook when it is decided.");
       },
@@ -700,7 +698,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.goto("/dev/mail");
         await r.page.getByRole("link", { name: /Payment receipt for your gift/ }).first().click();
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
-        await r.say("The receipt email, as the development outbox recorded it. In production it is sent through an email provider.");
+        await r.say("The receipt email, as the development outbox recorded it.");
       },
     },
     {
@@ -756,7 +754,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.show(r.page.getByRole("heading", { name: "Change the fee structure" }), 120);
         await r.say("Choosing another structure is refused without counsel's memo reference and date — and every change is audited.");
         await r.scrollBy(500);
-        await r.say("Live gifts stay off: only sandbox gifts are possible until you turn them on, after the credit date and the memo.");
+        await r.say("Live gifts stay off until you turn them on, after the credit date and the memo.");
         await r.goto("/admin/income-limits");
         await r.say("The income-limit table every decision uses: HUD FY 2026, provisional, 254 Texas counties. Swapping in the IRS table is one ingest job.");
         await r.page.getByLabel("County", { exact: true }).selectOption({ label: "Starr County (48427)" });

@@ -75,7 +75,16 @@ test("a donor gives in the sandbox, sees why it is not credit-eligible yet, and 
   await donor.getByRole("radio", { name: "Single" }).check();
   await donor.getByLabel("First name").fill("Avery");
   await donor.getByLabel("Last name").fill("Donorsample");
-  await donor.getByLabel("Email address").fill(donorEmail);
+  // No red while the donor is still typing: a half-typed address is saved as a draft but not flagged until the
+  // field is left.
+  const emailField = donor.getByLabel("Email address");
+  await emailField.pressSequentially("avery@", { delay: 30 });
+  await donor.waitForTimeout(1_500);
+  await expect(emailField).not.toHaveAttribute("aria-invalid", "true");
+  await expect(donor.locator("#give-email-error")).toHaveCount(0);
+  await emailField.blur();
+  await expect(donor.locator("#give-email-error")).toHaveText("Enter a valid email address.");
+  await emailField.fill(donorEmail);
   await donor.getByLabel("Street address").fill("800 Donor Drive");
   await donor.getByLabel("City").fill("Austin");
   await donor.getByRole("combobox", { name: "State", exact: true }).selectOption("TX");

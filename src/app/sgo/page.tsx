@@ -12,14 +12,14 @@ import { roleAtLeast } from "@/server/auth";
 
 export const metadata: Metadata = { title: "Home" };
 
-const RECENT: Array<TableColumn<VerificationRow>> = [
+const RECENT: Array<TableColumn<VerificationRow & { label: string }>> = [
   {
     key: "who",
     header: "Applicant",
     primary: true,
     cell: (v) => (
       <span>
-        {v.applicantName ?? v.applicantEmail ?? "No name given"}
+        {v.label}
         <span className="block text-xs font-normal text-fg-muted">{v.externalRef ?? v.id}</span>
       </span>
     ),

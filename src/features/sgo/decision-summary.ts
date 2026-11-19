@@ -1,5 +1,6 @@
 import { thresholdReadingLabel, thresholdSourceName } from "@/engine/ami";
 import type { Decision, ThresholdReliedOn } from "@/engine/decision";
+import { formatDateTime } from "@/components/ui/date-format";
 import { formatUsd } from "@/lib/money";
 
 /**
@@ -148,7 +149,7 @@ export function summarizeDecision(decision: Decision | null): DecisionSummary | 
     limit,
     incomeCents: decision.householdIncomeCents,
     incomeYear: decision.incomeYear,
-    decidedByLine: decision.status === "eligible" || decision.status === "ineligible" ? (by.type === "reviewer" ? `Decided by a reviewer on ${by.resolvedOn}` : `Decided automatically on ${decision.decidedOn}`) : "Not decided yet",
+    decidedByLine: decision.status === "eligible" || decision.status === "ineligible" ? (by.type === "reviewer" ? `Decided by a reviewer on ${formatDateTime(by.resolvedOn)}` : `Decided automatically on ${formatDateTime(decision.decidedOn)}`) : "Not decided yet",
     reviewerNotes: by.type === "reviewer" ? by.notes : null,
     outcome: outcomeSentence(decision),
   };

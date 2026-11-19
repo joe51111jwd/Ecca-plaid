@@ -4,7 +4,7 @@ import { audit } from "@/server/audit";
 import { listPartnershipsForSgo } from "@/server/businesses";
 import { listMembers, type MemberSummary } from "@/server/orgs";
 import { onboardingChecklist, type OnboardingChecklist } from "@/server/sgos";
-import { listReviewQueue, listVerifications, statusCounts, type StatusCounts, type VerificationRow } from "@/server/verifications";
+import { applicantLabels, listReviewQueue, listVerifications, statusCounts, type StatusCounts, type VerificationRow } from "@/server/verifications";
 import { currentReportingYear, reportingDeadlines, type ReportingDeadlines } from "../deadlines";
 import { attentionItems, type AttentionItem } from "../home";
 import type { SgoActor } from "../types";
@@ -40,7 +40,8 @@ export interface HomeData {
   worklist: Pick<Worklist, "counts" | "byAction" | "acknowledgmentDueDate" | "reportDueDate"> | null;
   reportSubmitted: boolean;
   attention: AttentionItem[];
-  recent: VerificationRow[];
+  /** The newest verifications, each with the name the lists show (see applicantLabels). */
+  recent: Array<VerificationRow & { label: string }>;
   reviews: { open: number; waitingOnFamily: number; oldestAgeDays: number | null };
 }
 
@@ -56,6 +57,7 @@ export async function loadHome(actor: SgoActor, on: string = today()): Promise<H
     listIrsReports(actor.orgId, { mode: actor.mode, taxYear: reportingYear }, reader),
     listVerifications(actor.orgId, { mode: actor.mode, limit: 5 }),
   ]);
+  const labels = await applicantLabels(actor.orgId, recent.items);
   const reviews = {
     open: queue.items.length,
     waitingOnFamily: queue.items.filter((i) => i.waitingOnFamily).length,
@@ -78,7 +80,7 @@ export async function loadHome(actor: SgoActor, on: string = today()): Promise<H
       reportSubmitted,
       onboarding: { remaining, total: checklist.items.length },
     }),
-    recent: recent.items,
+    recent: recent.items.map((v) => ({ ...v, label: labels[v.id]! })),
     reviews,
   };
 }

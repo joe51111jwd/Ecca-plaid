@@ -8,6 +8,8 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getDictionary } from "@/i18n";
 import { emailAddressSchema } from "@/server/auth";
+import { ClientRedirect } from "../components/client-redirect";
+import { FlowLoading } from "../components/flow-loading";
 import { FlowShell } from "../components/flow-shell";
 import { isFamilyToken, isVerificationId, previousScreen, resolveScreen, screenHref, stepperStepOf, type FlowAddress, type Screen } from "../flow";
 import { firstParam, loadFlow, resolveLocale, type FlowContext, type SearchParams } from "../server/context";
@@ -72,6 +74,18 @@ export async function renderFlow(address: FlowAddress, requested: string | null,
 
   const ctx = load.ctx;
   const decision = resolveScreen(requested, ctx.state);
+  if (decision.redirect && !requested) {
+    // The landing page of a signed-in family. It is also re-rendered right after sign-in (the session cookie
+    // changed); a server redirect here leaves the page blank until the next screen arrives, so show the loading
+    // state and move on from the browser.
+    const notice = firstParam(query.notice);
+    return (
+      <>
+        <FlowLoading surface={ctx.surface} />
+        <ClientRedirect href={hrefFor(ctx, decision.screen, notice ? { notice } : {})} />
+      </>
+    );
+  }
   if (decision.redirect) {
     // Keep a notice that belongs to the screen the family is sent to (for example after reusing failed).
     const notice = firstParam(query.notice);

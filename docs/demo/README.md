@@ -11,18 +11,22 @@ Everything shown is synthetic sandbox data from `scripts/seed.ts`. No money move
 
 0. What this is — the three pieces and who uses each.
 1. The website — the home page, the paperwork-melt section, the ground rules.
-2. A family verifies (phone-sized) — SGO link → emailed code → permission → household → synthetic SNAP letter → submit.
-3. The SGO dashboard — home, queue, review, a decided verification (limit, PROVISIONAL, both readings, timeline), the
-   evidence pack (PDF pages and signed JSON), an unreadable scan resolved by a reviewer, donations, acknowledgments,
-   the IRS report, developers and the API docs.
+2. A family verifies (phone-sized) — SGO link → emailed code → permission → household → synthetic W-2 PDF read on
+   the spot → no-other-income statement → submit → decided automatically (provisional, not a promise of a
+   scholarship).
+3. The SGO dashboard — home, verifications, that family's case decided automatically (limit, PROVISIONAL) and its
+   evidence pack (PDF pages and signed JSON), the review queue, a case between the two readings of the limit, a
+   phone-photo W-2 keyed by a reviewer, donations, acknowledgments, the IRS report, developers and the API docs.
 4. A donor gives — search, tax-math panel, the "not credit-eligible yet" banner, sandbox payment, receipt email.
-5. The camp handoff — demo camp checkout, the family's hold page, the partner portal, the SGO's award, "Awarded".
+5. The camp handoff — demo camp checkout, the family's hold page, the partner portal ("Spot held"), a reviewer
+   confirms that family's SNAP letter, the SGO's award, "Awarded".
 6. The admin console — gates & fees, the income-limit lookup, the audit log.
 7. What is real versus sandbox, what only the founder can supply, how to run it.
 
 ## Re-recording
 
-The recorder changes demo data as it goes (it confirms letters, resolves a review, makes a gift, offers an award), so
+The recorder changes demo data as it goes (it verifies a new family, keys a scan, confirms a letter, makes a gift,
+offers an award), so
 always start from a freshly seeded data directory. Use a separate data directory, build directory and port so a dev
 server you already run is untouched.
 

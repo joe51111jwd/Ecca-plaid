@@ -37,7 +37,12 @@ export function orgMarkName(name: string): string {
   return plain.length > 0 ? plain.join(" ") : name.trim();
 }
 
-/** The initials an organization's mark shows: first and last significant word ("Demo: Lone Star Fund (sandbox)" → "LF"). */
+/**
+ * The initials an organization's mark shows: first and last significant word ("Demo: Lone Star Fund (sandbox)" →
+ * "LF"). People's avatars use the first two words instead (initialsOf); an organization's last word is usually the
+ * more telling one ("Fund", "Scholars").
+ */
 export function orgInitials(name: string): string {
-  return initialsOf(orgMarkName(name));
+  const marked = orgMarkName(name).split(/\s+/).filter((w) => /\p{L}/u.test(w));
+  return marked.length > 1 ? initialsOf(`${marked[0]} ${marked[marked.length - 1]}`) : initialsOf(marked[0] ?? "");
 }

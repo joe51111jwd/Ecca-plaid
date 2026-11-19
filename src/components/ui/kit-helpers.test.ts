@@ -46,11 +46,17 @@ describe("isExternalHref", () => {
 });
 
 describe("initialsOf", () => {
-  it("uses the first and last word", () => {
+  it("uses the first two words", () => {
     expect(initialsOf("Maria Alvarez")).toBe("MA");
     expect(initialsOf("Camp Cedar Creek")).toBe("CC");
-    expect(initialsOf("Prairie Lantern Scholarship Fund")).toBe("PF");
-    expect(initialsOf("  maria   de la  cruz ")).toBe("MC");
+    expect(initialsOf("Prairie Lantern Scholarship Fund")).toBe("PL");
+    expect(initialsOf("  maria   de la  cruz ")).toBe("MD");
+  });
+
+  it("uses letters only", () => {
+    expect(initialsOf("Demo: Lone Star Fund (sandbox)")).toBe("DL");
+    expect(initialsOf("(Demo) — 42 Acme")).toBe("DA");
+    expect(initialsOf("123 !!")).toBe("?");
   });
 
   it("handles single names, empty names and non-ASCII letters", () => {

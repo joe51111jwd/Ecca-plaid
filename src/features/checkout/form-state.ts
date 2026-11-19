@@ -94,17 +94,20 @@ export function withoutRejected(patch: Patch, rejectedPaths: readonly string[]):
 export interface ErrorVisibility {
   /** Problems that block the order, from the service's view (shown once a field was touched, or all after "Review"). */
   blocking: Readonly<Record<string, string>>;
-  /** Rejections of what was just typed (shown at once). */
+  /** Rejections of what was typed (shown once the field was left, or all after "Continue"). */
   rejected: Readonly<Record<string, string>>;
+  /** Fields the donor has left (blur) or set with a single choice; typing alone does not count. */
   touched: ReadonlySet<string>;
   showAll: boolean;
 }
 
-/** The message to show under one field, or null. A rejection of the typed value wins over a missing value. */
+/**
+ * The message to show under one field, or null. Nothing shows while the donor is still typing into a field for the
+ * first time: only once they leave it, or press Continue. A rejection of the typed value wins over a missing value.
+ */
 export function errorFor(path: string, v: ErrorVisibility): string | null {
-  if (v.rejected[path]) return v.rejected[path];
-  if (v.blocking[path] && (v.showAll || v.touched.has(path))) return v.blocking[path];
-  return null;
+  if (!v.showAll && !v.touched.has(path)) return null;
+  return v.rejected[path] ?? v.blocking[path] ?? null;
 }
 
 /**

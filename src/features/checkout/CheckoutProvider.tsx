@@ -170,11 +170,14 @@ export function CheckoutProvider({ access, initialView, initialPayment, returnUr
         walk(patch, "");
         setPendingChoices((prev) => ({ ...prev, ...choices }));
       }
-      setTouched((prev) => {
-        const next = new Set(prev);
-        for (const path of patchPaths(patch)) next.add(path);
-        return next;
-      });
+      // A single choice (a radio, a checkbox) counts as touched at once; typed text only once the field is left.
+      if (options.immediate) {
+        setTouched((prev) => {
+          const next = new Set(prev);
+          for (const path of patchPaths(patch)) next.add(path);
+          return next;
+        });
+      }
       if (stage === "payment") setStage("form");
       if (timer.current) clearTimeout(timer.current);
       if (options.immediate) void flush();

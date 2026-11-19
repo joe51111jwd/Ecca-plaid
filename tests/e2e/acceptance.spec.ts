@@ -37,8 +37,11 @@ test("a fake household goes from magic link to an automatic decision and a signe
   await familySignIn(parent, familyUrl, family.email);
   await familyDescribesHousehold(parent, family);
   await familyUploads(parent, "W-2 form", W2_PDF);
-  // The upload is read in the running app: never "We could not read this" for a clean text-layer PDF.
-  await expect(parent.getByText("We could not read this")).toHaveCount(0);
+  // The upload is read in the running app: it ends as "Received", never "We could not read this" for a clean
+  // text-layer PDF. (The upload screen refreshes itself while a document is being read.)
+  const documents = parent.getByRole("region", { name: "Your documents" });
+  await expect(documents.getByText("Received", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(parent.getByText(/We could not read this/)).toHaveCount(0);
   // A W-2 shows wages only, so the parent also signs that there was no other income.
   await familySignsNoOtherIncome(parent);
   await familySubmits(parent);

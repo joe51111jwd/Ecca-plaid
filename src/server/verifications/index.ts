@@ -72,6 +72,7 @@ export {
 } from "./org";
 export { expireDueVerifications, purgeDueUploads, RETENTION_BATCH_SIZE, RETENTION_PURGE_JOB, VERIFICATION_EXPIRE_JOB, type PurgeRunResult } from "./retention";
 export { centsToUsd, toApiVerification, type ApiVerification } from "./serialize";
+export { applicantLabels } from "./labels";
 export { PUBLIC_REASON_FALLBACK, PUBLIC_REASON_MESSAGES, publicReasonMessage } from "./public-reasons";
 export {
   assignReview,

@@ -74,20 +74,20 @@ npm run typecheck && npm run lint
 
 The end-to-end suite (`tests/e2e`) creates everything it needs through the product's own screens and API:
 
-- `acceptance.spec.ts` — the spec's acceptance test: magic link → consent → household → synthetic SNAP letter →
-  reviewer confirmation → eligible → signed evidence JSON verifies against `/.well-known/jwks.json` → PDF.
+- `acceptance.spec.ts` — the spec's acceptance test: magic link → consent → household → synthetic text-layer W-2 PDF
+  and a no-other-income statement → decided automatically (eligible, provisional) → the SGO's signed evidence JSON
+  verifies against `/.well-known/jwks.json` → PDF.
 - `review.spec.ts` — an unreadable scan resolved from the review queue; asking the family for more.
 - `donor.spec.ts` — admin lists an SGO, donor gives in the sandbox, sees the not-credit-eligible banner, gets the
   receipt email.
-- `handoff.spec.ts` — `/demo/camp` → spot held → SGO award → the camp sees "Awarded".
+- `handoff.spec.ts` — `/demo/camp` → synthetic SNAP letter → spot held → a reviewer confirms the letter → SGO award →
+  the camp sees "Awarded".
 - `isolation.spec.ts` — SGO B cannot open, download or list SGO A's verification (dashboard and API).
 - `api.spec.ts` — API quickstart with a real key: create → get → cancel → a signed webhook reaches a local listener.
 
-Browsers: `npx playwright install chromium` if Playwright has none. The handoff test can take up to six minutes
-because a submitted-but-undecided verification reaches the camp through a sync job that runs every five minutes.
-Delete `.next-e2e` before a run (`rm -rf .next-e2e`): a stale build directory from an earlier run can make the dev
-server's pages reload in a loop, and the suite then times out at its first sign-in. Do not run the suite while
-another dev server from the same checkout is running.
+Browsers: `npx playwright install chromium` if Playwright has none. The suite's config deletes `.data-e2e` and
+`.next-e2e` before it starts its dev server (a stale build directory can make pages reload in a loop). Do not run the
+suite while another dev server from the same checkout is running.
 
 ## Environment variables
 

@@ -2,7 +2,7 @@ import { CircleCheck } from "lucide-react";
 import type { Metadata } from "next";
 import { Badge, Button, Card, CardFooter, DateTime, EmptyState, PageHeader, Pagination, StatusBadge, Table, Tabs, type TableColumn } from "@/components/ui";
 import { isAppError } from "@/lib/errors";
-import { listReviewQueue, type ReviewQueueItem } from "@/server/verifications";
+import { listReviewQueue, PUBLIC_REASON_MESSAGES, publicReasonMessage, type ReviewQueueItem } from "@/server/verifications";
 import { SGO_PATHS } from "@/features/sgo/nav";
 import { LIST_PAGE_SIZE, REVIEW_WAITING_LONG_DAYS } from "@/features/sgo/policy";
 import { requireSgoPage } from "@/features/sgo/server/context";
@@ -57,9 +57,12 @@ export default async function ReviewQueuePage({ searchParams }: { searchParams: 
         i.reasons.length === 0 ? (
           <span className="text-fg-subtle">—</span>
         ) : (
+          // One short, figure-free line per reason; the full explanation is on the verification's page.
           <ul className="list-disc space-y-0.5 pl-4 text-sm">
             {i.reasons.map((r) => (
-              <li key={r.code}>{r.message}</li>
+              <li key={r.code} title={r.message}>
+                {Object.hasOwn(PUBLIC_REASON_MESSAGES, r.code) ? publicReasonMessage(r.code) : r.message}
+              </li>
             ))}
           </ul>
         ),

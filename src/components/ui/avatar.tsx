@@ -11,13 +11,19 @@ const SIZE = {
 /** Tints drawn from the palette; chosen by a stable hash of the name so a person keeps their colour. */
 const TINTS = ["bg-brand-100 text-brand-800", "bg-accent-100 text-accent-900", "bg-info-100 text-info-800", "bg-success-100 text-success-800", "bg-ink-200 text-ink-800"] as const;
 
-/** Up to two initials: first and last word ("Maria Alvarez" → "MA", "Camp Cedar Creek" → "CC"). */
+/** Up to two initials, from the first two words ("Maria Alvarez" → "MA", "Camp Cedar Creek" → "CC"). */
 export function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  // Letters only: punctuation, digits and symbols are dropped, so "Demo: Lone Star Fund (sandbox)" gives "DL".
+  const words = name
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}]/gu, ""))
+    .filter(Boolean);
   if (words.length === 0) return "?";
-  const first = Array.from(words[0])[0] ?? "";
-  const last = words.length > 1 ? (Array.from(words[words.length - 1])[0] ?? "") : "";
-  return (first + last).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0])
+    .join("")
+    .toUpperCase();
 }
 
 function tintOf(name: string): string {

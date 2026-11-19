@@ -68,8 +68,10 @@ describe("errors", () => {
     expect(errorFor("email", visibility({ showAll: true }))).toBe("Enter your email address.");
   });
 
-  it("shows a rejection of typed input at once, ahead of a missing-value message", () => {
-    expect(errorFor("giftCents", visibility({ rejected: { giftCents: "The amount is too large." } }))).toBe("The amount is too large.");
+  it("shows a rejection of typed input once the field was left, ahead of a missing-value message", () => {
+    expect(errorFor("giftCents", visibility({ rejected: { giftCents: "The amount is too large." } }))).toBeNull();
+    expect(errorFor("giftCents", visibility({ rejected: { giftCents: "The amount is too large." }, touched: new Set(["giftCents"]) }))).toBe("The amount is too large.");
+    expect(errorFor("giftCents", visibility({ rejected: { giftCents: "The amount is too large." }, showAll: true }))).toBe("The amount is too large.");
   });
 
   it("drops the rejections of fields a save just accepted", () => {

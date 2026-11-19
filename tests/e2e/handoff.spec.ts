@@ -25,14 +25,13 @@ const PARTNER_STAFF: Record<string, string> = {
 };
 
 /**
- * A submitted-but-undecided verification reaches the camp through the recurring "handoff.sync_progress" job, which
- * runs every SYNC_PROGRESS_EVERY_MS (5 minutes, src/server/handoffs/policy.ts); decisions arrive at once. So the wait
- * for "Spot held" can legitimately take that long.
+ * Submitting (and moving to review) queues "handoff.verification_updated" in the same transaction, so "Spot held"
+ * shows as soon as the queue is drained, without waiting for the recurring progress sync.
  */
-const HELD_SYNC_WAIT_MS = 6 * 60_000;
+const HELD_WAIT_MS = 45_000;
 
 test("camp checkout → spot held → SGO award → the camp sees it awarded", async ({ page, browser }) => {
-  test.setTimeout(HELD_SYNC_WAIT_MS + 4 * 60_000);
+  test.setTimeout(4 * 60_000);
   const family = danaSample();
 
   // The family at the camp's checkout.
@@ -77,7 +76,7 @@ test("camp checkout → spot held → SGO award → the camp sees it awarded", a
     await drainJobs(camp.request);
     await camp.goto("/partner/handoffs");
     await expect(campRow()).toContainText("Spot held", { timeout: 2_000 });
-  }).toPass({ timeout: HELD_SYNC_WAIT_MS, intervals: [3_000] });
+  }).toPass({ timeout: HELD_WAIT_MS });
   await expect(campRow()).not.toContainText(/Sample|SNAP/);
 
   // The family's handoff page says the spot is held.
@@ -89,6 +88,9 @@ test("camp checkout → spot held → SGO award → the camp sees it awarded", a
   const sgo = await sgoContext.newPage();
   await signIn(sgo, staffEmail!, "/sgo/review");
   await sgo.goto("/sgo/verifications");
+  // Listed under the name the family entered, not under their email address.
+  await expect(sgo.getByRole("table")).toContainText(`${family.firstName} ${family.lastName}`);
+  await expect(sgo.getByRole("table")).not.toContainText(family.email);
   await sgo.getByRole("table").getByRole("link").first().click();
   await expect(sgo.getByText("Needs review").first()).toBeVisible();
   await reviewerConfirmsSnapLetter(sgo, "SYNTHETIC_tf0001_snap_approved.pdf", { date: "2026-09-15", recipient: "DANA SAMPLE" });

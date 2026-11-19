@@ -57,7 +57,7 @@ describe("summarizeDecision", () => {
     expect(s.limit!.provisional).toBe(true);
     expect(s.limit!.limitNoun).toBe("the provisional limit");
     expect(s.limit!.sourceName).toMatch(/provisional/i);
-    expect(s.decidedByLine).toBe("Decided automatically on 2026-11-18");
+    expect(s.decidedByLine).toBe("Decided automatically on Nov 18, 2026");
   });
 
   it("marks the higher reading for an over-the-limit result", () => {
@@ -77,7 +77,7 @@ describe("summarizeDecision", () => {
   it("notes a stricter SGO cap and reviewer decisions with their notes", () => {
     const s = summarizeDecision(synthetic({ capPct: 250, reviewer: true }))!;
     expect(s.limit!.capNote).toMatch(/250 percent/);
-    expect(s.decidedByLine).toBe("Decided by a reviewer on 2026-11-19");
+    expect(s.decidedByLine).toBe("Decided by a reviewer on Nov 19, 2026");
     expect(s.reviewerNotes).toBe("Checked the synthetic W-2.");
   });
 

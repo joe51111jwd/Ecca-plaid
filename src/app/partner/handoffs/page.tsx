@@ -20,6 +20,19 @@ const FILTERS: Array<{ key: string; label: string; status?: HandoffStatus }> = [
   { key: "expired", label: "Expired", status: "expired" },
 ];
 
+/** "Nov 21, 2:05 PM" in the camp's time zone; the full deadline is in the tooltip. */
+const SHORT_DEADLINE = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** One line, cut with an ellipsis; the whole text is in the tooltip. */
+function Clipped({ text, className }: { text: string | null; className: string }) {
+  if (!text) return <>—</>;
+  return (
+    <span className={`block truncate ${className}`} title={text}>
+      {text}
+    </span>
+  );
+}
+
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -60,13 +73,35 @@ export default async function HandoffsPage({ searchParams }: { searchParams: Pro
           rowHref={(r) => ctx.href(`${path}/${r.handoff.id}`)}
           density="compact"
           columns={[
-            { key: "booking", header: "Booking", primary: true, cell: (r) => <span className="font-medium">{r.handoff.bookingRef}</span> },
-            { key: "description", header: "What", cell: (r) => r.handoff.bookingDescription ?? "—", wrap: true },
+            {
+              key: "booking",
+              header: "Booking",
+              primary: true,
+              cell: (r) => (
+                <span>
+                  <span className="font-medium">{r.handoff.bookingRef}</span>
+                  <span className="block text-xs font-normal text-fg-muted">
+                    Started <DateTime value={r.handoff.createdAt} format="date" />
+                  </span>
+                </span>
+              ),
+            },
+            { key: "description", header: "What", width: "11rem", cell: (r) => <Clipped text={r.handoff.bookingDescription} className="max-w-[11rem]" /> },
             { key: "status", header: "Status", cell: (r) => <StatusBadge kind="handoff" status={r.handoff.status} size="sm" /> },
-            { key: "sgo", header: "Scholarship organization", cell: (r) => r.related.sgoName ?? "Family choosing" },
-            { key: "amount", header: "Booking total", numeric: true, cell: (r) => (r.handoff.bookingAmountCents === null ? "—" : <Money cents={r.handoff.bookingAmountCents} />) },
-            { key: "hold", header: "Hold ends", cell: (r) => (r.handoff.holdExpiresAt && isHolding(r.handoff.status) ? formatDeadline("en", r.handoff.holdExpiresAt) : "—") },
-            { key: "created", header: "Started", cell: (r) => <DateTime value={r.handoff.createdAt} format="dateTime" /> },
+            { key: "sgo", header: "Scholarship organization", width: "10rem", cell: (r) => <Clipped text={r.related.sgoName ?? "Family choosing"} className="max-w-[10rem]" /> },
+            { key: "amount", header: "Total", numeric: true, cell: (r) => (r.handoff.bookingAmountCents === null ? "—" : <Money cents={r.handoff.bookingAmountCents} />) },
+            {
+              key: "hold",
+              header: "Hold ends",
+              cell: (r) =>
+                r.handoff.holdExpiresAt && isHolding(r.handoff.status) ? (
+                  <time dateTime={r.handoff.holdExpiresAt.toISOString()} title={formatDeadline("en", r.handoff.holdExpiresAt)} className="whitespace-nowrap nums">
+                    {SHORT_DEADLINE.format(r.handoff.holdExpiresAt)}
+                  </time>
+                ) : (
+                  "—"
+                ),
+            },
           ]}
           empty={
             <EmptyState

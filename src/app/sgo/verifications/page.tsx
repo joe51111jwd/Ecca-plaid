@@ -5,7 +5,7 @@ import type { VerificationStatus } from "@/db/schema";
 import { now } from "@/lib/clock";
 import { isAppError } from "@/lib/errors";
 import { roleAtLeast } from "@/server/auth";
-import { listVerifications, statusCounts, type VerificationRow } from "@/server/verifications";
+import { applicantLabels, listVerifications, statusCounts, type VerificationRow } from "@/server/verifications";
 import { SGO_PATHS } from "@/features/sgo/nav";
 import { LIST_PAGE_SIZE, REVIEW_ROLE } from "@/features/sgo/policy";
 import { requireSgoPage } from "@/features/sgo/server/context";
@@ -17,7 +17,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 const STATUSES: readonly VerificationStatus[] = ["needs_review", "pending", "eligible", "ineligible", "expired", "canceled"];
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-const COLUMNS: Array<TableColumn<VerificationRow>> = [
+const COLUMNS: Array<TableColumn<VerificationRow & { label: string }>> = [
   {
     key: "applicant",
     header: "Applicant",
@@ -25,7 +25,7 @@ const COLUMNS: Array<TableColumn<VerificationRow>> = [
     wrap: true,
     cell: (v) => (
       <span>
-        {v.applicantName ?? v.applicantEmail ?? "No name given"}
+        {v.label}
         <span className="block text-xs font-normal text-fg-muted">{v.externalRef ?? v.id}</span>
       </span>
     ),
@@ -73,6 +73,9 @@ export default async function VerificationsPage({ searchParams }: { searchParams
       throw e;
     }),
   ]);
+
+  const labels = await applicantLabels(ctx.org.id, page.items);
+  const rows = page.items.map((v) => ({ ...v, label: labels[v.id]! }));
 
   const href = (q: { status?: string | null; cursor?: string | null }) => {
     const sp = new URLSearchParams();
@@ -128,7 +131,7 @@ export default async function VerificationsPage({ searchParams }: { searchParams
           caption={status ? `Verifications: ${status.replace("_", " ")}` : "Verifications"}
           density="compact"
           columns={COLUMNS}
-          rows={page.items}
+          rows={rows}
           rowKey={(v) => v.id}
           rowHref={(v) => SGO_PATHS.verification(v.id)}
           empty={

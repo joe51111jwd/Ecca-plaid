@@ -122,14 +122,14 @@ describe("verification lifecycle (synthetic documents)", () => {
     expect(row.decisionReasons.map((r) => r.message).join(" ")).toContain("41,250");
     expect(JSON.stringify(decided.payload)).not.toMatch(/Dana|Riley|41,250|41250/);
 
-    // The family was told in plain language; the handoff job was queued.
+    // The family was told in plain language; the handoff job was queued at submission and again at the decision.
     const outcome = await listOutbox({ to: "dana@example.com", template: "verification_outcome" });
     expect(outcome).toHaveLength(1);
     expect(outcome[0].text).toContain("not a scholarship award");
     expect(outcome[0].text).not.toMatch(/41,250|\$41/);
     const handoffJobs = await db.select().from(schema.jobs).where(eq(schema.jobs.type, "handoff.verification_updated"));
-    expect(handoffJobs).toHaveLength(1);
-    expect(handoffJobs[0].payload).toEqual({ handoffId: "ho_SYNTHETIC0000000000001", verificationId: row.id });
+    expect(handoffJobs.map((j) => j.dedupeKey?.split(":")[2]).sort()).toEqual(["2026-11-18T16", "progress"]);
+    for (const job of handoffJobs) expect(job.payload).toEqual({ handoffId: "ho_SYNTHETIC0000000000001", verificationId: row.id });
 
     const view = await getFamilyVerification(row.id, family.actor);
     expect(view.status).toBe("eligible");
@@ -189,6 +189,46 @@ describe("verification lifecycle (synthetic documents)", () => {
     const toReviewer = await listOutbox({ template: "verification_needs_review" });
     expect(toReviewer.map((e) => e.toEmail).sort()).toEqual([sgo.ownerEmail, sgo.reviewerEmail].sort());
     expect(toReviewer[0].text).not.toMatch(/Dana|Riley/);
+  });
+
+  it("a handoff-linked verification tells the camp's handoff when it is submitted and when it goes to a person", async () => {
+    const sgo = await makeTestSgo();
+    const family = await makeTestFamily();
+    const handoffId = "ho_SYNTHETIC0000000000002";
+    const { verification } = await startedVerification(sgo, family, { handoffId });
+    const letter = await generateSyntheticDocument("tf0001", {
+      noticeDate: "2026-10-20",
+      caseNumber: "9990000002",
+      addressee: "DANA SAMPLE",
+      sections: [{ heading: "SNAP Food Benefits", tables: [{ status: "gets", subject: "SNAP food benefits", rows: [{ name: "DANA SAMPLE", edg: "990000012", program: "SNAP", start: "2026-10-20", end: "2027-03-31" }] }] }],
+    });
+    await addDocument({ verificationId: verification.id, declaredKind: "award_letter", bytes: letter, filename: "snap.pdf", contentType: "application/pdf" }, family.actor);
+    const db = await getDb();
+    const handoffJobs = () => db.select().from(schema.jobs).where(eq(schema.jobs.type, "handoff.verification_updated"));
+
+    // Submitting queues the handoff update in the same transaction, and a second one is not queued while it waits.
+    await submit(verification.id, family.actor);
+    const atSubmit = await handoffJobs();
+    expect(atSubmit).toHaveLength(1);
+    expect(atSubmit[0]).toMatchObject({ status: "queued", dedupeKey: `handoff.verification_updated:${verification.id}:progress`, payload: { handoffId, verificationId: verification.id } });
+
+    // Once that job has run, moving to needs_review queues a fresh one.
+    await db.delete(schema.jobs).where(eq(schema.jobs.id, atSubmit[0].id));
+    await drainJobs();
+    expect((await getVerification(sgo.orgId, verification.id, { mode: "test" })).status).toBe("needs_review");
+    const atReview = await handoffJobs();
+    expect(atReview).toHaveLength(1);
+    expect(atReview[0]).toMatchObject({ dedupeKey: `handoff.verification_updated:${verification.id}:progress`, payload: { handoffId, verificationId: verification.id } });
+  });
+
+  it("a verification without a handoff queues no handoff update", async () => {
+    const sgo = await makeTestSgo();
+    const family = await makeTestFamily();
+    const { verification } = await startedVerification(sgo, family);
+    await addDocument({ verificationId: verification.id, declaredKind: "w2", bytes: await danaW2(), filename: "w2.pdf", contentType: "application/pdf" }, family.actor);
+    await submit(verification.id, family.actor);
+    const db = await getDb();
+    expect(await db.select().from(schema.jobs).where(eq(schema.jobs.type, "handoff.verification_updated"))).toHaveLength(0);
   });
 
   it("missing evidence for a second adult is pending: awaiting_family and the family is told exactly what is missing, in Spanish", async () => {

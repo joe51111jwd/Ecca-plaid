@@ -46,7 +46,7 @@ export function SignInPanel({ locale, base, surface, defaultEmail = "" }: SignIn
   return (
     <div className="space-y-5">
       <Alert tone="success" title={t.checkTitle} role="status">
-        <p>{t.checkBody(sentTo)}</p>
+        <p className="wrap-anywhere">{t.checkBody(sentTo)}</p>
         {surface === "page" ? <p className="mt-1">{t.checkBodyLink}</p> : null}
         {sends > 0 ? <p className="mt-2">{t.resent}</p> : null}
       </Alert>

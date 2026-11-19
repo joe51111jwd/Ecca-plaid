@@ -514,6 +514,7 @@ export function CheckoutForm({ states, banner = "mobile" }: CheckoutFormProps) {
               <MoneyInput
                 valueCents={money["liability.estimatedTaxCents"] ?? null}
                 onValueChange={(cents) => setMoneyField("liability.estimatedTaxCents", cents, liabilityPatch(cents, money["liability.otherCreditsCents"] ?? null))}
+                onBlur={() => touch("liability.estimatedTaxCents")}
                 disabled={!editable}
               />
             </Field>
@@ -522,6 +523,7 @@ export function CheckoutForm({ states, banner = "mobile" }: CheckoutFormProps) {
               <MoneyInput
                 valueCents={money["liability.otherCreditsCents"] ?? null}
                 onValueChange={(cents) => setMoneyField("liability.otherCreditsCents", cents, liabilityPatch(money["liability.estimatedTaxCents"] ?? null, cents))}
+                onBlur={() => touch("liability.otherCreditsCents")}
                 disabled={!editable || money["liability.estimatedTaxCents"] == null}
               />
             </Field>
@@ -581,7 +583,7 @@ export function CheckoutForm({ states, banner = "mobile" }: CheckoutFormProps) {
             />
           </Field>
           <Field className="sm:col-span-1" id={fieldId("address.state")} label="State" error={err("address.state")}>
-            <Select autoComplete="address-level1" value={text["address.state"] ?? ""} placeholder="Choose" onChange={(e) => setTextField("address.state", e.target.value)} disabled={!editable}>
+            <Select autoComplete="address-level1" value={text["address.state"] ?? ""} placeholder="Choose" onChange={(e) => setTextField("address.state", e.target.value)} onBlur={() => touch("address.state")} disabled={!editable}>
               {states.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.code}
