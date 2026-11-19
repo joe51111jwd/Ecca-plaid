@@ -76,7 +76,7 @@ describe("verification routes", () => {
     const res = await callJson("POST", "/verifications", { key, body: { send_invite: true, applicant_email: "family@synthetic.example" } });
     expect(res.status).toBe(201);
     const db = await getDb();
-    expect(await db.select().from(schema.emails).where(eq(schema.emails.toAddress, "family@synthetic.example"))).toHaveLength(1);
+    expect(await db.select().from(schema.emails).where(eq(schema.emails.toEmail, "family@synthetic.example"))).toHaveLength(1);
   });
 
   it("paginates newest first with stable cursors, also while new rows arrive, and filters", async () => {
