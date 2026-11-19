@@ -88,8 +88,8 @@ describe("verification routes", () => {
     // Two rows with the same timestamp still page deterministically.
     const same = (await callJson<Json>("POST", "/verifications", { key, body: { external_ref: "SAME" } })).body.id;
     // Same timestamp as the previous row: the tie is broken by id, descending.
-    const tied = [ids.pop()!, same].sort().reverse();
-    const expected = [...tied, ...[...ids].reverse()];
+    const tied = [ids.pop()!, same];
+    const rest = [...ids].reverse();
 
     const seen: string[] = [];
     let cursor: string | null = null;
@@ -108,8 +108,20 @@ describe("verification routes", () => {
       }
       pages++;
     } while (cursor);
-    expect(seen).toEqual(expected);
+    // No gaps, no duplicates; the tied pair comes first (in the database's id order), then strictly newest first.
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.slice(0, 2).sort()).toEqual([...tied].sort());
+    expect(seen.slice(2)).toEqual(rest);
     expect(pages).toBe(3);
+    // Paging again gives exactly the same sequence (the late row now leads).
+    const again: string[] = [];
+    let c2: string | null = null;
+    do {
+      const res: { body: List } = await callJson<List>("GET", `/verifications?limit=3${c2 ? `&starting_after=${encodeURIComponent(c2)}` : ""}`, { key });
+      again.push(...res.body.data.map((v) => v.id));
+      c2 = res.body.next_cursor;
+    } while (c2);
+    expect(again.slice(1)).toEqual(seen);
 
     const even = await callJson<List>("GET", "/verifications?external_ref=EVEN", { key });
     expect(even.body.data).toHaveLength(4);

@@ -3,7 +3,7 @@ import { en } from "@/i18n/en";
 import { es } from "@/i18n/es";
 import { AppError, conflict, invalid, notFound } from "@/lib/errors";
 import { readUploadOutcome } from "./components/upload-result";
-import { failure, localizeError, localizeFields } from "./errors";
+import { describeForLog, failure, localizeError, localizeFields } from "./errors";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -12,6 +12,28 @@ describe("localizeError", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const r = localizeError(new Error("SELECT * FROM users; stack..."), "es");
     expect(r).toEqual({ ok: false, error: { code: "internal", message: es.errors.generic } });
+  });
+
+  it("never writes the family's data to the log (database errors carry query parameters)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // The shape drizzle-orm's DrizzleQueryError gives a failed query (SYNTHETIC values).
+    const pg = Object.assign(new Error('duplicate key value violates unique constraint "members_pkey"'), { detail: "Key (dob)=(2011-02-03) already exists." });
+    const dbError = new Error('Failed query: insert into "household_members" ("first_name", "dob") values ($1, $2)\nparams: SYNTHETIC-Dana,2011-02-03', { cause: pg });
+    dbError.name = "DrizzleQueryError";
+    localizeError(dbError, "en");
+    expect(spy).toHaveBeenCalledTimes(1);
+    const logged = spy.mock.calls[0]!.map(String).join(" ");
+    expect(logged).toContain("DrizzleQueryError: Failed query: insert into");
+    expect(logged).toContain("duplicate key value");
+    expect(logged).not.toContain("SYNTHETIC-Dana");
+    expect(logged).not.toContain("2011-02-03");
+  });
+
+  it("describes non-errors and deep cause chains without throwing", () => {
+    expect(describeForLog("boom")).toBe("non-error string");
+    let e: Error = new Error("root");
+    for (let i = 0; i < 10; i++) e = new Error(`level ${i}`, { cause: e });
+    expect(describeForLog(e).split(" <- caused by ")).toHaveLength(3);
   });
 
   it("uses details.reason first", () => {

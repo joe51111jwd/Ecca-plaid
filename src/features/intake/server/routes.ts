@@ -12,7 +12,7 @@ import { getCurrentUser } from "@/server/auth";
 import { exportHouseholdData, getOrCreateHouseholdForUser, updateHouseholdLocale } from "@/server/households";
 import { MAX_UPLOAD_BYTES } from "@/server/storage";
 import { addDocument, startVerification } from "@/server/verifications";
-import { failure, localizeError, type ActionFailure } from "../errors";
+import { describeForLog, failure, localizeError, type ActionFailure } from "../errors";
 import { isFamilyToken, isVerificationId, parseBasePath, surfaceOf, type Surface } from "../flow";
 import { isUploadKind } from "../form-data";
 import { UPLOAD_OVERHEAD_BYTES } from "../policy";
@@ -64,7 +64,7 @@ export async function handleContinue(request: NextRequest): Promise<NextResponse
       await startVerification(token, user.id, { request: requestInfoFromHeaders(request.headers) });
     } catch (e) {
       // The landing page explains a used, expired or canceled link.
-      if (!isAppError(e)) console.error("[intake] continue failed", e);
+      if (!isAppError(e)) console.error(`[intake] continue failed: ${describeForLog(e)}`);
     }
   }
   return redirectTo(request, `/v/${token}`);
@@ -95,7 +95,7 @@ export async function handleLanguage(request: NextRequest, surface: Surface): Pr
       if (household.access === "owner" && household.locale !== locale) await updateHouseholdLocale(household.id, locale, { userId: user.id, request: requestInfoFromHeaders(request.headers) });
     } catch (e) {
       // The cookie already holds the choice; saving it on the household is a convenience for emails.
-      if (!isAppError(e)) console.error("[intake] saving the household language failed", e);
+      if (!isAppError(e)) console.error(`[intake] saving the household language failed: ${describeForLog(e)}`);
     }
   }
   return redirectTo(request, withLang(next, locale));

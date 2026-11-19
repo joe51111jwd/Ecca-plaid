@@ -15,7 +15,8 @@ import * as schema from "./schema";
  * Two drivers behind one Drizzle type:
  *  - DATABASE_URL set   → node-postgres pool (production, CI, `npm run worker`)
  *  - DATABASE_URL unset → embedded PGlite under ECCA_DATA_DIR (zero-setup local dev) — the schema is
- *    synced automatically on first use, so there is nothing to migrate locally.
+ *    created automatically on first use; if the code's schema later changes, startup says to run
+ *    `npm run db:reset`.
  * Tests install their own in-memory database with `setDbForTests` (see tests/helpers/db.ts).
  */
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -62,25 +63,58 @@ async function openPg(url: string): Promise<DbHandle> {
 }
 
 /** Brings an embedded dev database in line with the current schema (like `drizzle-kit push`). Never used in production. */
-async function syncEmbeddedSchema(db: Db): Promise<void> {
-  const existing = await execRows<{ n: number }>(db, sql`select count(*)::int as n from information_schema.tables where table_schema = 'public'`);
-  const n = Number(existing[0]?.n ?? 0);
-  if (n === 0) {
-    for (const stmt of await generateSchemaSql()) await db.execute(sql.raw(stmt));
+const SCHEMA_STAMP_TABLE = "_ecca_schema";
+
+/**
+ * Keeps an embedded dev database in step with the code, without ever blocking startup.
+ *
+ * A fresh database gets the full schema plus a stamp (a hash of that schema). On later starts the stamp is
+ * compared: same hash → nothing to do. A different hash means the code's schema changed since the database
+ * was created; we refuse to guess at a migration (the schema-diff tool can stop to ask interactive
+ * questions, which hangs a server) and tell the developer to recreate the local database instead.
+ * Production never comes here: it uses DATABASE_URL and `npm run db:migrate`.
+ */
+async function syncEmbeddedSchema(db: Db, dataDir: string): Promise<void> {
+  const statements = await generateSchemaSql();
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256").update(statements.join("\n")).digest("hex");
+  const tables = await execRows<{ n: number }>(
+    db,
+    sql`select count(*)::int as n from information_schema.tables where table_schema = 'public' and table_name <> ${SCHEMA_STAMP_TABLE}`,
+  );
+  await db.execute(sql.raw(`create table if not exists "${SCHEMA_STAMP_TABLE}" (id integer primary key, hash text not null)`));
+  if (Number(tables[0]?.n ?? 0) === 0) {
+    for (const stmt of statements) await db.execute(sql.raw(stmt));
+    await db.execute(sql.raw(`insert into "${SCHEMA_STAMP_TABLE}" (id, hash) values (1, '${hash}') on conflict (id) do update set hash = excluded.hash`));
     return;
   }
-  const { pushSchema } = await import("drizzle-kit/api");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const push = await pushSchema(schema as unknown as Record<string, unknown>, db as any);
-  if (push.statementsToExecute.length > 0) await push.apply();
+  const stamp = await execRows<{ hash: string }>(db, sql.raw(`select hash from "${SCHEMA_STAMP_TABLE}" where id = 1`));
+  if (stamp.length === 0) {
+    // Created before stamps existed: accept it as current rather than block, and stamp it now.
+    console.warn(`[db] ${dataDir} has no schema stamp; assuming it matches the current schema.`);
+    await db.execute(sql.raw(`insert into "${SCHEMA_STAMP_TABLE}" (id, hash) values (1, '${hash}')`));
+    return;
+  }
+  if (stamp[0].hash !== hash) {
+    throw new Error(
+      `The local database in ${dataDir} was created with an older version of the schema. ` +
+        `Recreate it with "npm run db:reset" (this deletes local demo data), then "npm run db:seed".`,
+    );
+  }
 }
 
 async function open(): Promise<DbHandle> {
   const url = env().DATABASE_URL;
   if (url) return openPg(url);
   if (isProd()) throw new Error("DATABASE_URL is required in production");
-  const handle = await openPglite(join(env().ECCA_DATA_DIR, "pglite"));
-  await syncEmbeddedSchema(handle.db);
+  const dataDir = join(env().ECCA_DATA_DIR, "pglite");
+  const handle = await openPglite(dataDir);
+  try {
+    await syncEmbeddedSchema(handle.db, dataDir);
+  } catch (e) {
+    await handle.close();
+    throw e;
+  }
   return handle;
 }
 

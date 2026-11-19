@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "node -e \"require('node:fs').rmSync((process.env.ECCA_DATA_DIR||'.data')+'/pglite',{recursive:true,force:true})\"",
     "worker": "tsx scripts/worker.ts",
     "ami:ingest": "tsx scripts/ami-ingest.ts",
     "evidence:verify": "tsx scripts/verify-evidence.ts"

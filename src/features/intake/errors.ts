@@ -111,6 +111,30 @@ export function localizeFields(fields: Record<string, string>, locale: Locale): 
   return out;
 }
 
+const MAX_CAUSE_DEPTH = 3;
+
+/**
+ * An unexpected error as one log line without the family's data. Database errors carry the query's parameters in
+ * their message (drizzle: "Failed query: …\nparams: <names, address, date of birth>") and pg errors in `detail`;
+ * only the error's name, the first line of each message (the parameterized SQL, never its values) and the stack
+ * frames are kept.
+ */
+export function describeForLog(e: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = e;
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined && current !== null; depth++) {
+    if (!(current instanceof Error)) {
+      parts.push(`non-error ${typeof current}`);
+      break;
+    }
+    const firstLine = (current.message.split("\n", 1)[0] ?? "").slice(0, 500);
+    parts.push(`${current.name}: ${firstLine}`);
+    current = current.cause;
+  }
+  const frames = e instanceof Error && typeof e.stack === "string" ? e.stack.split("\n").filter((line) => /^\s+at /.test(line)).slice(0, 8) : [];
+  return [parts.join(" <- caused by "), ...frames].join("\n");
+}
+
 /** A failure with a dictionary message (for checks the page makes itself before calling a service). */
 export function failure(code: ErrorCode, message: string, fields?: Record<string, string>): ActionFailure {
   return { ok: false, error: { code, message, ...(fields ? { fields } : {}) } };
@@ -123,7 +147,7 @@ export function failure(code: ErrorCode, message: string, fields?: Record<string
 export function localizeError(e: unknown, locale: Locale, opts: { fallback?: ErrorKey } = {}): ActionFailure {
   const t = getDictionary(locale);
   if (!isAppError(e)) {
-    console.error("[intake] unexpected error", e);
+    console.error(`[intake] unexpected error: ${describeForLog(e)}`);
     return failure("internal", t.errors.generic);
   }
   const reason = detailString(e.details, "reason");

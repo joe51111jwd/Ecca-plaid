@@ -140,8 +140,8 @@ describe("POST /family/upload (handleUpload)", () => {
   it("refuses an oversized body sent without a Content-Length (chunked), without buffering all of it", async () => {
     let pulled = 0;
     let canceled = false;
-    const chunk = new Uint8Array(1024 * 1024);
-    const endless = new ReadableStream<Uint8Array>({
+    const chunk = new Uint8Array(new ArrayBuffer(1024 * 1024));
+    const endless = new ReadableStream<Uint8Array<ArrayBuffer>>({
       pull(controller) {
         pulled += chunk.byteLength;
         controller.enqueue(chunk);
@@ -155,7 +155,7 @@ describe("POST /family/upload (handleUpload)", () => {
       body: endless,
       headers: { origin: ORIGIN, "content-type": "multipart/form-data; boundary=x" },
       duplex: "half",
-    } as RequestInit & { duplex: "half" });
+    } as NonNullable<ConstructorParameters<typeof NextRequest>[1]>);
     expect(req.headers.get("content-length")).toBeNull();
     const res = await handleUpload(req);
     expect(res.status).toBe(413);
@@ -179,9 +179,9 @@ describe("POST /family/upload (handleUpload)", () => {
 
 describe("readBodyWithin", () => {
   const streamOf = (...parts: number[]) =>
-    new ReadableStream<Uint8Array>({
+    new ReadableStream<Uint8Array<ArrayBuffer>>({
       start(controller) {
-        for (const n of parts) controller.enqueue(new Uint8Array(n).fill(7));
+        for (const n of parts) controller.enqueue(new Uint8Array(new ArrayBuffer(n)).fill(7));
         controller.close();
       },
     });
