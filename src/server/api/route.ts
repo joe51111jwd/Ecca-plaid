@@ -147,11 +147,40 @@ function readQuery(url: URL): Record<string, string> {
   return out;
 }
 
+const bodyTooLarge = () => new AppError("bad_request", `The request body must be at most ${MAX_JSON_BODY_BYTES} bytes.`, { reason: "body_too_large" });
+
+/**
+ * Reads the body chunk by chunk and stops at MAX_JSON_BODY_BYTES. A chunked request carries no Content-Length, so
+ * buffering it whole first (arrayBuffer) would let one client make the server hold an unbounded body in memory.
+ */
+async function readBodyBytes(request: Request): Promise<Uint8Array> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_JSON_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw bodyTooLarge();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 async function readJsonBody(request: Request): Promise<unknown> {
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_JSON_BODY_BYTES) throw new AppError("bad_request", `The request body must be at most ${MAX_JSON_BODY_BYTES} bytes.`, { reason: "body_too_large" });
-  const buffer = new Uint8Array(await request.arrayBuffer());
-  if (buffer.byteLength > MAX_JSON_BODY_BYTES) throw new AppError("bad_request", `The request body must be at most ${MAX_JSON_BODY_BYTES} bytes.`, { reason: "body_too_large" });
+  if (Number.isFinite(declared) && declared > MAX_JSON_BODY_BYTES) throw bodyTooLarge();
+  const buffer = await readBodyBytes(request);
   const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
   if (text.trim() === "") return undefined;
   const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
@@ -254,6 +283,12 @@ export function apiRoute<QS extends z.ZodType | undefined = undefined, BS extend
       });
 
       const status = result instanceof Response ? result.status : (result.status ?? 200);
+      // The handler's effect is committed: remember its response before anything else can fail (the audit write
+      // below), so a retry with the same key replays it instead of acting a second time.
+      if (idempotencyRecord && !(result instanceof Response) && status < 500) {
+        await completeIdempotentRequest(idempotencyRecord, status, result.body);
+        idempotencyRecord = null;
+      }
       if (spec.audit && MUTATING.has(method) && status < 400) {
         await audit({
           actor: { type: "api_key", id: auth.apiKeyId },
@@ -271,10 +306,7 @@ export function apiRoute<QS extends z.ZodType | undefined = undefined, BS extend
         for (const [k, v] of Object.entries(headers)) merged.set(k, v);
         return new Response(result.body, { status: result.status, headers: merged });
       }
-      if (idempotencyRecord) {
-        if (status < 500) await completeIdempotentRequest(idempotencyRecord, status, result.body);
-        else await releaseIdempotentRequest(idempotencyRecord);
-      }
+      if (idempotencyRecord) await releaseIdempotentRequest(idempotencyRecord);
       return jsonResponse(status, result.body, { ...headers, ...(result.headers ?? {}) });
     } catch (e) {
       const response = errorResponse(e, requestId, headers, spec.fieldNames);
