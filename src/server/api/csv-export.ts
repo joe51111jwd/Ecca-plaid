@@ -42,7 +42,7 @@ export const VERIFICATION_CSV_COLUMNS = {
   reasons: { description: 'Reason codes joined with ";".', value: (v) => v.reasons.map((r) => r.code).join(";") || null },
   consent_version: { description: "Version of the sharing consent the family gave.", value: (v) => v.consent?.version ?? null },
   consent_granted_at: { description: "When the family consented (ISO 8601).", value: (v) => v.consent?.granted_at ?? null },
-  expires_at: { description: "When the result (or, while pending, the family link) expires.", value: (v) => v.expires_at },
+  expires_at: { description: "When a decided result stops being reusable (empty until decided).", value: (v) => v.expires_at },
   decided_at: { description: "When the decision was made.", value: (v) => v.decided_at },
   decided_by: { description: "engine or reviewer.", value: (v) => v.decided_by },
   passport_reused: { description: "true when the result was reused from an earlier verification.", value: (v) => v.passport !== null },
