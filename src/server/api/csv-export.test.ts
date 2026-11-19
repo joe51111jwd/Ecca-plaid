@@ -35,7 +35,7 @@ describe("CSV export columns", () => {
       household_size: "4",
       county_fips: "48999",
       threshold_usd: "100000.00",
-      threshold_readings: "ami_300pct=100000.00;vli_6x=105000.00",
+      threshold_readings: "median_product=100000.00;section8_vli=105000.00",
       threshold_source: "hud_provisional",
       provisional: "true",
       consent_version: "share-v1",

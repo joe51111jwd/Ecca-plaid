@@ -72,8 +72,8 @@ export const EXAMPLE_DECIDED_VERIFICATION: z.input<typeof verificationSchema> = 
   area: { county_fips: "48999", county_name: "Synthetic County", hud_area_code: "SYNTH0000", hud_area_name: "Synthetic Area (example)" },
   threshold_usd: "100000.00",
   threshold_readings: [
-    { id: "ami_300pct", usd: "100000.00" },
-    { id: "vli_6x", usd: "105000.00" },
+    { id: "median_product", usd: "100000.00" },
+    { id: "section8_vli", usd: "105000.00" },
   ],
   threshold_source: "hud_provisional",
   threshold_table_version: "synthetic-example",
