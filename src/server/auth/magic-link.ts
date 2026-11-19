@@ -270,3 +270,17 @@ async function completeSignIn(tx: DbOrTx, link: MagicLink, method: "link" | "cod
     isNewUser,
   };
 }
+
+/** How long a used or expired sign-in link row is kept before the cleanup job deletes it. */
+export const MAGIC_LINK_RETENTION_MS = MS.day;
+
+/**
+ * Deletes sign-in links that expired more than `olderThanMs` ago (default one day), used or not. A link is
+ * useless once it has expired, so nothing reads these rows again. For the scheduled cleanup job.
+ */
+export async function purgeExpiredMagicLinks(olderThanMs: number = MAGIC_LINK_RETENTION_MS, dbOrTx?: DbOrTx): Promise<number> {
+  const db = dbOrTx ?? (await getDb());
+  const cutoff = addMs(now(), -olderThanMs);
+  const rows = await db.delete(schema.magicLinks).where(lt(schema.magicLinks.expiresAt, cutoff)).returning({ id: schema.magicLinks.id });
+  return rows.length;
+}

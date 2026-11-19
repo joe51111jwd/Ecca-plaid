@@ -133,8 +133,6 @@ document contents (asserted in tests). Notification emails to SGO staff carry id
 ## 10. Known gaps and later work
 
 - No master-key rotation command yet (the envelope format supports it).
-- Ended sessions, used sign-in links, idempotency keys and rate-limit counters are not purged automatically
-  (functions such as `purgeEndedSessions` exist but are not scheduled).
 - No content security policy header yet; no third-party penetration test.
 - **SOC 2 comes later**, as the spec says: the audit log, access control and these policies are the starting evidence.
 - Policies are drafts until reviewed by counsel and accepted by the first SGO.

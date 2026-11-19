@@ -1,7 +1,7 @@
-import { and, desc, eq, ne, type SQL } from "drizzle-orm";
+import { and, desc, eq, lt, ne, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema, type DbOrTx } from "@/db/client";
-import { now } from "@/lib/clock";
+import { addMs, MS, now } from "@/lib/clock";
 import { env } from "@/lib/env";
 import { AppError, invalid, notFound } from "@/lib/errors";
 import { newSortableId } from "@/server/audit";
@@ -262,3 +262,22 @@ export async function getEmail(id: string, dbOrTx?: DbOrTx): Promise<Email | nul
 }
 
 export { escapeHtml, extractLinks, htmlToText, renderEmail, type EmailLocale, type RenderEmailInput, type RenderedEmail } from "./render";
+
+/** How long the body of a delivered or failed message is kept. The row itself (who, what, when) stays. */
+export const EMAIL_BODY_RETENTION_MS = 30 * MS.day;
+export const OLD_BODY_REMOVED = "[Body removed: this message is older than the email retention period.]";
+
+/**
+ * Replaces the body of messages created more than `olderThanMs` ago (default 30 days) with a short notice.
+ * Queued messages are left alone because they still have to be sent. For the scheduled cleanup job.
+ */
+export async function purgeOldEmailBodies(olderThanMs: number = EMAIL_BODY_RETENTION_MS, dbOrTx?: DbOrTx): Promise<number> {
+  const db = dbOrTx ?? (await getDb());
+  const cutoff = addMs(now(), -olderThanMs);
+  const rows = await db
+    .update(schema.emails)
+    .set({ html: OLD_BODY_REMOVED, text: OLD_BODY_REMOVED })
+    .where(and(lt(schema.emails.createdAt, cutoff), ne(schema.emails.status, "queued"), ne(schema.emails.text, OLD_BODY_REMOVED), ne(schema.emails.text, SENSITIVE_BODY_REMOVED)))
+    .returning({ id: schema.emails.id });
+  return rows.length;
+}

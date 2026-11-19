@@ -36,9 +36,11 @@ agreement says about retention and return of data, and how this interacts with t
 | **Rail connections** | Until the family or the system revokes them; access tokens are encrypted and revoked at the provider | No standing access to payroll or bank data | `revokeConnection`, `revokeConnectionsForConsent` in `src/server/rails` |
 | **Donations, designations (exact words + hash), payments, acknowledgments, IRS report files** | Not deleted automatically | The donor's substantiation and the SGO's IRS record | `src/server/donations`, `src/server/acknowledgments` |
 | **Audit log** | Never deleted (append-only) | Access logs required by the spec's data-security constraint | `src/server/audit` |
-| **Sessions** | Expire after 7 days idle or 30 days absolute | — | `src/server/auth/session.ts` |
-| **Sign-in links** | Usable once, for 15 minutes | — | `src/server/auth/magic-link.ts` |
-| **Sign-in email bodies** | With a real email provider, replaced in the outbox once sent; other email bodies are kept | The code is a credential | `redactAfterSend` in `src/server/email/index.ts` |
+| **Sessions** | Expire after 7 days idle or 30 days absolute; the row is deleted 30 days after it ended | — | `purgeEndedSessions` in `src/server/auth/session.ts` |
+| **Sign-in links** | Usable once, for 15 minutes; the row is deleted one day after it expired | — | `purgeExpiredMagicLinks`, `MAGIC_LINK_RETENTION_MS` in `src/server/auth/magic-link.ts` |
+| **Sign-in email bodies** | With a real email provider, replaced in the outbox once sent | The code is a credential | `redactAfterSend` in `src/server/email/index.ts` |
+| **Other email bodies** | Replaced by a short notice **30 days** after the message was created; who it went to, the subject and the time are kept | Old message text has no further use | `purgeOldEmailBodies`, `EMAIL_BODY_RETENTION_MS` in `src/server/email/index.ts` |
+| **API idempotency keys and rate-limit counters** | Deleted once their window has passed | Housekeeping | `purgeExpiredIdempotencyKeys` in `src/server/api/idempotency.ts`; `purgeExpiredRateLimits` in `src/server/ratelimit/index.ts` |
 | **Succeeded background jobs** | Deleted after 7 days | Housekeeping | `purgeSucceededJobs`, `SUCCEEDED_JOB_RETENTION_MS` in `src/server/jobs/index.ts` |
 
 **[Decision: counsel]** The record-keeping periods for decision records, evidence packs, donation and acknowledgment
@@ -46,12 +48,12 @@ records and the audit log (the code keeps them indefinitely today; a fixed perio
 period would be set as a policy constant and enforced by a job). **[Decision: SGO]** Each SGO's raw-upload window
 (`rawRetentionDays`).
 
-## 3. Not yet purged automatically (known gaps)
+## 3. Housekeeping job
 
-Ended session rows, consumed or expired sign-in link rows, API idempotency keys, rate-limit counters and non-sign-in
-email bodies in the outbox are not removed by any scheduled job yet. `purgeEndedSessions` and
-`purgeExpiredIdempotencyKeys` exist but are not scheduled. These hold no document contents, but they should get a
-retention rule and a job before production.
+Ended sessions, expired sign-in links, API idempotency keys, rate-limit counters and old email bodies are removed by
+one hourly job, `maintenance.cleanup` (`src/server/maintenance/jobs.ts`). It calls the purge function each domain
+owns, so each rule above lives next to the data it covers. None of these rows hold document contents.
+**[Decision: founder]** The 30-day email-body window is a default chosen in code; confirm or change it.
 
 ## 4. Deletion requests
 

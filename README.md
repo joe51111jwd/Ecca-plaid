@@ -115,8 +115,8 @@ Everything has a local default (see `src/lib/env.ts` and `.env.example`). Produc
 1. Create a Postgres database (Neon, Supabase, RDS…) and an S3-compatible bucket.
 2. Generate the keys: `openssl rand -base64 32` (master key), `openssl genpkey -algorithm ed25519` (evidence key).
 3. Set the variables above in the Vercel project. Set `APP_URL` to the production origin.
-4. Generate and commit the SQL migrations once (`npm run db:generate` writes `./drizzle`), then run
-   `npm run db:migrate` against `DATABASE_URL` on every deploy, before the new code serves traffic.
+4. Run `npm run db:migrate` against `DATABASE_URL` on every deploy, before the new code serves traffic. The SQL
+   migrations are committed in `./drizzle`; after a schema change, run `npm run db:generate` and commit the new file.
 5. Background jobs (document reading, decisions, evidence, webhooks, retention purges, hold expiry): either
    schedule a Vercel Cron hitting `GET /api/internal/jobs/run?drain=1` every minute with
    `Authorization: Bearer $CRON_SECRET`, or run `npm run worker` on a long-running host with `JOBS_INLINE=false`.
@@ -139,9 +139,6 @@ Honest list; details and owners in [docs/how-it-works.md](docs/how-it-works.md).
   documents/database owners (pdfjs and an enumerable `Array.prototype` addition from the embedded database's schema
   tool). Scans and photos always go to review by design.
 - **Undecided handoffs reach the camp on a five-minute sync**, not instantly; decisions are instant.
-- **No migration files are committed yet** (`./drizzle` is generated at first deploy).
-- **Some housekeeping is not scheduled:** ended sessions, used sign-in links, idempotency keys, rate-limit counters and
-  sent-email bodies are not purged automatically (see the retention policy).
 - **Security program:** policies are drafts ([security](docs/security-policy.md),
   [retention and deletion](docs/data-retention-and-deletion-policy.md)); no penetration test, no SOC 2 yet.
 - **Proposed rules may change** (verification methods, designation, acknowledgments, joint returns); the engine and

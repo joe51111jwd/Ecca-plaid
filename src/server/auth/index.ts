@@ -20,6 +20,7 @@ export {
   type RequestSignInResult,
   type SignInResult,
 } from "./magic-link";
+export { MAGIC_LINK_RETENTION_MS, purgeExpiredMagicLinks } from "./magic-link";
 export {
   createSession,
   getSessionFromToken,
