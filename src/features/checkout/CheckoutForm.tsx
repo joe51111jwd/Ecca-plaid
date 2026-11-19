@@ -742,7 +742,7 @@ export function CheckoutForm({ states, banner = "mobile" }: CheckoutFormProps) {
         <dl className="divide-y divide-line rounded-card border border-line" data-testid="review-recap">
           {recap.map((row) => (
             <div key={row.label} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-              <dt className="w-28 shrink-0 text-fg-muted">{row.label}</dt>
+              <dt className="w-24 shrink-0 text-fg-muted sm:w-32">{row.label}</dt>
               <dd className="min-w-0 flex-1 font-medium break-words text-fg">{row.value}</dd>
               <dd className="shrink-0">
                 <button type="button" onClick={() => goTo(row.step)} className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-action underline-offset-2 hover:underline">

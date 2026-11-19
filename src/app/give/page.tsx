@@ -28,7 +28,7 @@ export default async function GivePage({ searchParams }: { searchParams: SearchP
       <div className="mx-auto w-full max-w-page px-4 py-10 sm:px-6 sm:py-14">
         <div className="max-w-3xl space-y-4">
           <h1 className="text-3xl font-semibold text-fg sm:text-4xl">Give to a scholarship granting organization</h1>
-          <p className="text-lg text-fg-muted">Find an organization on the list below, then make your gift and see a preview of the federal scholarship tax credit math.</p>
+          <p className="text-lg text-fg-muted">Find an organization, then give and see the tax credit preview as you go.</p>
           {notice ? (
             <div className="flex items-start gap-3 rounded-card border border-dashed border-caution-line bg-caution-surface p-4 text-sm text-caution-fg" data-testid="directory-list-notice">
               <ProvisionalBadge size="sm">Provisional list</ProvisionalBadge>
