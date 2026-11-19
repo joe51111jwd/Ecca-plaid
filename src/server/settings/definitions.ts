@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FIRST_ELIGIBLE_DATE } from "@/taxmath/constants";
 
 /**
  * Registry of platform settings.
@@ -57,8 +58,11 @@ const feesStructureSchema = z
     }
   });
 
-/** First day a gift can earn the section 25F credit (spec: "Gifts before that date do not earn the credit"). */
-export const STATUTORY_CREDIT_START_DATE = "2027-01-01";
+/**
+ * First day a gift can earn the section 25F credit (spec: "Gifts before that date do not earn the credit").
+ * The date and its legal source are kept in one place, with the other tax rules.
+ */
+export const STATUTORY_CREDIT_START_DATE: string = FIRST_ELIGIBLE_DATE.value;
 
 export const SETTING_DEFINITIONS = {
   "fees.structure": defineSetting({
