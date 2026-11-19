@@ -14,7 +14,15 @@ vi.mock("./session", () => ({
   takePendingLink: async () => null,
 }));
 
-const { handleUpload, isSameOriginRequest, safeNextPath, withLang } = await import("./routes");
+// The language route sets a cookie; outside a request there is no cookie jar, so record what it sets.
+const setCookies: Array<{ name: string; value: string }> = [];
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ set: (name: string, value: string) => void setCookies.push({ name, value }), get: () => undefined }),
+}));
+
+const { handleLanguage, handleUpload, isSameOriginRequest, readBodyWithin, safeNextPath, withLang } = await import("./routes");
+const { getHousehold } = await import("@/server/households");
+const { MAX_UPLOAD_BYTES } = await import("@/server/storage");
 
 const ORIGIN = "http://localhost:3000";
 
@@ -129,6 +137,33 @@ describe("POST /family/upload (handleUpload)", () => {
     expect((await res.json()).error.message).toBe(en.errors.files.tooLarge);
   });
 
+  it("refuses an oversized body sent without a Content-Length (chunked), without buffering all of it", async () => {
+    let pulled = 0;
+    let canceled = false;
+    const chunk = new Uint8Array(1024 * 1024);
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const req = new NextRequest(`${ORIGIN}/family/upload?lang=en`, {
+      method: "POST",
+      body: endless,
+      headers: { origin: ORIGIN, "content-type": "multipart/form-data; boundary=x" },
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await handleUpload(req);
+    expect(res.status).toBe(413);
+    expect((await res.json()).error.message).toBe(en.errors.files.tooLarge);
+    expect(canceled).toBe(true);
+    expect(pulled).toBeLessThan(MAX_UPLOAD_BYTES + 4 * 1024 * 1024);
+  });
+
   it("refuses a forged flow address or verification id", async () => {
     expect((await upload({ base: "//evil.example/x", v: verificationId, kind: "w2", file: pdf() })).status).toBe(404);
     expect((await upload({ base, v: "../etc", kind: "w2", file: pdf() })).status).toBe(404);
@@ -139,5 +174,64 @@ describe("POST /family/upload (handleUpload)", () => {
     signedIn.user = { id: stranger.userId, email: stranger.email } as User;
     const res = await upload({ base, v: verificationId, lang: "en", kind: "award_letter", file: pdf() });
     expect([403, 404]).toContain(res.status);
+  });
+});
+
+describe("readBodyWithin", () => {
+  const streamOf = (...parts: number[]) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const n of parts) controller.enqueue(new Uint8Array(n).fill(7));
+        controller.close();
+      },
+    });
+
+  it("returns the whole body when it fits, exactly at the limit included", async () => {
+    expect((await readBodyWithin({ body: streamOf(3, 4) }, 7))?.byteLength).toBe(7);
+    expect(await readBodyWithin({ body: null }, 7)).toEqual(new Uint8Array(0));
+  });
+
+  it("stops one byte past the limit", async () => {
+    expect(await readBodyWithin({ body: streamOf(3, 5) }, 7)).toBeNull();
+  });
+});
+
+describe("GET /family/language (handleLanguage)", () => {
+  useTestDb();
+
+  let owner: User;
+  let householdId: string;
+
+  beforeEach(async () => {
+    const family = await makeTestFamily();
+    owner = { id: family.userId, email: family.email } as User;
+    householdId = family.householdId;
+    signedIn.user = owner;
+    setCookies.length = 0;
+  });
+
+  const switchTo = (to: string, next: string, fetchSite: string | null, surface: "page" | "embed" = "page") =>
+    handleLanguage(new NextRequest(`${ORIGIN}/family/language?${new URLSearchParams({ to, next })}`, { headers: fetchSite ? { "sec-fetch-site": fetchSite } : {} }), surface);
+
+  it("saves the choice on the household when the switch was clicked on our own page", async () => {
+    const res = await switchTo("es", "/family", "same-origin");
+    expect(res.status).toBe(303);
+    expect(new URL(res.headers.get("location")!).pathname + new URL(res.headers.get("location")!).search).toBe("/family?lang=es");
+    expect((await getHousehold(householdId, { userId: owner.id })).locale).toBe("es");
+  });
+
+  it("never changes the household from another site, or when the browser does not say where the request came from", async () => {
+    for (const site of ["cross-site", "same-site", "none", null]) {
+      const res = await switchTo("es", "/family", site);
+      expect(res.status).toBe(303);
+      expect((await getHousehold(householdId, { userId: owner.id })).locale, String(site)).toBe("en");
+    }
+    // The device's own remembered choice is still set (it only affects this browser).
+    expect(setCookies.some((c) => c.value === "es")).toBe(true);
+  });
+
+  it("keeps the embedded flow inside /embed", async () => {
+    const res = await switchTo("es", "/family", "same-origin", "embed");
+    expect(new URL(res.headers.get("location")!).pathname).toBe("/");
   });
 });

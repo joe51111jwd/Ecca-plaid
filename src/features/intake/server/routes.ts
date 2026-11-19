@@ -189,3 +189,4 @@ export async function handleExport(request: NextRequest): Promise<NextResponse> 
     throw e;
   }
 }
+export async function readBodyWithin(request: Pick<Request, "body">, limit: number): Promise<Uint8Array | null> { void request; void limit; return null; }
