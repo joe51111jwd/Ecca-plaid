@@ -31,6 +31,23 @@ export { OPENAPI_PUBLIC_FILE, OPERATION_EXAMPLES, openApiDocument, REQUEST_EXAMP
 export { buildVerificationsCsv, MAX_CSV_COLUMNS, METADATA_COLUMN_PATTERN, parseCsvColumns, STANDARD_CSV_COLUMNS, VERIFICATION_CSV_COLUMNS, type CsvColumn, type StandardCsvColumn } from "./csv-export";
 export { listDeliveriesForMode, toApiEvent, toApiMe, toApiWebhookDelivery, toApiWebhookEndpoint, type ApiEvent, type ApiMe, type ApiWebhookDelivery, type ApiWebhookEndpoint } from "./serialize";
 export { apiHandoff, assertDonationInMode, assertWebhookWritable, evidenceResponse, exportVerificationsCsv, handoffInputFromBody, verificationInputFromBody } from "./handlers";
-export { HANDOFF_EMBED_CONTRACT } from "./handoff-embed-contract";
+export { HANDOFF_EMBED_CONTRACT, type EmbedAttribute, type EmbedEvent } from "./handoff-embed-contract";
+export { ERROR_CODE_DOCS, ERROR_REASONS, EVENT_CATALOGUE, type EventDoc } from "./docs-content";
+export {
+  EVIDENCE_VERIFY_COMMAND,
+  EVIDENCE_VERIFY_OFFLINE_COMMAND,
+  HANDOFF_EMBED_SNIPPET,
+  HANDOFF_REDIRECT_SNIPPET,
+  HTTP_SAMPLES,
+  NODE_WEBHOOK_HANDLER,
+  NODE_WEBHOOK_VERIFIER,
+  parseCurl,
+  renderCurl,
+  SAMPLE_HOST,
+  SAMPLE_KEY_VAR,
+  type HttpSample,
+  type HttpSampleId,
+} from "./docs-samples";
+export * as apiExamples from "./examples";
 export * from "./policy";
 export * as apiSchemas from "./schemas";
