@@ -215,6 +215,15 @@ export async function familyUploads(page: Page, kind: UploadKind, file: string):
   await expect(page.getByRole("region", { name: "Your documents" }).getByRole("button", { name: `Remove ${name}` })).toBeVisible();
 }
 
+/** On the upload screen: signs the statement that the household had no other income, and returns to the upload screen. */
+export async function familySignsNoOtherIncome(page: Page): Promise<void> {
+  await page.getByRole("link", { name: "Sign a statement of no other income" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign a statement" })).toBeVisible();
+  await page.getByRole("checkbox", { name: "I have read this statement. It is true and complete." }).check();
+  await page.getByRole("button", { name: "Sign statement" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Upload your documents" })).toBeVisible();
+}
+
 /** Review and send; ends on the family's status screen. */
 export async function familySubmits(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Review and send" }).click();

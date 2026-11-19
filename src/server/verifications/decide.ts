@@ -38,6 +38,7 @@ import { familyDecisionEmailFrame } from "./copy";
 import { readStoredExtraction } from "./documents";
 import { mapDocument, toHouseholdMembers, type MappedDocument, type RosterMember } from "./evidence-mapping";
 import { loadVerificationRow, recordVerificationEvent, type DocumentRow, type VerificationRow } from "./internal";
+import { notifyHandoffOfProgress } from "./handoff-sync";
 import { queueAndSend } from "./mail";
 import { notifySgo } from "./notifications";
 import { DECIDE_WAIT, FAMILY_VERIFICATION_PATH } from "./policy";
@@ -345,6 +346,7 @@ export async function decideVerificationJob(verificationId: string, opts: { wait
         notified = await notifySgo(tx, updated, "needs_review", { reasonCount: decision.reviewReasons.length });
       }
       await recordVerificationEvent(tx, v.id, task.created ? "review.requested" : "review.updated", { type: "system", id: null }, { reviewTaskId: task.taskId, reviewersNotified: notified });
+      await notifyHandoffOfProgress(tx, updated);
     } else {
       await emailFamily(tx, updated, decision, "more_information");
     }

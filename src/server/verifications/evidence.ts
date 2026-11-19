@@ -37,11 +37,12 @@ import { readStoredExtraction } from "./documents";
 import { emailFamily, requireDecision } from "./decide";
 import { loadVerificationRow, recordVerificationEvent, type VerificationRow } from "./internal";
 import { notifySgo } from "./notifications";
+import { HANDOFF_VERIFICATION_UPDATED_JOB } from "./handoff-sync";
 import { DECIDED_STATUSES } from "./policy";
 import { toApiVerification } from "./serialize";
 
 /** Job another module owns: tells the handoff that its verification changed. */
-export const HANDOFF_VERIFICATION_UPDATED_JOB = "handoff.verification_updated";
+export { HANDOFF_VERIFICATION_UPDATED_JOB };
 
 const ROLE_OF: Record<string, EvidenceMemberRole> = { student: "student", adult: "adult", child: "child", other: "other" };
 

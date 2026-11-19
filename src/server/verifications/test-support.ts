@@ -22,8 +22,8 @@ export const TEST_NOW = "2026-11-18T16:00:00.000Z";
 /**
  * drizzle-kit (loaded by the in-memory test database to create the schema) adds an enumerable
  * `Array.prototype.random`, and pdfjs refuses to read any PDF while Array.prototype has enumerable extras. Call
- * in a `beforeAll` after `useTestDb()` in tests that read PDFs. The same applies to the embedded dev database
- * (src/db/client.ts loads drizzle-kit/api to sync the schema); reported to the owners of that file.
+ * in a `beforeAll` after `useTestDb()` in tests that read PDFs. src/db/client.ts now does the same right after it
+ * loads drizzle-kit/api, so this is a belt-and-braces no-op wherever the schema came from there.
  */
 export function hideEnumerableArrayExtensions(): void {
   for (const key of Object.keys(Array.prototype)) Object.defineProperty(Array.prototype, key, { enumerable: false });

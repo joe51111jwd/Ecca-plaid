@@ -12,6 +12,7 @@ import { emitEvent } from "@/server/events";
 import { householdCan } from "@/server/households";
 import { enqueue } from "@/server/jobs";
 import { buildFamilyView, type FamilyVerificationView } from "./family";
+import { notifyHandoffOfProgress } from "./handoff-sync";
 import { assertFamilyEditable, familyAuditActor, recordVerificationEvent, requireFamilyAccess, type FamilyActor } from "./internal";
 import { toApiVerification } from "./serialize";
 
@@ -67,6 +68,7 @@ export async function submit(verificationId: string, actor: FamilyActor, dbOrTx?
     await emitEvent({ orgId: v.orgId, type: "verification.submitted", payload: toApiVerification(updated, { baseUrl: appUrl() }) as unknown as Record<string, unknown>, mode: v.mode }, tx);
     await audit({ actor: familyAuditActor(actor), orgId: v.orgId, action: "verification.submit", target: { type: "verification", id: v.id }, metadata: { applicationDate }, request: actor.request }, tx);
     await enqueue(VERIFICATION_DECIDE_JOB, { verificationId: v.id }, { dedupeKey: decideDedupeKey(v.id) }, tx);
+    await notifyHandoffOfProgress(tx, updated);
     return buildFamilyView(tx, updated);
   });
 }

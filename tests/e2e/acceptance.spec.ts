@@ -1,29 +1,31 @@
 /**
  * The build spec's own acceptance test (Build order, step 2): "a fake household can go from magic link to evidence
  * pack". Everything goes through the product's screens: an SGO creates a verification, a parent signs in with an
- * emailed code, consents, describes the household, uploads a SYNTHETIC SNAP approval letter and submits; the SGO's
- * reviewer confirms the letter (the TF0001 layout is unverified, so the engine never says yes alone); the result is
- * eligible and provisional; the SGO downloads the signed evidence JSON, whose signature verifies against the
- * published key set, and the evidence PDF.
+ * emailed code, consents, describes the household, uploads a SYNTHETIC text-layer W-2 PDF, signs that there was no other
+ * income and submits. The engine
+ * reads the W-2 and decides on its own (the income is under both readings of the limit), so the family sees the
+ * result at once, labeled provisional and not an award. The SGO sees a case decided automatically and downloads
+ * the signed evidence JSON, whose signature verifies against the published key set, and the evidence PDF.
+ * (A letter a reviewer confirms by hand is covered in review.spec.ts and handoff.spec.ts.)
  */
 import { expect, test } from "@playwright/test";
 import { verifySignedEvidence } from "@/engine/evidence/record";
 import {
-  SNAP_LETTER,
+  W2_PDF,
   createVerificationInDashboard,
   danaSample,
   drainJobs,
   familyDescribesHousehold,
   familySignIn,
+  familySignsNoOtherIncome,
   familySubmits,
   familyUploads,
   newSgo,
-  reviewerConfirmsSnapLetter,
   tag,
   waitForEvidenceLinks,
 } from "./helpers";
 
-test("a fake household goes from magic link to a signed evidence pack", async ({ page, browser }) => {
+test("a fake household goes from magic link to an automatic decision and a signed evidence pack", async ({ page, browser }) => {
   const sgo = await newSgo(page, "Acceptance Scholarship Fund");
   const family = danaSample();
   const ref = `ACC-${tag()}`;
@@ -34,22 +36,29 @@ test("a fake household goes from magic link to a signed evidence pack", async ({
   const parent = await parentContext.newPage();
   await familySignIn(parent, familyUrl, family.email);
   await familyDescribesHousehold(parent, family);
-  await familyUploads(parent, "Benefits letter", SNAP_LETTER);
+  await familyUploads(parent, "W-2 form", W2_PDF);
+  // The upload is read in the running app: never "We could not read this" for a clean text-layer PDF.
+  await expect(parent.getByText("We could not read this")).toHaveCount(0);
+  // A W-2 shows wages only, so the parent also signs that there was no other income.
+  await familySignsNoOtherIncome(parent);
   await familySubmits(parent);
-  await drainJobs(parent.request);
-  await parent.reload();
-  // An unverified letter layout always goes to a person: the family is told so, and nothing reads as a result yet.
-  await expect(parent.getByRole("heading", { level: 1, name: "A person is reviewing" })).toBeVisible();
-  await expect(parent.getByText("Being eligible is not a promise of a scholarship.").first()).toBeVisible();
 
-  // The SGO sees it in the review queue, confirms the letter's fields and re-runs the check.
+  // The engine decides on its own; the family sees the outcome without waiting for a person.
+  await expect(async () => {
+    await drainJobs(parent.request);
+    await parent.reload();
+    await expect(parent.getByRole("heading", { level: 1, name: "You meet the income requirement" })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 45_000 });
+  await expect(parent.getByText(/provisional/i).first()).toBeVisible();
+  await expect(parent.getByText("Being eligible is not a promise of a scholarship.").first()).toBeVisible();
+  await parentContext.close();
+
+  // The SGO sees a decided case: nothing in the review queue, decided automatically, limit provisional.
   await page.goto("/sgo/review");
-  await expect(page.getByRole("link", { name: new RegExp(ref) })).toBeVisible();
+  await expect(page.getByRole("link", { name: new RegExp(ref) })).toHaveCount(0);
   await page.goto(`/sgo/verifications/${verificationId}`);
   await expect(page.getByText(`Your reference ${ref}`, { exact: false })).toBeVisible();
-  await reviewerConfirmsSnapLetter(page, "SYNTHETIC_tf0001_snap_approved.pdf", { date: "2026-09-15", recipient: "DANA SAMPLE" });
-
-  await expect(page.getByText("Eligible: categorical method")).toBeVisible();
+  await expect(page.getByText(/Decided automatically/).first()).toBeVisible();
   await expect(page.getByRole("region", { name: /The limit used Provisional/ })).toBeVisible();
   await expect(page.getByText("This income limit is provisional").first()).toBeVisible();
   // Both readings of the limit are recorded and shown.
@@ -62,9 +71,8 @@ test("a fake household goes from magic link to a signed evidence pack", async ({
   const signed = (await jsonRes.json()) as Parameters<typeof verifySignedEvidence>[0] & { record: Record<string, unknown> };
   const jwks = await (await page.request.get("/.well-known/jwks.json")).json();
   expect(verifySignedEvidence(signed, jwks)).toMatchObject({ valid: true });
-  const record = signed.record as { decision: { status: string }; categorical: { program: string; letter_date: string } | null };
+  const record = signed.record as { decision: { status: string } };
   expect(record.decision.status).toBe("eligible");
-  expect(record.categorical).toMatchObject({ program: "SNAP", letter_date: "2026-09-15" });
   const tampered = JSON.parse(JSON.stringify(signed)) as typeof signed & { record: { decision: { status: string } } };
   tampered.record.decision.status = "ineligible";
   expect(verifySignedEvidence(tampered, jwks)).toMatchObject({ valid: false });
@@ -73,13 +81,6 @@ test("a fake household goes from magic link to a signed evidence pack", async ({
   expect(pdfRes.ok()).toBeTruthy();
   expect(pdfRes.headers()["content-type"]).toContain("application/pdf");
   expect((await pdfRes.body()).subarray(0, 5).toString("latin1")).toBe("%PDF-");
-
-  // The family now sees the outcome, labeled provisional and not an award.
-  await parent.reload();
-  await expect(parent.getByRole("heading", { level: 1, name: "You meet the income requirement" })).toBeVisible();
-  await expect(parent.getByText(/provisional/i).first()).toBeVisible();
-  await expect(parent.getByText("Being eligible is not a promise of a scholarship.").first()).toBeVisible();
-  await parentContext.close();
 
   expect(sgo.name).toContain("Acceptance Scholarship Fund");
 });
