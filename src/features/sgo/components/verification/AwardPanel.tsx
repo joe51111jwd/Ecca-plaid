@@ -1,9 +1,13 @@
-import { Alert, Badge, Card, CardHeader, Checkbox, DateTime, Field, Input, Money, Select, StatusBadge, Textarea } from "@/components/ui";
+import { TriangleAlert } from "lucide-react";
+import { Badge, Card, CardHeader, Checkbox, DateTime, Disclosure, Field, Input, Money, Select, StatusBadge, Textarea } from "@/components/ui";
 import type { AwardContext, AwardRow } from "@/server/awards";
 import { PAYMENT_METHOD_LABELS } from "../../labels";
 import type { SgoFormAction } from "../../types";
 import { SgoActionForm } from "../SgoActionForm";
 import type { Mode } from "@/db/schema";
+
+/** The one line every reviewer sees before an award: it is the organization's decision, not a consequence of verifying. */
+export const AWARD_KEY_LINE = "An award is your organization's own decision; verifying income does not award a scholarship.";
 
 export interface AwardPanelProps {
   orgId: string;
@@ -25,9 +29,10 @@ export interface AwardPanelProps {
  */
 export function AwardPanel({ orgId, mode, verificationId, context, awards, canDecide, paymentMethods, students, offerAction, statusAction }: AwardPanelProps) {
   const live = awards.filter((a) => a.status !== "revoked");
+  const cautions = context.reminders.filter((r) => r.severity !== "info").length;
   return (
     <Card id="award">
-      <CardHeader title="Award" level={2} description="A separate decision. Verifying income does not award a scholarship." />
+      <CardHeader title="Award" level={2} description={AWARD_KEY_LINE} />
       <div className="mt-4 space-y-4 text-sm">
         {awards.length > 0 ? (
           <ul className="space-y-3">
@@ -85,8 +90,22 @@ export function AwardPanel({ orgId, mode, verificationId, context, awards, canDe
           <p className="text-fg-muted">An award is already on file for this verification.</p>
         ) : (
           <>
-            <Alert tone="warning" title="Read before deciding">
-              <ul className="list-disc space-y-1 pl-5">
+            <Disclosure
+              variant="card"
+              className="border-warning-line bg-warning-surface"
+              summary={
+                <span className="inline-flex flex-wrap items-center gap-2 text-sm">
+                  <TriangleAlert aria-hidden="true" className="size-4 text-warning-fg" />
+                  Compliance reminders ({context.reminders.length})
+                  {cautions > 0 ? (
+                    <Badge size="sm" tone="warning">
+                      {cautions === 1 ? "1 caution" : `${cautions} cautions`}
+                    </Badge>
+                  ) : null}
+                </span>
+              }
+            >
+              <ul className="list-disc space-y-2 pl-5 text-fg">
                 {context.reminders.map((r) => (
                   <li key={r.code}>
                     {r.text}
@@ -98,7 +117,7 @@ export function AwardPanel({ orgId, mode, verificationId, context, awards, canDe
                   </li>
                 ))}
               </ul>
-            </Alert>
+            </Disclosure>
             <SgoActionForm
               action={offerAction}
               orgId={orgId}
@@ -138,7 +157,7 @@ export function AwardPanel({ orgId, mode, verificationId, context, awards, canDe
               <Field label="Notes" optional>
                 <Textarea name="notes" rows={2} maxLength={2000} />
               </Field>
-              <Checkbox name="remindersRead" variant="card" label="I have read the reminders above" description="The award is your organization's own decision; this platform does not decide it." />
+              <Checkbox name="remindersRead" variant="card" label="I have read the compliance reminders" description="The award is your organization's own decision; this platform does not decide it." />
             </SgoActionForm>
           </>
         )}

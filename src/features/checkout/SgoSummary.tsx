@@ -1,7 +1,9 @@
 import { ExternalLink } from "lucide-react";
+import { orgMarkName } from "@/components/layout/org-mark-name";
 import { Alert, OrgMark, ProvisionalBadge } from "@/components/ui";
 import type { PublicSgo } from "@/server/sgos";
 import { directoryListNotice } from "./view-model";
+import { WhyDisclosure } from "./WhyDisclosure";
 
 export interface SgoSummaryProps {
   sgo: PublicSgo;
@@ -21,7 +23,7 @@ export function SgoSummary({ sgo, level = 1 }: SgoSummaryProps) {
   return (
     <div className="space-y-3" data-testid="sgo-summary" data-list-status={sgo.list.status}>
       <div className="flex items-start gap-3">
-        <OrgMark name={sgo.displayName} logoUrl={sgo.logoUrl} size="md" />
+        <OrgMark name={orgMarkName(sgo.displayName)} logoUrl={sgo.logoUrl} size="md" />
         <div className="min-w-0">
           <Heading className={level === 1 ? "text-2xl font-semibold text-fg" : "text-lg font-semibold text-fg"}>{sgo.displayName}</Heading>
           <p className="text-sm text-fg-muted">
@@ -41,11 +43,7 @@ export function SgoSummary({ sgo, level = 1 }: SgoSummaryProps) {
         Listed as <span className="font-medium text-fg">{sgo.list.listedName}</span>
         {sgo.list.listedEin ? <> (EIN {sgo.list.listedEin})</> : null}
       </p>
-      {notice && level === 1 ? (
-        <p className="text-sm text-caution-fg" data-copy-id={notice.id}>
-          {notice.text}
-        </p>
-      ) : null}
+      {notice && level === 1 ? <WhyDisclosure items={[notice]} summary="About this list" /> : null}
       {sgo.website && level === 1 && /^https?:\/\//i.test(sgo.website) ? (
         <a href={sgo.website} rel="noopener noreferrer" target="_blank" className="inline-flex items-center gap-1 text-sm font-medium text-action underline">
           Organization website

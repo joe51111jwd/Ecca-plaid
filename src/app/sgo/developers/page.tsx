@@ -33,13 +33,16 @@ function EventPicker({ selected }: { selected: readonly string[] }) {
   return (
     <div className="space-y-2">
       <Checkbox name="allEvents" label="All events, including ones added later" defaultChecked={all} />
-      <Fieldset label="Or only these events" optional>
-        <CheckboxGroup>
-          {SGO_EVENTS.map((e) => (
-            <Checkbox key={e.type} name="eventTypes" value={e.type} label={<code className="text-xs">{e.type}</code>} description={e.when} defaultChecked={!all && selected.includes(e.type)} />
-          ))}
-        </CheckboxGroup>
-      </Fieldset>
+      {/* Closed <details> content is still part of the form, so the choices submit either way. */}
+      <Disclosure summary={all ? "Or choose only some events" : `Only these events (${selected.length})`} variant="plain" defaultOpen={!all}>
+        <Fieldset label="Only these events" optional hideLabel>
+          <CheckboxGroup className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {SGO_EVENTS.map((e) => (
+              <Checkbox key={e.type} name="eventTypes" value={e.type} label={<code className="text-xs">{e.type}</code>} description={e.when} defaultChecked={!all && selected.includes(e.type)} />
+            ))}
+          </CheckboxGroup>
+        </Fieldset>
+      </Disclosure>
     </div>
   );
 }
@@ -62,7 +65,16 @@ function DeliveryLog({ deliveries, orgId, mode, canManage, resend }: { deliverie
         ) : null,
     },
   ];
-  return <Table caption="Recent deliveries" density="compact" columns={columns} rows={deliveries} rowKey={(d) => d.id} empty={<EmptyState size="sm" title="No deliveries in this mode yet" />} />;
+  return (
+    <Table
+      caption="Recent deliveries"
+      density="compact"
+      columns={columns}
+      rows={deliveries}
+      rowKey={(d) => d.id}
+      empty={<EmptyState size="sm" title="No deliveries in this mode yet" description="Deliveries appear here as events happen, for the mode on screen." />}
+    />
+  );
 }
 
 export default async function DevelopersPage() {
@@ -121,8 +133,23 @@ export default async function DevelopersPage() {
       />
 
       <Card padding="none">
-        <CardHeader title={`${ctx.mode === "live" ? "Live" : "Test"} API keys`} className="px-5 pt-5 sm:px-6" description={`A key works in one mode only. Switch the mode in the top bar to see the other mode's keys. Send it as Authorization: Bearer ${ctx.mode === "live" ? "ecca_live_" : "ecca_test_"}…`} />
-        <Table caption="API keys" density="compact" columns={keyColumns} rows={keys} rowKey={(k) => k.id} empty={<EmptyState size="sm" title="No keys in this mode" />} />
+        <CardHeader
+          title={`${ctx.mode === "live" ? "Live" : "Test"} API keys`}
+          className="px-5 pt-5 pb-4 sm:px-6"
+          description={
+            <>
+              A key works in one mode only; switch modes in the top bar to see the other. Send it as <code className="text-xs">Authorization: Bearer {ctx.mode === "live" ? "ecca_live_" : "ecca_test_"}…</code>
+            </>
+          }
+        />
+        <Table
+          caption="API keys"
+          density="compact"
+          columns={keyColumns}
+          rows={keys}
+          rowKey={(k) => k.id}
+          empty={<EmptyState size="sm" title={`No ${ctx.mode} keys yet`} description={canManage ? "Name a key below to call the API from your own system." : "An admin can create one."} />}
+        />
         {canManage ? (
           <div className="border-t border-line px-5 py-4 sm:px-6">
             <SgoActionForm action={createApiKeyAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={`Create ${ctx.mode} key`} submitVariant="secondary" layout="inline" resetOnSuccess>
@@ -139,9 +166,13 @@ export default async function DevelopersPage() {
           <h2 id="webhooks-heading" className="text-lg font-semibold text-fg">
             Webhook endpoints
           </h2>
-          <p className="text-sm text-fg-muted">Endpoints receive signed requests for both modes; each delivery says which. The delivery log below shows the mode on screen.</p>
+          <p className="text-sm text-fg-muted">Endpoints receive signed requests for both modes; each delivery says which. Delivery logs show the mode on screen.</p>
         </div>
-        {endpoints.length === 0 ? <EmptyState size="sm" title="No endpoints" description="Add one to receive results in your own system, or work in the dashboard only." /> : null}
+        {endpoints.length === 0 && !canManage ? (
+          <Card>
+            <EmptyState size="sm" title="No endpoints" description="An admin can add one to receive results in your own system. Everything also works in the dashboard alone." />
+          </Card>
+        ) : null}
         {endpoints.map((e: WebhookEndpoint) => (
           <Card key={e.id} padding="none">
             <CardHeader
@@ -203,7 +234,15 @@ export default async function DevelopersPage() {
         ))}
         {canManage ? (
           <Card>
-            <CardHeader title="Add an endpoint" level={3} description="An https address that accepts POST requests. Private and local addresses are refused." />
+            <CardHeader
+              title={endpoints.length === 0 ? "Add your first endpoint" : "Add an endpoint"}
+              level={3}
+              description={
+                endpoints.length === 0
+                  ? "No endpoints yet: results stay in the dashboard. Add an https address that accepts POST requests to receive them in your own system. Private and local addresses are refused."
+                  : "An https address that accepts POST requests. Private and local addresses are refused."
+              }
+            />
             <SgoActionForm action={createWebhookAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Add endpoint" className="mt-4" resetOnSuccess>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Endpoint URL">

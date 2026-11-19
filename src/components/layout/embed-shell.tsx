@@ -4,6 +4,7 @@ import { OrgMark } from "@/components/ui/avatar";
 import { uiStrings, type UiLocale } from "@/components/ui/locale";
 import { BRAND } from "@/lib/brand";
 import { EmbedFrame } from "./embed-frame";
+import { orgMarkName } from "./org-mark-name";
 import { MAIN_CONTENT_ID } from "./skip-link";
 
 export interface EmbedShellProps {
@@ -36,7 +37,7 @@ export function EmbedShell({ children, partner, languageToggle, autoHeight = tru
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
           {partner ? (
             <span className="flex min-w-0 items-center gap-2 text-sm">
-              <OrgMark name={partner.name} logoUrl={partner.logoUrl} size="sm" />
+              <OrgMark name={orgMarkName(partner.name)} logoUrl={partner.logoUrl} size="sm" />
               <span className="truncate font-semibold text-fg">{partner.name}</span>
             </span>
           ) : (

@@ -33,8 +33,8 @@ const COLORS = {
 } as const;
 
 /** Cell width in CSS px, and height-to-width ratio of a cell. */
-const CELL_WIDTH_DESKTOP = 5.4;
-const CELL_WIDTH_MOBILE = 4.4;
+const CELL_WIDTH_DESKTOP = 4.8;
+const CELL_WIDTH_MOBILE = 4;
 const CELL_ASPECT = 1.58;
 
 /** How quickly the drawn progress catches up with the scroll position (per second). Higher is stiffer. */
@@ -106,17 +106,18 @@ function prepare(image: HTMLImageElement, width: number, height: number): Prepar
   const grid = meltGrid(geometry.sheetW, geometry.sheetH, geometry.cellW, CELL_ASPECT);
   const pixels = sctx.getImageData(0, 0, sheet.width, sheet.height);
   const sample = sampleSheet(pixels.data, sheet.width, sheet.height, grid.cols, grid.rows);
-  const fontSize = geometry.cellH * 0.86;
+  const fontSize = geometry.cellH * 0.9;
   const atlas = buildGlyphAtlas({
     glyphs: MELT_RAMP,
     levels: MELT_LEVELS,
     colors: [COLORS.ink, COLORS.brand, COLORS.red, COLORS.signal],
-    opacity: (level) => 0.22 + 0.78 * (level / (MELT_LEVELS - 1)),
+    // A high floor keeps even light glyphs dark enough to read as print on the warm page.
+    opacity: (level) => 0.36 + 0.64 * (level / (MELT_LEVELS - 1)),
     cellWidth: geometry.cellW,
     cellHeight: geometry.cellH,
     fontSize,
     fontFamily: SITE_MONO_FONT,
-    fontWeight: 500,
+    fontWeight: 600,
     dpr,
   });
   return { geometry, sheet, sample, frame: createMeltFrame(sample), atlas };

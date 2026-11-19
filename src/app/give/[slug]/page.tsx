@@ -51,7 +51,7 @@ export default async function GiveToSgoPage({ params }: { params: Params }) {
     const { view, payment } = resolved.loaded;
     return (
       <CheckoutProvider access={{ kind: "hosted", slug }} initialView={view} initialPayment={payment} returnUrl={checkoutPaths({ kind: "hosted", slug }).thanks}>
-        <FocusShell partner={partner} banner={view.mode === "test" ? <SandboxBanner /> : undefined} aside={<LiveTaxMathPanel />} secureNote="donor">
+        <FocusShell partner={partner} banner={view.mode === "test" ? <SandboxBanner /> : undefined} aside={<LiveTaxMathPanel />} asidePlacement="pinned" secureNote="donor">
           <CheckoutForm states={usStateOptions()} />
         </FocusShell>
       </CheckoutProvider>
@@ -81,7 +81,7 @@ export default async function GiveToSgoPage({ params }: { params: Params }) {
 
   const canStart = isGiftableStatus(sgo.list.status);
   return (
-    <FocusShell partner={partner} banner={live ? undefined : <SandboxBanner />} aside={<TaxMathPanel panel={standingPanel()} />} secureNote="donor">
+    <FocusShell partner={partner} banner={live ? undefined : <SandboxBanner />} aside={<TaxMathPanel panel={standingPanel()} />} asidePlacement="pinned" secureNote="donor">
       <div className="space-y-6">
         <SgoSummary sgo={sgo} />
         {resolved.kind === "ended" ? (

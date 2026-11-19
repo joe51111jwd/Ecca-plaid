@@ -113,8 +113,9 @@ describe("dashboard forms", () => {
   });
 
   it("measure labels and per-kind measure lists", () => {
-    expect(measureLabel("w2_box1_wages")).toBe("W-2 box1 wages");
-    expect(measureLabel("paystub_gross_ytd")).toBe("Pay stub gross ytd");
+    expect(measureLabel("w2_box1_wages")).toBe("W-2: Wages (box 1)");
+    expect(measureLabel("paystub_gross_ytd")).toBe("Pay stub: Gross pay year to date");
+    expect(measureLabel("not_a_measure")).toBe("Not a measure");
     expect(measuresFor("w2").every((m) => m.startsWith("w2_"))).toBe(true);
     expect(measuresFor("irs_transcript").some((m) => m.startsWith("wai_"))).toBe(true);
   });

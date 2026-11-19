@@ -2,6 +2,7 @@ import { Alert, Badge, Card, CardHeader, DateTime, EmptyState, KeyValue, KeyValu
 import type { RailStatus } from "@/db/schema";
 import type { VerificationDetail } from "@/server/verifications";
 import { memberKindLabel } from "../../labels";
+import { HashValue } from "../HashValue";
 
 const CUSTODY_OUTCOME: Readonly<Record<string, string>> = {
   not_answered: "Not answered yet",
@@ -22,7 +23,7 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader title="Household" level={2} description="The student and everyone residing with the student, as the family described them. Dates of birth are never shown here." />
+        <CardHeader title="Household" level={2} description="The student and everyone living with them, as the family described them. Dates of birth are never shown." />
         {h ? (
           <div className="mt-4 space-y-4 text-sm">
             {h.changedSinceCompleted ? (
@@ -35,7 +36,7 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
               <KeyValue label="County">{h.countyName ? `${h.countyName} (${h.countyFips})` : "—"}</KeyValue>
               <KeyValue label="HUD area">{h.hudAreaName ?? "—"}</KeyValue>
               <KeyValue label="Completed">
-                <DateTime value={h.completedAt} format="dateTime" />
+                <DateTime value={h.completedAt} format="date" />
               </KeyValue>
               <KeyValue label="Shared custody">{CUSTODY_OUTCOME[detail.custody.outcome ?? "not_answered"] ?? detail.custody.outcome}</KeyValue>
               {detail.custody.answers?.notes ? <KeyValue label="Family's custody notes">{detail.custody.answers.notes}</KeyValue> : null}
@@ -84,7 +85,7 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
       </Card>
 
       <Card>
-        <CardHeader title="Consent record" level={2} description="What the family agreed to share with your organization, the exact wording's version and fingerprint, and when." />
+        <CardHeader title="Consent record" level={2} description="What the family agreed to share with you, and when." />
         {detail.consents.length === 0 ? (
           <p className="mt-4 text-sm text-fg-muted">No consent recorded yet.</p>
         ) : (
@@ -92,7 +93,7 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
             {detail.consents.map((c) => (
               <li key={c.id} className="rounded-card border border-line p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-fg">{c.kind.replace(/_/g, " ")}</span>
+                  <span className="inline-block font-medium text-fg first-letter:uppercase">{c.kind.replace(/_/g, " ")}</span>
                   <Badge size="sm" tone={c.active ? "success" : "neutral"}>
                     {c.revokedAt ? "Revoked" : c.active ? "Active" : "Expired"}
                   </Badge>
@@ -100,18 +101,18 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
                 <KeyValueList dense className="mt-2">
                   <KeyValue label="Wording version">{c.copyVersion}</KeyValue>
                   <KeyValue label="Wording SHA-256">
-                    <code className="text-xs break-all">{c.copySha256}</code>
+                    <HashValue value={c.copySha256} label="SHA-256 of the consent wording" />
                   </KeyValue>
                   <KeyValue label="Language">{c.locale === "es" ? "Spanish" : "English"}</KeyValue>
                   <KeyValue label="Granted">
-                    <DateTime value={c.grantedAt} format="dateTime" />
+                    <DateTime value={c.grantedAt} format="date" />
                   </KeyValue>
                   <KeyValue label="Expires">
                     <DateTime value={c.expiresAt} format="date" placeholder="No end date" />
                   </KeyValue>
                   {c.revokedAt ? (
                     <KeyValue label="Revoked">
-                      <DateTime value={c.revokedAt} format="dateTime" />
+                      <DateTime value={c.revokedAt} format="date" />
                     </KeyValue>
                   ) : null}
                 </KeyValueList>
@@ -138,7 +139,11 @@ export function HouseholdPanel({ detail, memberName }: { detail: VerificationDet
               {detail.railConnections.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center gap-2">
                   <StatusBadge kind="rail" status={r.status as RailStatus} size="sm" /> {r.provider} ({r.kind}) for {memberName(r.memberId)}
-                  {r.reportSha256 ? <code className="text-xs">report {r.reportSha256.slice(0, 16)}…</code> : null}
+                  {r.reportSha256 ? (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      report <HashValue value={r.reportSha256} label="SHA-256 of the data connection report" />
+                    </span>
+                  ) : null}
                   {r.failureReason ? <span>· {r.failureReason}</span> : null}
                 </li>
               ))}

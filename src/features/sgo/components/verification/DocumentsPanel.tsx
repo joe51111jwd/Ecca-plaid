@@ -1,11 +1,13 @@
 import { Eye, FileX } from "lucide-react";
 import Link from "next/link";
-import { Alert, Badge, Card, CardHeader, Checkbox, DateTime, Disclosure, Field, Input, Select, StatusBadge, Textarea, buttonClasses, formatBytes } from "@/components/ui";
+import { Alert, Badge, Card, CardHeader, Checkbox, DateTime, Disclosure, EmptyState, Field, Input, Select, StatusBadge, Textarea, buttonClasses, formatBytes } from "@/components/ui";
 import type { DetailDocument, VerificationDetail } from "@/server/verifications";
 import { AMOUNT_ROWS } from "../../forms";
 import { APPROVAL_STATUS_LABELS, documentKindLabel, PROGRAM_LABELS } from "../../labels";
 import type { SgoFormAction } from "../../types";
+import { HashValue } from "../HashValue";
 import { SgoActionForm } from "../SgoActionForm";
+import { DocumentFields } from "./DocumentFields";
 import type { Mode } from "@/db/schema";
 
 export interface MeasureOption {
@@ -30,10 +32,6 @@ export interface DocumentsPanelProps {
 }
 
 const KEYABLE = ["award_letter", "w2", "pay_stub", "tax_return", "irs_transcript"] as const;
-
-function confidenceTone(c: number): "success" | "warning" | "danger" {
-  return c >= 0.9 ? "success" : c >= 0.6 ? "warning" : "danger";
-}
 
 function FileState({ doc, viewHref, canView }: { doc: DetailDocument; viewHref: string; canView: boolean }) {
   if (doc.viewable && !canView) return <span className="text-sm text-fg-muted">File kept. Reviewers and above can open it.</span>;
@@ -190,32 +188,39 @@ function KeyFieldsForm({ doc, orgId, mode, memberOptions, measureOptions, action
   );
 }
 
+function kindLine(doc: DetailDocument): string {
+  if (doc.detectedKind === doc.declaredKind) return documentKindLabel(doc.declaredKind);
+  return `${documentKindLabel(doc.declaredKind)} declared · ${doc.detectedKind ? `${documentKindLabel(doc.detectedKind)} detected` : "kind not detected"}`;
+}
+
+const READ_BY: Readonly<Record<string, string>> = { reviewer: "a reviewer", model: "the model-assisted reader", parser: "the document parser" };
+
 /** Every document with what was read from it (values, confidences, review reasons) and the file's state. */
 export function DocumentsPanel({ detail, orgId, mode, canEdit, canViewFiles, viewHref, memberName, measureOptions, keyFieldsAction }: DocumentsPanelProps) {
   const memberOptions = (detail.household?.members ?? []).map((m) => ({ id: m.id, name: `${m.firstName} ${m.lastName}` }));
   return (
     <Card id="documents">
-      <CardHeader title="Documents" level={2} description="What the family uploaded, what was read from each file and how sure the reader was. Opening a file is recorded in the audit log." />
+      <CardHeader title="Documents" level={2} description="What the family uploaded and what was read from each file. Opening a file is recorded in the audit log." />
       {detail.documents.length === 0 ? (
-        <p className="mt-4 text-sm text-fg-muted">No documents uploaded.</p>
+        <EmptyState size="sm" title="No documents yet" description="Files the family uploads appear here with the fields read from them." />
       ) : (
         <ul className="mt-4 space-y-4">
           {detail.documents.map((doc) => (
             <li key={doc.id} className="rounded-card border border-line p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold break-all text-fg">{doc.filename}</p>
+                <div className="min-w-0 space-y-0.5">
+                  <p className="flex flex-wrap items-center gap-2 font-semibold break-all text-fg">
+                    {doc.filename}
+                    <StatusBadge kind="document" status={doc.status} size="sm" />
+                  </p>
                   <p className="text-sm text-fg-muted">
-                    {documentKindLabel(doc.declaredKind)} declared · {doc.detectedKind ? `${documentKindLabel(doc.detectedKind)} detected` : "kind not detected"} · {formatBytes(doc.size)} · for {memberName(doc.memberId)}
+                    {kindLine(doc)} · {formatBytes(doc.size)} · for {memberName(doc.memberId)}
                   </p>
-                  <p className="mt-1 text-xs text-fg-subtle">
-                    SHA-256 <code className="break-all">{doc.sha256}</code>
+                  <p className="flex items-center gap-1 text-xs text-fg-muted">
+                    SHA-256 <HashValue value={doc.sha256} label={`SHA-256 of ${doc.filename}`} />
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                  <StatusBadge kind="document" status={doc.status} size="sm" />
-                  <FileState doc={doc} viewHref={viewHref(doc.id)} canView={canViewFiles} />
-                </div>
+                <FileState doc={doc} viewHref={viewHref(doc.id)} canView={canViewFiles} />
               </div>
 
               {doc.reviewReasons.length > 0 ? (
@@ -230,53 +235,23 @@ export function DocumentsPanel({ detail, orgId, mode, canEdit, canViewFiles, vie
 
               {doc.extraction ? (
                 <div className="mt-3 space-y-2 text-sm">
-                  <p className="text-fg-muted">
-                    Read by {doc.extraction.readBy === "reviewer" ? "a reviewer" : doc.extraction.readBy === "model" ? "the model-assisted reader" : "the document parser"} ({doc.extraction.parserVersion})
-                    {doc.extractedAt ? (
-                      <>
-                        {" "}
-                        on <DateTime value={doc.extractedAt} format="dateTime" />
-                      </>
-                    ) : null}
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                    <span title={`Reader version ${doc.extraction.parserVersion}`}>
+                      Read by {READ_BY[doc.extraction.readBy ?? "parser"] ?? "the document parser"}
+                      {doc.extractedAt ? (
+                        <>
+                          {" "}
+                          on <DateTime value={doc.extractedAt} format="date" />
+                        </>
+                      ) : null}
+                    </span>
                     {doc.extraction.synthetic ? (
-                      <Badge size="sm" tone="caution" className="ml-2">
+                      <Badge size="sm" tone="caution">
                         Synthetic sample
                       </Badge>
                     ) : null}
                   </p>
-                  {doc.extraction.fields.length > 0 ? (
-                    <table className="w-full text-left text-sm">
-                      <caption className="sr-only">Fields read from {doc.filename}</caption>
-                      <thead>
-                        <tr className="border-b border-line text-xs text-fg-muted uppercase">
-                          <th scope="col" className="py-1.5 pr-3 font-semibold">
-                            Field
-                          </th>
-                          <th scope="col" className="py-1.5 pr-3 font-semibold">
-                            Value
-                          </th>
-                          <th scope="col" className="py-1.5 font-semibold">
-                            Confidence
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {doc.extraction.fields.map((f) => (
-                          <tr key={f.key} className="border-b border-line align-top last:border-0">
-                            <td className="py-1.5 pr-3 text-fg-muted">{f.key.replace(/_/g, " ")}</td>
-                            <td className="py-1.5 pr-3 break-all text-fg">{f.value === null ? <span className="text-fg-subtle">not read</span> : String(f.value)}</td>
-                            <td className="py-1.5">
-                              <Badge size="sm" tone={confidenceTone(f.confidence)}>
-                                {Math.round(f.confidence * 100)}%
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="text-fg-muted">No fields could be read from this file.</p>
-                  )}
+                  <DocumentFields fields={doc.extraction.fields} filename={doc.filename} />
                   {doc.extraction.warnings.length > 0 ? (
                     <ul className="list-disc pl-5 text-xs text-fg-muted">
                       {doc.extraction.warnings.map((w) => (
@@ -287,7 +262,7 @@ export function DocumentsPanel({ detail, orgId, mode, canEdit, canViewFiles, vie
                   {doc.extraction.keyedByReviewer?.notes ? <p className="text-fg-muted">Reviewer&apos;s note: {doc.extraction.keyedByReviewer.notes}</p> : null}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-fg-muted">Nothing has been read from this file yet.</p>
+                <p className="mt-3 text-sm text-fg-muted">Nothing has been read from this file yet.{canEdit ? " Key the fields below." : ""}</p>
               )}
 
               {canEdit && doc.removedAt === null && doc.sourceDocumentId === null ? (

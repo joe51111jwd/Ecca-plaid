@@ -43,6 +43,18 @@ export function TaxMathPanel({ panel, banner, updating, collapse = "mobile", cla
   const empty = panel.sections.length === 0;
   const bar = collapse === "always" ? "" : "lg:hidden";
   const hiddenUntilOpen = open ? "block" : collapse === "always" ? "hidden" : "hidden lg:block";
+  // The preview and proposed-rules labels (and any reason a figure is not credit) stay in view. A folded-always
+  // panel is not pinned, so they sit under its bar; the pinned phone bar keeps them one tap away to stay short.
+  const labels = (className: string) =>
+    notes.visible.length > 0 ? (
+      <ul className={cn("space-y-2 text-xs leading-5 text-fg-muted", className)} data-testid="tax-math-labels">
+        {notes.visible.map((note) => (
+          <li key={note.id} data-copy-id={note.id}>
+            {note.text}
+          </li>
+        ))}
+      </ul>
+    ) : null;
 
   return (
     <section
@@ -77,7 +89,8 @@ export function TaxMathPanel({ panel, banner, updating, collapse = "mobile", cla
       </button>
 
       <div id={bodyId} className={cn("border-t border-line p-5", collapse === "mobile" && "max-lg:max-h-[70dvh] max-lg:overflow-y-auto lg:border-t-0", hiddenUntilOpen)}>
-        <header className="flex items-start justify-between gap-3">
+        {/* The bar already names the panel wherever it shows; the heading stays for assistive technology. */}
+        <header className={cn("flex items-start justify-between gap-3", collapse === "always" ? "sr-only" : "max-lg:sr-only")}>
           <h2 id={`${bodyId}-title`} className="flex items-center gap-2 text-base font-semibold text-fg">
             <Calculator aria-hidden="true" className="size-5 text-brand-700" />
             {panel.title}
@@ -87,9 +100,9 @@ export function TaxMathPanel({ panel, banner, updating, collapse = "mobile", cla
           </Badge>
         </header>
 
-        {banner ? <CreditBanner banner={banner} compact className="mt-4" /> : null}
+        {banner ? <CreditBanner banner={banner} compact className={collapse === "always" ? "" : "lg:mt-4"} /> : null}
 
-        <div className={cn("mt-5 transition-opacity", updating && "opacity-60")} aria-live="polite">
+        <div className={cn("transition-opacity", banner ? "mt-5" : collapse === "always" ? "" : "lg:mt-5", updating && "opacity-60")} aria-live="polite">
           {empty ? (
             <p className="text-sm text-fg-muted" data-testid="tax-math-panel-empty">
               Enter the amount of your gift to see the figures.
@@ -124,15 +137,7 @@ export function TaxMathPanel({ panel, banner, updating, collapse = "mobile", cla
           )}
         </div>
 
-        {notes.visible.length > 0 ? (
-          <ul className="mt-5 space-y-2 text-xs leading-5 text-fg-muted" data-testid="tax-math-labels">
-            {notes.visible.map((note) => (
-              <li key={note.id} data-copy-id={note.id}>
-                {note.text}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        {collapse === "mobile" ? labels("mt-5") : null}
 
         <div className="mt-4 divide-y divide-line border-t border-line" data-testid="tax-math-notes">
           {empty ? null : (
@@ -169,6 +174,7 @@ export function TaxMathPanel({ panel, banner, updating, collapse = "mobile", cla
           ))}
         </div>
       </div>
+      {collapse === "always" ? labels("border-t border-line px-4 py-3") : null}
     </section>
   );
 }

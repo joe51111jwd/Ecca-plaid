@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Decision } from "@/engine/decision";
-import { reliedOnSentence, summarizeDecision } from "./decision-summary";
+import { outcomeSentence, reliedOnSentence, summarizeDecision } from "./decision-summary";
 
 /**
  * SYNTHETIC decision records. Only the fields the summary reads are filled in; the figures are invented for the test
@@ -93,5 +93,33 @@ describe("reliedOnSentence", () => {
     expect(reliedOnSentence("none", null, true, false)).toBe("No income comparison decided this result.");
     expect(reliedOnSentence("statutory_limit", 1_000_00, true, false)).toMatch(/statutory 300 percent \(\$1,000\.00\)/);
     expect(reliedOnSentence("single_limit", 5_000_00, true, false)).toMatch(/provisional limit/);
+  });
+});
+
+describe("outcomeSentence", () => {
+  it("states an eligible result against the figure relied on, calling a HUD-derived limit provisional", () => {
+    expect(summarizeDecision(synthetic({ reliedOn: "lower_bound" }))!.outcome).toBe("Household income for 2025 of $100,000 is at or below the provisional limit relied on, $180,000.");
+    expect(summarizeDecision(synthetic({ reliedOn: "single_limit", readingsAgree: true, provisional: false }))!.outcome).toBe(
+      "Household income for 2025 of $100,000 is at or below the IRS-published limit relied on, $180,000.",
+    );
+  });
+
+  it("states a not-eligible result against the higher reading", () => {
+    expect(summarizeDecision(synthetic({ status: "ineligible", reliedOn: "upper_bound" }))!.outcome).toBe("Household income for 2025 of $100,000 is above the provisional limit relied on, $200,000.");
+  });
+
+  it("is null whenever the result does not rest on an income comparison, or the parts do not agree", () => {
+    expect(summarizeDecision(synthetic({ status: "pending", threshold: false }))!.outcome).toBeNull();
+    expect(summarizeDecision(synthetic({ status: "needs_review" }))!.outcome).toBeNull();
+    expect(summarizeDecision(synthetic({ reliedOn: "none" }))!.outcome).toBeNull();
+    // An eligible result never "rests on" the upper bound, nor a not-eligible one on the lower bound.
+    expect(summarizeDecision(synthetic({ status: "eligible", reliedOn: "upper_bound" }))!.outcome).toBeNull();
+    expect(summarizeDecision(synthetic({ status: "ineligible", reliedOn: "lower_bound" }))!.outcome).toBeNull();
+    const noIncome = { ...synthetic({}), householdIncomeCents: null } as Decision;
+    expect(outcomeSentence(noIncome)).toBeNull();
+  });
+
+  it("never says the IRS limit for a provisional table", () => {
+    for (const reliedOn of ["lower_bound", "single_limit", "statutory_limit"]) expect(summarizeDecision(synthetic({ reliedOn }))!.outcome ?? "").not.toMatch(/IRS/);
   });
 });

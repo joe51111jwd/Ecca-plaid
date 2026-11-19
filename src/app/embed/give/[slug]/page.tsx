@@ -31,7 +31,7 @@ export default async function EmbedGivePage({ params }: { params: Params }) {
             <GiftIntro slug={sgo.slug} surface="widget" canStart={isGiftableStatus(sgo.list.status)} />
           </div>
         </div>
-        <TaxMathPanel panel={standingPanel()} />
+        <TaxMathPanel panel={standingPanel()} collapse="always" />
       </div>
     </EmbedShell>
   );

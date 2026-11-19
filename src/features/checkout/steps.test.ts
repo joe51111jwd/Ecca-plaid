@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_ORDER } from "./form-state";
-import { CHECKOUT_STEPS, firstStepWithProblems, isCheckoutStep, nextStep, parseStep, previousStep, problemsByStep, stepIndex, stepOfPath, stepSearch, STEP_LABELS, STEP_TITLES } from "./steps";
+import { blockingProblems, CHECKOUT_STEPS, firstStepWithProblems, isCheckoutStep, nextStep, parseStep, previousStep, problemsByStep, stepIndex, stepOfPath, stepSearch, STEP_LABELS, STEP_TITLES } from "./steps";
 
 const single = { jointShares: false };
 const joint = { jointShares: true };
@@ -106,7 +106,7 @@ describe("problemsByStep", () => {
 
   it("finds the first step with a problem", () => {
     expect(firstStepWithProblems(errors, single)).toBe("gift");
-    expect(firstStepWithProblems({ "designationConfirmed": "x" }, single)).toBe("confirm");
+    expect(firstStepWithProblems({ designationConfirmed: "x" }, single)).toBe("confirm");
     expect(firstStepWithProblems({ mode: "x" }, single)).toBe("review");
     expect(firstStepWithProblems({}, single)).toBeNull();
   });
@@ -114,6 +114,24 @@ describe("problemsByStep", () => {
   it("follows the joint layout", () => {
     expect(firstStepWithProblems({ "contributors.spouse.designatedCents": "x" }, joint)).toBe("about");
     expect(firstStepWithProblems({ "contributors.spouse.designatedCents": "x" }, single)).toBe("gift");
+  });
+});
+
+describe("blockingProblems", () => {
+  const errors = { giftCents: "Enter the amount.", "contributors.primary.designatedCents": "$1,700 of this gift is not designated.", "address.zip": "Enter a ZIP code." };
+
+  it("holds the gift step on every problem once a filing status is chosen", () => {
+    expect(blockingProblems("gift", errors, { jointShares: false, filingStatusChosen: true }).map((p) => p.path)).toEqual(["giftCents", "contributors.primary.designatedCents"]);
+  });
+
+  it("lets a donor past the designated amount before choosing a filing status (a joint gift moves it to About you)", () => {
+    expect(blockingProblems("gift", errors, { jointShares: false, filingStatusChosen: false }).map((p) => p.path)).toEqual(["giftCents"]);
+    expect(blockingProblems("gift", { "contributors.primary.designatedCents": "x" }, { jointShares: false, filingStatusChosen: false })).toEqual([]);
+  });
+
+  it("only relaxes the gift step", () => {
+    expect(blockingProblems("about", errors, { jointShares: false, filingStatusChosen: false }).map((p) => p.path)).toEqual(["address.zip"]);
+    expect(blockingProblems("about", { "contributors.spouse.designatedCents": "x" }, { jointShares: true, filingStatusChosen: false }).map((p) => p.path)).toEqual(["contributors.spouse.designatedCents"]);
   });
 });
 

@@ -1,6 +1,6 @@
-import { Eye, Plus, Search } from "lucide-react";
+import { CircleDashed, Eye, Plus, Search } from "lucide-react";
 import type { Metadata } from "next";
-import { Button, Card, CardFooter, DateTime, EmptyState, Field, Input, Money, PageHeader, Pagination, ProvisionalBadge, StatusBadge, Table, Tabs, type TableColumn } from "@/components/ui";
+import { Button, Card, CardFooter, DateTime, EmptyState, Field, Input, Money, PageHeader, Pagination, StatusBadge, Table, Tabs, type TableColumn } from "@/components/ui";
 import type { VerificationStatus } from "@/db/schema";
 import { now } from "@/lib/clock";
 import { isAppError } from "@/lib/errors";
@@ -22,6 +22,7 @@ const COLUMNS: Array<TableColumn<VerificationRow>> = [
     key: "applicant",
     header: "Applicant",
     primary: true,
+    wrap: true,
     cell: (v) => (
       <span>
         {v.applicantName ?? v.applicantEmail ?? "No name given"}
@@ -43,7 +44,13 @@ const COLUMNS: Array<TableColumn<VerificationRow>> = [
       ) : (
         <span className="inline-flex items-center gap-1.5">
           <Money cents={v.thresholdCents} />
-          {v.provisional ? <ProvisionalBadge size="sm" /> : null}
+          {v.provisional ? (
+            // The status column carries the full Provisional badge; here a compact marker keeps the column narrow.
+            <span title="Provisional (HUD-derived) limit" className="inline-flex text-caution-fg">
+              <CircleDashed aria-hidden="true" className="size-3.5" />
+              <span className="sr-only">provisional</span>
+            </span>
+          ) : null}
         </span>
       ),
   },
@@ -81,7 +88,7 @@ export default async function VerificationsPage({ searchParams }: { searchParams
     <div className="space-y-6">
       <PageHeader
         title="Verifications"
-        description="Every household your organization has asked to verify, newest first. Create one here and send the family the link, or create them through the API."
+        description="Every household you have asked to verify, newest first."
         actions={
           canCreate ? (
             <Button href={SGO_PATHS.newVerification} size="sm" leadingIcon={<Plus />}>
@@ -128,13 +135,22 @@ export default async function VerificationsPage({ searchParams }: { searchParams
             <EmptyState
               size="sm"
               title={ref ? "No verification with that reference" : "Nothing here yet"}
-              description={ref ? "References match exactly, in the mode on screen." : "Verifications you create, or that families start from a camp or school booking, appear here."}
+              description={ref ? "References match exactly, in the mode on screen. Check the reference, or switch between test and live." : "Create a verification and send the family the link, or create them through the API. Bookings from camps and schools appear here too."}
+              action={
+                !ref && canCreate ? (
+                  <Button href={SGO_PATHS.newVerification} size="sm" leadingIcon={<Plus />}>
+                    New verification
+                  </Button>
+                ) : undefined
+              }
             />
           }
         />
-        <CardFooter>
-          <Pagination prevHref={cursor ? href({ status }) : null} nextHref={page.nextCursor ? href({ status, cursor: page.nextCursor }) : null} summary={`${page.items.length} shown${cursor ? " (later page)" : ""}`} />
-        </CardFooter>
+        {cursor || page.nextCursor ? (
+          <CardFooter>
+            <Pagination prevHref={cursor ? href({ status }) : null} nextHref={page.nextCursor ? href({ status, cursor: page.nextCursor }) : null} summary={`${page.items.length} shown${cursor ? " (later page)" : ""}`} />
+          </CardFooter>
+        ) : null}
       </Card>
     </div>
   );

@@ -11,9 +11,36 @@ const NOW = new Date("2026-11-18T15:00:00Z");
 function context(): CheckoutContext {
   return {
     now: NOW,
-    session: { id: "checkout_synthetic", mode: "test", status: "open", source: "hosted", createdAt: NOW, expiresAt: new Date(NOW.getTime() + 86_400_000), placedAt: null, paymentId: null, orderNumber: 0 },
-    sgo: { orgId: "org_synthetic", slug: "synthetic-fund", displayName: "Synthetic Scholarship Fund", legalName: "Synthetic Scholarship Fund Inc", ein: "00-1234567", state: "TX", portalRegistered: true },
-    list: { status: "provisional", source: "provisional_curated", label: "On the provisional list", entryId: "sgolist_synthetic", listedFrom: "2026-11-01", removedOn: null, retrievedAt: "2027-02-20T12:00:00.000Z", refusal: null },
+    session: {
+      id: "checkout_synthetic",
+      mode: "test",
+      status: "open",
+      source: "hosted",
+      createdAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 86_400_000),
+      placedAt: null,
+      paymentId: null,
+      orderNumber: 0,
+    },
+    sgo: {
+      orgId: "org_synthetic",
+      slug: "synthetic-fund",
+      displayName: "Synthetic Scholarship Fund",
+      legalName: "Synthetic Scholarship Fund Inc",
+      ein: "00-1234567",
+      state: "TX",
+      portalRegistered: true,
+    },
+    list: {
+      status: "provisional",
+      source: "provisional_curated",
+      label: "On the provisional list",
+      entryId: "sgolist_synthetic",
+      listedFrom: "2026-11-01",
+      removedOn: null,
+      retrievedAt: "2027-02-20T12:00:00.000Z",
+      refusal: null,
+    },
     settings: { creditStartDate: "2027-01-01", liveEnabled: false, fees: { active: "none", sgoFeeBps: 0, donorServiceFeeBps: 0, counselMemoRef: null } },
   };
 }
@@ -115,7 +142,10 @@ describe("panelHeadline", () => {
     const headline = panelHeadline(panel);
     expect(joint).toBeDefined();
     expect(headline.credit).toMatchObject({ id: "joint_total_credit", amountCents: joint?.amountCents });
-    const designated = panel.sections.filter((s) => s.key !== "joint_total" && s.key !== "liability").flatMap((s) => s.lines).filter((l) => l.id === "designated");
+    const designated = panel.sections
+      .filter((s) => s.key !== "joint_total" && s.key !== "liability")
+      .flatMap((s) => s.lines)
+      .filter((l) => l.id === "designated");
     expect(headline.designated?.amountCents).toBe(designated.reduce((a, l) => a + l.amountCents, 0));
   });
 
@@ -125,11 +155,15 @@ describe("panelHeadline", () => {
       status: "preview",
       notes: [],
       sections: [
-        { key: "individual", heading: "h", lines: [
-          { id: "designated", label: "Designated", amountCents: 100_000, role: "amount" },
-          { id: "over_cap", label: "Above the limit", amountCents: 0, role: "subtraction" },
-          { id: "estimated_credit", label: "Estimated credit", amountCents: 100_000, role: "result" },
-        ] },
+        {
+          key: "individual",
+          heading: "h",
+          lines: [
+            { id: "designated", label: "Designated", amountCents: 100_000, role: "amount" },
+            { id: "over_cap", label: "Above the limit", amountCents: 0, role: "subtraction" },
+            { id: "estimated_credit", label: "Estimated credit", amountCents: 100_000, role: "result" },
+          ],
+        },
         { key: "liability", heading: "l", lines: [{ id: "estimated_credit", label: "x", amountCents: 999, role: "result" }] },
       ],
     };

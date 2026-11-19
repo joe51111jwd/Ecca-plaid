@@ -69,8 +69,23 @@ const PAPER_LUMINANCE = 0.9;
 /** Darkness below which a cell counts as blank paper. */
 const PAPER_THRESHOLD = 0.06;
 
-/** Fraction of blank-paper cells that keep a faint dot, so the sheet's silhouette survives the scan. */
-const PAPER_DOT_RATE = 0.2;
+/**
+ * Fraction of blank-paper cells that keep a light glyph. High enough that the scanned sheet reads as one dense
+ * block of type (the paper becomes a fine texture) rather than islands of ink, and that the drips stay full.
+ */
+const PAPER_DOT_RATE = 0.68;
+
+/** Ink level of a paper glyph: light, but well clear of the faintest level so it holds up on the warm page. */
+const PAPER_LEVEL = 2;
+
+/** Light glyphs a paper cell can take (the tail of MELT_RAMP), so blank areas do not tile one character. */
+const PAPER_GLYPHS = 3;
+
+/** Darkness at which a cell reaches the densest glyph. Lower = more cells read as solid ink. */
+const INK_FULL = 0.55;
+
+/** Lightest ink level a cell with ink can have, so mid-tones stay legible in the scanned stage. */
+const INK_MIN_LEVEL = 2;
 
 export interface SheetSample {
   cols: number;
@@ -291,13 +306,14 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
           blank(frame, k);
           continue;
         }
-        idx = RAMP_LAST;
-        level = 1;
+        idx = RAMP_LAST - Math.floor(unit(s, c, r, 19) * PAPER_GLYPHS);
+        level = PAPER_LEVEL;
       } else {
-        const t = Math.pow(clamp01((ink - PAPER_THRESHOLD) / 0.72), 0.7);
+        // A strong gamma pushes mid-tones toward the dense end: the sheet stays dark while it is glyphs.
+        const t = Math.pow(clamp01((ink - PAPER_THRESHOLD) / INK_FULL), 0.55);
         const jitter = (unit(s, c, r, 17) - 0.5) * 2;
-        idx = Math.round((1 - t) * RAMP_LAST + jitter);
-        level = Math.round(1 + t * (MELT_LEVELS - 2));
+        idx = Math.round((1 - t) * (RAMP_LAST - PAPER_GLYPHS) + jitter);
+        level = Math.round(INK_MIN_LEVEL + t * (MELT_LEVELS - 1 - INK_MIN_LEVEL));
       }
       let tone: number = sample.tone[k];
 
@@ -307,17 +323,18 @@ export function renderMelt(sample: SheetSample, frame: MeltFrame, p: number, see
       if (m > 0) {
         // Gravity: slow to let go, then accelerating.
         const e = 0.25 * m + 0.75 * m * m;
-        const stretch = 2.6 * speed * e;
+        const stretch = 1.9 * speed * e;
         const slide = rows * 0.9 * speed * e;
         drop = stretch * r + slide;
-        // Shed whole runs first, then single glyphs; everything is gone shortly before m reaches 1.
-        const thin = smoothstep(0.06, 0.92, m);
-        if (unit(s, c, Math.floor(r / run), 41) < thin || unit(s, c, r, 43) < smoothstep(0.6, 0.98, m)) {
+        // Hold together first, then shed whole runs, then single glyphs; everything is gone shortly before m
+        // reaches 1. Glyphs keep most of their weight while they fall, so the drip reads as ink, not dust.
+        const thin = smoothstep(0.32, 0.95, m);
+        if (unit(s, c, Math.floor(r / run), 41) < thin || unit(s, c, r, 43) < smoothstep(0.7, 0.985, m)) {
           blank(frame, k);
           continue;
         }
-        idx += Math.floor(m * 8);
-        level = Math.max(1, Math.round(level * (1 - 0.45 * m)));
+        idx += Math.floor(m * 3);
+        level = Math.max(1, Math.round(level * (1 - 0.18 * m)));
       }
 
       // Just-scanned cells glow in the scan colour and show scrambled glyphs, then settle.

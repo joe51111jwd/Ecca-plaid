@@ -52,6 +52,16 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
     }
   }
 
+  const numberForm = (i: WorklistItem) => (
+    <SgoActionForm action={setDonorNumberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Enter the unique donor number for ${i.donor.fullName}`}>
+      <input type="hidden" name="donorId" value={i.donor.id} />
+      <input type="hidden" name="taxYear" value={year} />
+      <Field label="From the IRS SGO portal" hideLabel>
+        <Input name="number" size="sm" placeholder="From the IRS SGO portal" maxLength={64} autoComplete="off" />
+      </Field>
+    </SgoActionForm>
+  );
+
   const columns: Array<TableColumn<WorklistItem>> = [
     {
       key: "donor",
@@ -76,20 +86,20 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
             {i.donorNumber.source === "sandbox_generated" ? <span className="text-xs text-caution-fg">{SANDBOX_NUMBER_LABEL}</span> : null}
           </span>
         ) : canManage && i.designatedCents > 0 ? (
-          <div className="space-y-2">
+          <div className="min-w-[13rem] space-y-1.5">
             {test ? (
               <SgoActionForm action={generateSandboxNumberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Generate sandbox number" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Generate a sandbox number for ${i.donor.fullName}`}>
                 <input type="hidden" name="donorId" value={i.donor.id} />
                 <input type="hidden" name="taxYear" value={year} />
               </SgoActionForm>
             ) : null}
-            <SgoActionForm action={setDonorNumberAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Save" submitVariant="secondary" submitSize="sm" layout="inline" aria-label={`Enter the unique donor number for ${i.donor.fullName}`}>
-              <input type="hidden" name="donorId" value={i.donor.id} />
-              <input type="hidden" name="taxYear" value={year} />
-              <Field label="From the IRS SGO portal" hideLabel>
-                <Input name="number" size="sm" placeholder={test ? "Or enter one" : "From the IRS SGO portal"} maxLength={64} autoComplete="off" />
-              </Field>
-            </SgoActionForm>
+            {test ? (
+              <Disclosure summary="Or enter one" variant="plain">
+                {numberForm(i)}
+              </Disclosure>
+            ) : (
+              numberForm(i)
+            )}
           </div>
         ) : (
           <span className="text-fg-subtle">Missing</span>
@@ -97,10 +107,12 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
     },
     {
       key: "ack",
-      header: "Acknowledgment",
+      header: "Status",
+      label: "Acknowledgment and delivery",
       cell: (i) => (
-        <span className="inline-flex flex-col gap-1">
+        <span className="inline-flex flex-col items-start gap-1">
           <AckStatus status={i.acknowledgment.status} />
+          {i.eDelivery.active ? <Badge tone="success" size="sm">Email (consented)</Badge> : <Badge tone="warning" size="sm">Paper required</Badge>}
           {i.acknowledgment.issued ? (
             <span className="text-xs text-fg-muted">
               v{i.acknowledgment.issued.version} issued <DateTime value={i.acknowledgment.issued.issuedAt} format="date" />
@@ -111,16 +123,11 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
       ),
     },
     {
-      key: "delivery",
-      header: "Delivery",
-      cell: (i) => (i.eDelivery.active ? <Badge tone="success" size="sm">Email (consented)</Badge> : <Badge tone="warning" size="sm">Paper required</Badge>),
-    },
-    {
       key: "next",
       header: "Next step",
       wrap: true,
       cell: (i) => (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <Badge tone={WORKLIST_ACTION_TONES[i.action] ?? "neutral"} size="sm">
             {WORKLIST_ACTION_LABELS[i.action] ?? i.action}
           </Badge>
@@ -132,7 +139,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
             </ul>
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            <a href={href({ preview: i.donor.id })} className="text-sm underline">
+            <a href={href({ preview: i.donor.id })} className="text-sm text-link underline hover:text-link-hover">
               Preview
             </a>
             {i.acknowledgment.issued ? <DownloadLink href={`${SGO_PATHS.acknowledgments}/${encodeURIComponent(i.acknowledgment.issued.acknowledgmentId)}/pdf`}>PDF</DownloadLink> : null}
@@ -179,7 +186,7 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
     <div className="space-y-6">
       <PageHeader
         title="Acknowledgments"
-        description={`The official written acknowledgment to each donor, per donor and calendar year: your EIN, the total designated, the unique donor number and the goods-or-services statement. The immediate email receipt is not the acknowledgment.`}
+        description="The official year-end acknowledgment for each donor: your EIN, the total designated, the unique donor number and the goods-or-services statement. The instant email receipt is not the acknowledgment."
       />
 
       <form method="get" action={SGO_PATHS.acknowledgments} className="flex flex-wrap items-end gap-3">
@@ -224,10 +231,20 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
 
       {canManage ? (
         <Card>
-          <CardHeader title="Unique donor numbers" level={2} description="Numbers come from the IRS SGO portal. They are never invented here: enter each one in the table below, or import a file." />
-          <div className="mt-4 grid gap-6 lg:grid-cols-2">
-            <Disclosure summary="Import a CSV of numbers">
-              <div className="space-y-3 pt-3 text-sm">
+          <CardHeader title="Unique donor numbers" level={2} description="Numbers come from the IRS SGO portal and are never invented here. Enter each one in the table, or import a file." />
+          <div className="mt-4 space-y-3">
+            {test ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-canvas px-4 py-3 text-sm">
+                <p className="min-w-0 flex-1 basis-72 text-fg-muted">
+                  <span className="font-semibold text-fg">Sandbox numbers</span> start with TEST-. {SANDBOX_NUMBER_LABEL}; live mode refuses them.
+                </p>
+                <SgoActionForm action={generateSandboxNumbersAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Generate for every donor without one" submitVariant="secondary" submitSize="sm">
+                  <input type="hidden" name="taxYear" value={year} />
+                </SgoActionForm>
+              </div>
+            ) : null}
+            <Disclosure summary="Import a CSV of numbers" variant="plain">
+              <div className="space-y-3 pt-1 text-sm">
                 <p className="text-fg-muted">
                   Columns: <code>{DONOR_NUMBER_IMPORT_COLUMNS.join(", ")}</code>. Donor ids are the ones in the donations export. Nothing is imported unless every row is valid.
                 </p>
@@ -239,15 +256,6 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
                 </SgoActionForm>
               </div>
             </Disclosure>
-            {test ? (
-              <div className="space-y-2 text-sm">
-                <p className="font-semibold text-fg">Sandbox numbers</p>
-                <p className="text-fg-muted">In test mode you can generate numbers starting with TEST-. {SANDBOX_NUMBER_LABEL}; live mode refuses them.</p>
-                <SgoActionForm action={generateSandboxNumbersAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel="Generate for every donor without one" submitVariant="secondary" submitSize="sm">
-                  <input type="hidden" name="taxYear" value={year} />
-                </SgoActionForm>
-              </div>
-            ) : null}
           </div>
         </Card>
       ) : null}
@@ -261,7 +269,20 @@ export default async function AcknowledgmentsPage({ searchParams }: { searchPara
           columns={columns}
           rows={worklist.items}
           rowKey={(i) => i.donor.id}
-          empty={<EmptyState size="sm" title="No donors here" description={`Donors who designated a gift to you in ${year} appear here.`} />}
+          empty={
+            <EmptyState
+              size="sm"
+              title={action ? "No donors in this step" : "No donors here"}
+              description={action ? "Every donor is past this step. See all donors for the full list." : `Donors who designated a gift to you in ${year} appear here. Pick another year above to see earlier gifts.`}
+              action={
+                action ? (
+                  <Button href={href({ action: null })} size="sm" variant="secondary">
+                    All donors
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
         />
         <CardFooter>
           <Pagination

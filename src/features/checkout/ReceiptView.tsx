@@ -1,6 +1,6 @@
 import { CircleCheck, FileText } from "lucide-react";
 import type { ReactNode } from "react";
-import { Alert, Badge, KeyValueList, LineItems } from "@/components/ui";
+import { Alert, Badge, Disclosure, KeyValueList, LineItems } from "@/components/ui";
 import type { ReceiptSummary } from "./view-model";
 
 export interface ReceiptViewProps {
@@ -86,17 +86,23 @@ export function ReceiptView({ receipt, finishing, actions }: ReceiptViewProps) {
         <p className="text-sm text-fg-muted">Your emailed receipt is the full record of this gift. Signed-in donors also find it under My gifts.</p>
       )}
 
-      <section aria-labelledby="keep-title" className="space-y-2 rounded-card border border-line p-4">
-        <h2 id="keep-title" className="flex items-center gap-2 text-base font-semibold text-fg">
-          <FileText aria-hidden="true" className="size-5" />
-          What to keep for your tax return
-        </h2>
-        {receipt.keep.map((k) => (
-          <p key={k.id} data-copy-id={k.id} className="text-sm text-fg-muted">
-            {k.text}
-          </p>
-        ))}
-      </section>
+      <Disclosure
+        id="receipt-keep"
+        summary={
+          <span className="flex items-center gap-2">
+            <FileText aria-hidden="true" className="size-5 text-fg-muted" />
+            What to keep for your tax return
+          </span>
+        }
+      >
+        <div className="space-y-2" data-testid="receipt-keep">
+          {receipt.keep.map((k) => (
+            <p key={k.id} data-copy-id={k.id} className="text-sm leading-6 text-fg-muted">
+              {k.text}
+            </p>
+          ))}
+        </div>
+      </Disclosure>
 
       {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
     </div>

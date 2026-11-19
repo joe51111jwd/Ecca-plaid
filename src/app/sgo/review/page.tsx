@@ -1,5 +1,6 @@
+import { CircleCheck } from "lucide-react";
 import type { Metadata } from "next";
-import { Badge, Card, CardFooter, DateTime, EmptyState, PageHeader, Pagination, StatusBadge, Table, Tabs, type TableColumn } from "@/components/ui";
+import { Badge, Button, Card, CardFooter, DateTime, EmptyState, PageHeader, Pagination, StatusBadge, Table, Tabs, type TableColumn } from "@/components/ui";
 import { isAppError } from "@/lib/errors";
 import { listReviewQueue, type ReviewQueueItem } from "@/server/verifications";
 import { SGO_PATHS } from "@/features/sgo/nav";
@@ -88,7 +89,7 @@ export default async function ReviewQueuePage({ searchParams }: { searchParams: 
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Review queue" description="Verifications the automatic check could not decide, oldest first, with what a reviewer has to settle. Families are waiting on these." />
+      <PageHeader title="Review queue" description="What the automatic check could not decide, oldest first. Families are waiting on these." />
       <Card padding="none">
         <div className="border-b border-line px-5 sm:px-6">
           <Tabs
@@ -108,11 +109,27 @@ export default async function ReviewQueuePage({ searchParams }: { searchParams: 
           rows={page.items}
           rowKey={(i) => i.taskId}
           rowHref={(i) => `${SGO_PATHS.verification(i.verificationId)}#review`}
-          empty={<EmptyState size="sm" title="Nothing to review" description="When the check cannot decide on its own, the verification appears here with the reasons." />}
+          empty={
+            <EmptyState
+              size="sm"
+              icon={<CircleCheck />}
+              title={filter === "mine" ? "Nothing assigned to you" : filter === "unassigned" ? "Everything is assigned" : "Nothing to review"}
+              description={filter === "all" ? "When the check cannot decide on its own, the verification appears here with the reasons. Nothing to do for now." : "See all open reviews to pick one up."}
+              action={
+                filter === "all" ? undefined : (
+                  <Button href={href("all")} size="sm" variant="secondary">
+                    All open reviews
+                  </Button>
+                )
+              }
+            />
+          }
         />
-        <CardFooter>
-          <Pagination prevHref={cursor ? href(filter) : null} nextHref={page.nextCursor ? href(filter, page.nextCursor) : null} summary={`${page.items.length} shown`} />
-        </CardFooter>
+        {cursor || page.nextCursor ? (
+          <CardFooter>
+            <Pagination prevHref={cursor ? href(filter) : null} nextHref={page.nextCursor ? href(filter, page.nextCursor) : null} summary={`${page.items.length} shown`} />
+          </CardFooter>
+        ) : null}
       </Card>
     </div>
   );

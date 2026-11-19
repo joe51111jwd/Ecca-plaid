@@ -6,6 +6,7 @@ import { Logo } from "@/components/ui/logo";
 import { DropdownMenu, type MenuItem } from "@/components/ui/menu";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DashboardMobileNav, DashboardNav, type DashboardNavSection } from "./dashboard-nav";
+import { orgMarkName } from "./org-mark-name";
 import { MAIN_CONTENT_ID } from "./skip-link";
 
 const CONTENT_WIDTH = { default: "max-w-page", narrow: "max-w-3xl", full: "max-w-none" } as const;
@@ -138,7 +139,7 @@ export interface OrgSwitcherProps {
 export function OrgSwitcher({ current, orgs }: OrgSwitcherProps) {
   const face = (
     <span className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-      <OrgMark name={current.name} logoUrl={current.logoUrl} size="sm" />
+      <OrgMark name={orgMarkName(current.name)} logoUrl={current.logoUrl} size="sm" />
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-fg">{current.name}</span>
         {current.typeLabel ? <span className="block truncate text-xs font-normal text-fg-muted">{current.typeLabel}</span> : null}

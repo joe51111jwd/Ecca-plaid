@@ -87,6 +87,18 @@ export function problemsByStep(errors: Readonly<Record<string, string>>, layout:
   return out;
 }
 
+/**
+ * The problems that stop "Continue" on a step. All of a step's problems do, with one exception: before a filing
+ * status is chosen, the designated amount on "Gift" does not hold the donor back, because choosing "married filing
+ * jointly" on the next step moves each spouse's share and designation there (a $3,400 joint gift would otherwise be
+ * refused on step one for exceeding one taxpayer's default). Those problems still block placing the order.
+ */
+export function blockingProblems(step: CheckoutStepId, errors: Readonly<Record<string, string>>, layout: StepLayout & { filingStatusChosen: boolean }): Array<{ path: string; message: string }> {
+  const problems = problemsByStep(errors, layout)[step];
+  if (step !== "gift" || layout.filingStatusChosen) return problems;
+  return problems.filter((p) => !/^contributors\.(primary|spouse)\.designatedCents$/.test(p.path));
+}
+
 /** The earliest step that has a problem, or null when there is none. */
 export function firstStepWithProblems(errors: Readonly<Record<string, string>>, layout: StepLayout): CheckoutStepId | null {
   const grouped = problemsByStep(errors, layout);

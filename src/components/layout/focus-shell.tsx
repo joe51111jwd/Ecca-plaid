@@ -6,6 +6,7 @@ import { cn } from "@/components/ui/cn";
 import { uiStrings, type UiLocale } from "@/components/ui/locale";
 import { Logo } from "@/components/ui/logo";
 import { HtmlLang } from "./html-lang";
+import { orgMarkName } from "./org-mark-name";
 import { MAIN_CONTENT_ID } from "./skip-link";
 
 const WIDTH = { sm: "max-w-md", md: "max-w-focus", lg: "max-w-3xl", xl: "max-w-5xl" } as const;
@@ -73,7 +74,7 @@ export function FocusShell({ children, partner, languageToggle, progress, back, 
             <Logo href={homeHref ?? undefined} size="sm" />
             {partner ? (
               <span className="flex min-w-0 items-center gap-2 border-l border-line pl-3 text-sm text-fg-muted">
-                <OrgMark name={partner.name} logoUrl={partner.logoUrl} size="sm" />
+                <OrgMark name={orgMarkName(partner.name)} logoUrl={partner.logoUrl} size="sm" />
                 <span className="truncate font-medium text-fg">{partner.name}</span>
               </span>
             ) : null}

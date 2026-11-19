@@ -8,3 +8,4 @@ export { EMBED_MESSAGE_SOURCE, useEmbedAutoHeight, type EmbedAutoHeightOptions, 
 export { SystemPage, type SystemPageProps } from "./system-page";
 export { MAIN_CONTENT_ID, SkipLink } from "./skip-link";
 export { HtmlLang } from "./html-lang";
+export { orgInitials, orgMarkName } from "./org-mark-name";

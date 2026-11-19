@@ -1,3 +1,4 @@
+import { CircleCheck } from "lucide-react";
 import { Card, CardHeader, Field, Fieldset, LegalNote, RadioGroup, Select, Textarea } from "@/components/ui";
 import type { VerificationDetail } from "@/server/verifications";
 import { documentKindLabel } from "../../labels";
@@ -25,10 +26,23 @@ export function ReviewerPanel({ detail, orgId, mode, currentUserId, reviewers, e
   const decided = v.status === "eligible" || v.status === "ineligible";
   const closed = v.status === "canceled" || v.status === "expired";
   const submitted = v.submittedAt !== null;
+  const canAsk = editable && v.stage !== "awaiting_family" && detail.household !== null;
+  const hasTools = openTask !== null || (editable && submitted) || v.status === "needs_review" || canAsk || v.familyRequest !== null || (!decided && !closed);
+
+  if (!hasTools) {
+    return (
+      <Card id="review" padding="sm" className="flex items-center gap-2 text-sm text-fg-muted">
+        <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-success-600" />
+        <span>
+          <span className="font-semibold text-fg">Reviewer actions:</span> nothing is waiting on a reviewer.
+        </span>
+      </Card>
+    );
+  }
 
   return (
     <Card id="review">
-      <CardHeader title="Reviewer actions" level={2} description={editable ? "Settle what the check could not, then resolve or re-run." : "Nothing is waiting on a reviewer right now."} />
+      <CardHeader title="Reviewer actions" level={2} description={editable ? "Settle what the check could not, then resolve or re-run." : undefined} />
       <div className="mt-4 space-y-6">
         {openTask ? (
           <SgoActionForm action={actions.assign} orgId={orgId} mode={mode} submitLabel="Assign" submitVariant="secondary" submitSize="sm" layout="inline" aria-label="Assign the review">
@@ -110,7 +124,7 @@ export function ReviewerPanel({ detail, orgId, mode, currentUserId, reviewers, e
           </section>
         ) : null}
 
-        {editable && v.stage !== "awaiting_family" && detail.household ? (
+        {canAsk ? (
           <section aria-labelledby="ask-heading" className="space-y-2 border-t border-line pt-4">
             <h3 id="ask-heading" className="text-sm font-semibold text-fg">
               Ask the family for more

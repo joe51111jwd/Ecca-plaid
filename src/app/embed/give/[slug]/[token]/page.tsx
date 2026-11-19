@@ -52,11 +52,11 @@ export default async function EmbedCheckoutPage({ params }: { params: Params }) 
   return (
     <EmbedShell partner={partner} secureNote="donor">
       <CheckoutProvider access={access} initialView={view} initialPayment={payment} returnUrl={checkoutPaths(access).thanks}>
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="rounded-panel border border-line bg-surface p-5 shadow-sm">
-            <CheckoutForm states={usStateOptions()} />
+            <CheckoutForm states={usStateOptions()} banner="always" />
           </div>
-          <LiveTaxMathPanel />
+          <LiveTaxMathPanel collapse="always" withBanner={false} />
         </div>
       </CheckoutProvider>
     </EmbedShell>

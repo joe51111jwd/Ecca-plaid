@@ -95,7 +95,7 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
     <div className="space-y-6">
       <PageHeader
         title="IRS contribution report"
-        description="Per unique donor number: the donor's name, address and aggregate qualified contributions for the calendar year, which your organization reports through the IRS SGO portal."
+        description="Each donor's name, address and aggregate qualified contributions for the year, per unique donor number, reported through the IRS SGO portal."
       />
 
       <Alert tone="info" title="How to file this report">
@@ -132,9 +132,12 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
       </StatGrid>
 
       {canManage ? (
-        <Card>
-          <CardHeader title={latest ? "Generate a new version" : "Generate the report"} level={2} description="Built from received designated gifts, your donor numbers and the acknowledgments you issued. A correction is a new version; earlier versions are kept." />
-          <SgoActionForm action={generateIrsReportAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={`Generate for ${year}`} pendingText="Generating…" className="mt-4">
+        <Card className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-80">
+            <h2 className="text-lg font-semibold text-fg">{latest ? "Generate a new version" : "Generate the report"}</h2>
+            <p className="mt-1 text-sm text-fg-muted">Built from received designated gifts, your donor numbers and the acknowledgments you issued. A correction is a new version; earlier versions are kept.</p>
+          </div>
+          <SgoActionForm action={generateIrsReportAction} orgId={ctx.org.id} mode={ctx.mode} submitLabel={`Generate for ${year}`} pendingText="Generating…">
             <input type="hidden" name="taxYear" value={year} />
           </SgoActionForm>
         </Card>
@@ -144,7 +147,7 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
         <Card>
           <CardHeader title={`Version ${latest.version}: issues`} level={2} />
           {latest.issues.length === 0 ? (
-            <p className="mt-3 text-sm text-fg-muted">No issues.</p>
+            <p className="mt-3 text-sm text-fg-muted">No issues. Enter the rows below in the IRS SGO portal, then record the date in History.</p>
           ) : (
             <ul className="mt-3 space-y-2 text-sm">
               {latest.issues.map((i, n) => (
@@ -162,7 +165,7 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
 
       {table ? (
         <Card padding="none">
-          <CardHeader title={`Version ${table.report.version}: rows for manual entry`} className="px-5 pt-5 sm:px-6" description="Amounts are plain decimals, ready to type." />
+          <CardHeader title={`Version ${table.report.version}: rows for manual entry`} level={2} className="px-5 pt-5 sm:px-6" description="Amounts are plain decimals, ready to type." />
           <div className="overflow-x-auto px-5 pb-5 sm:px-6">
             <table className="mt-3 w-full text-left text-sm">
               <caption className="sr-only">Report rows</caption>
@@ -200,8 +203,14 @@ export default async function IrsReportPage({ searchParams }: { searchParams: Se
       ) : null}
 
       <Card padding="none">
-        <CardHeader title="History" className="px-5 pt-5 sm:px-6" />
-        <Table caption={`Report versions for ${year}`} columns={history} rows={reports} rowKey={(r) => r.id} empty={<EmptyState size="sm" title="No report generated yet" />} />
+        <CardHeader title="History" level={2} className="px-5 pt-5 pb-4 sm:px-6" />
+        <Table
+          caption={`Report versions for ${year}`}
+          columns={history}
+          rows={reports}
+          rowKey={(r) => r.id}
+          empty={<EmptyState size="sm" title={`No report for ${year} yet`} description={canManage ? "Generate it above. Each version is kept here with its issues and the date you entered it in the portal." : "An admin generates it; each version then appears here."} />}
+        />
       </Card>
 
       <LegalNote>The report must agree with the acknowledgments donors received; each version checks that and says where it does not. Test-mode reports use sandbox gifts and numbers and are never filed.</LegalNote>

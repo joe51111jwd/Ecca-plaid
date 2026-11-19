@@ -3,6 +3,7 @@ import type { MemberRole } from "@/db/schema";
 import { invalid } from "@/lib/errors";
 import { INCOME_MEASURES, KEYABLE_KINDS, type KeyableKind, type ReviewerExtractionInput } from "@/server/verifications";
 import { parseForm, readAll, readFlag, readInt, readLines, readMoney, readOptional, readText } from "./form-data";
+import { measureFullLabel } from "./field-labels";
 
 /**
  * FormData → service input for every dashboard form. Pure (no database): structure, types and the dashboard's own
@@ -123,26 +124,9 @@ export function incomeLineFromForm(formData: FormData): IncomeLineForm {
   };
 }
 
-const MEASURE_WORDS: ReadonlyArray<[RegExp, string]> = [
-  [/^w2_/, "W-2 "],
-  [/^f1040_/, "Form 1040 "],
-  [/^transcript_/, "Return transcript "],
-  [/^wai_/, "Wage and income transcript "],
-  [/^paystub_/, "Pay stub "],
-];
-
-/** "w2_box1_wages" → "W-2 box1 wages": the reader's measure keys made readable for a select. */
+/** "w2_box1_wages" → "W-2: Wages (box 1)": the reader's measure keys made readable for a select. */
 export function measureLabel(measure: string): string {
-  let prefix = "";
-  let rest = measure;
-  for (const [re, words] of MEASURE_WORDS) {
-    if (re.test(measure)) {
-      prefix = words;
-      rest = measure.replace(re, "");
-      break;
-    }
-  }
-  return `${prefix}${rest.replace(/_/g, " ")}`.trim();
+  return measureFullLabel(measure);
 }
 
 /** Measures a reviewer may key for each kind (the reader's families of measures; the service checks again). */

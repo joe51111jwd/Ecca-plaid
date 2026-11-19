@@ -43,8 +43,8 @@ export function SgoShell({ user, org, orgs, roleLabel, mode, liveAvailable, coun
       }
       banner={
         mode === "test" ? (
-          <Banner tone="sandbox">
-            Test mode. Everything here is sandbox data: test verifications, sandbox gifts and sandbox donor numbers. Nothing on these screens is valid for filing.
+          <Banner tone="sandbox" className="py-1! text-xs!">
+            <strong className="font-semibold">Test mode</strong> · sandbox verifications, gifts and donor numbers. Nothing here is valid for filing.
           </Banner>
         ) : null
       }

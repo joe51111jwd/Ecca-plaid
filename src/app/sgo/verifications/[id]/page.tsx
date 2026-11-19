@@ -8,6 +8,7 @@ import { roleAtLeast } from "@/server/auth";
 import { AWARD_PAYMENT_METHODS, getAwardContext, listAwards } from "@/server/awards";
 import { getVerificationDetail, INCOME_MEASURES } from "@/server/verifications";
 import { DownloadLink } from "@/features/sgo/components/DownloadLink";
+import { HashValue } from "@/features/sgo/components/HashValue";
 import { AwardPanel } from "@/features/sgo/components/verification/AwardPanel";
 import { DecisionPanel } from "@/features/sgo/components/verification/DecisionPanel";
 import { DocumentsPanel } from "@/features/sgo/components/verification/DocumentsPanel";
@@ -90,7 +91,7 @@ export default async function VerificationDetailPage({ params, searchParams }: {
           <>
             {v.externalRef ? `Your reference ${v.externalRef} · ` : ""}
             {[v.studentFirstName, v.studentLastName].filter(Boolean).length > 0 ? `Student ${[v.studentFirstName, v.studentLastName].filter(Boolean).join(" ")} · ` : ""}
-            Created <DateTime value={v.createdAt} format="dateTime" /> · <code className="text-xs">{v.id}</code>
+            Created <DateTime value={v.createdAt} format="dateTime" /> · <HashValue value={v.id} label="verification id" />
           </>
         }
         meta={
@@ -167,21 +168,26 @@ export default async function VerificationDetailPage({ params, searchParams }: {
         </div>
       </div>
 
-      <Drawer open={viewing !== null} closeHref={path} size="lg" title={viewing?.filename ?? "Document"} description={viewing ? `SHA-256 ${viewing.sha256}` : undefined}>
+      <Drawer open={viewing !== null} closeHref={path} size="lg" title={viewing?.filename ?? "Document"} description="Opening this file is recorded in your organization's audit log.">
         {viewing ? (
           <div className="space-y-3">
-            <p className="text-sm text-fg-muted">Opening this file was recorded in your organization&apos;s audit log.</p>
             {viewing.contentType.startsWith("image/") ? (
               // eslint-disable-next-line @next/next/no-img-element -- an audited, private, per-request file: next/image would cache and re-serve it
               <img src={fileHref(viewing.id)} alt={`Uploaded file ${viewing.filename}`} className="max-h-[75vh] w-full rounded-card border border-line object-contain" />
             ) : viewing.contentType === "application/pdf" ? (
-              <p className="text-sm">PDFs open in your browser&apos;s own viewer in a new tab (this app is never framed, so it cannot show one here).</p>
+              // Same-origin framing is allowed (X-Frame-Options SAMEORIGIN); the browser's own PDF viewer renders it.
+              <iframe src={fileHref(viewing.id)} title={`Uploaded file ${viewing.filename}`} className="h-[75vh] w-full rounded-card border border-line bg-sunken" />
             ) : (
               <p className="text-sm">This kind of file cannot be shown in the browser.</p>
             )}
-            <DownloadLink href={fileHref(viewing.id)} newTab>
-              Open in a new tab
-            </DownloadLink>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-fg-muted">
+              <span className="inline-flex items-center gap-1">
+                SHA-256 <HashValue value={viewing.sha256} label={`SHA-256 of ${viewing.filename}`} />
+              </span>
+              <DownloadLink href={fileHref(viewing.id)} newTab>
+                {viewing.contentType === "application/pdf" ? "Not showing? Open in a new tab" : "Open in a new tab"}
+              </DownloadLink>
+            </div>
           </div>
         ) : null}
       </Drawer>

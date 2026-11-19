@@ -51,10 +51,10 @@ export const PAYMENT_METHOD_LABELS: Readonly<Record<string, string>> = Object.fr
 });
 
 export const WORKLIST_ACTION_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  add_sgo_ein: "Blocked: EIN missing",
-  register_portal: "Blocked: register in the IRS SGO portal",
-  enter_donor_number: "Blocked: unique donor number missing",
-  generate_sandbox_number: "Blocked: unique donor number missing",
+  add_sgo_ein: "EIN missing",
+  register_portal: "Register in the IRS portal",
+  enter_donor_number: "Donor number missing",
+  generate_sandbox_number: "Donor number missing",
   review: "Needs a person",
   issue: "Ready to issue",
   mail_paper: "Paper required: mail it",

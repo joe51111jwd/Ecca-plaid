@@ -54,6 +54,12 @@ export interface DecisionSummary {
   decidedByLine: string;
   /** The reviewer's notes, when a reviewer resolved it. */
   reviewerNotes: string | null;
+  /**
+   * The result in one sentence when it rests on an income comparison ("Household income for 2025 of $41,250 is at
+   * or below the provisional limit relied on, $249,600."), read under the status headline; null otherwise (categorical method, not
+   * decided), where the page leads with the engine's own explanation instead.
+   */
+  outcome: string | null;
 }
 
 function usd(cents: number): string {
@@ -78,6 +84,27 @@ export function reliedOnSentence(reliedOn: ThresholdReliedOn, cents: number | nu
     case "none":
       return "No income comparison decided this result.";
   }
+}
+
+function capital(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** One sentence for a decided result that rests on comparing recorded income with a limit; null for anything else. */
+export function outcomeSentence(decision: Pick<Decision, "status" | "incomeYear" | "householdIncomeCents" | "threshold">): string | null {
+  const t = decision.threshold;
+  const income = decision.householdIncomeCents;
+  if (!t || income === null || t.reliedOnLimitCents === null) return null;
+  const noun = t.provisional ? "the provisional limit" : "the IRS-published limit";
+  const figures = `household income for ${decision.incomeYear} of ${formatUsd(income)}`;
+  const limit = formatUsd(t.reliedOnLimitCents);
+  if (decision.status === "eligible" && (t.reliedOn === "single_limit" || t.reliedOn === "lower_bound" || t.reliedOn === "statutory_limit")) {
+    return `${capital(figures)} is at or below ${noun} relied on, ${limit}.`;
+  }
+  if (decision.status === "ineligible" && (t.reliedOn === "single_limit" || t.reliedOn === "upper_bound")) {
+    return `${capital(figures)} is above ${noun} relied on, ${limit}.`;
+  }
+  return null;
 }
 
 /** The stored decision's limit and outcome in plain words; null parts where the decision has none yet. */
@@ -123,5 +150,6 @@ export function summarizeDecision(decision: Decision | null): DecisionSummary | 
     incomeYear: decision.incomeYear,
     decidedByLine: decision.status === "eligible" || decision.status === "ineligible" ? (by.type === "reviewer" ? `Decided by a reviewer on ${by.resolvedOn}` : `Decided automatically on ${decision.decidedOn}`) : "Not decided yet",
     reviewerNotes: by.type === "reviewer" ? by.notes : null,
+    outcome: outcomeSentence(decision),
   };
 }
