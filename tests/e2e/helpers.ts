@@ -77,13 +77,27 @@ async function enterCode(page: Page, code: string): Promise<void> {
   await button.click({ timeout: 3_000 }).catch(() => undefined);
 }
 
+/**
+ * Fills the email field and asks for a code, until the "Check your email" confirmation shows. A dev server compiling
+ * a route for the first time can reload the page under the test, so the step is retried while the form is still
+ * there (never once the confirmation is up, so no second email is requested).
+ */
+async function requestCode(page: Page, fieldLabel: string, buttonName: string, email: string): Promise<void> {
+  const confirmation = page.getByText("Check your email");
+  await expect(async () => {
+    if (await confirmation.isVisible()) return;
+    await page.waitForLoadState("networkidle");
+    await page.getByLabel(fieldLabel).fill(email);
+    await page.getByRole("button", { name: buttonName }).click();
+    await expect(confirmation).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
+}
+
 /** Signs in on /sign-in with an emailed code. Returns once the browser has left the sign-in page. */
 export async function signIn(page: Page, email: string, next?: string): Promise<void> {
   const since = new Date(Date.now() - 1_000);
   await page.goto(next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in");
-  await page.getByLabel("Email address").fill(email);
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await expect(page.getByText("Check your email")).toBeVisible();
+  await requestCode(page, "Email address", "Email me a sign-in link", email);
   await enterCode(page, await signInCode(page.request, email, since));
   await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
 }
@@ -150,9 +164,7 @@ export function danaSample(email = uniqueEmail("family")): SyntheticFamily {
 export async function familySignIn(page: Page, familyUrl: string, email: string): Promise<void> {
   const since = new Date(Date.now() - 1_000);
   await page.goto(familyUrl);
-  await page.getByLabel("Your email address").fill(email);
-  await page.getByRole("button", { name: "Email me a code" }).click();
-  await expect(page.getByText("Check your email")).toBeVisible();
+  await requestCode(page, "Your email address", "Email me a code", email);
   await enterCode(page, await signInCode(page.request, email, since));
   await page.waitForURL(/\/consent$/);
 }
@@ -220,9 +232,11 @@ export async function keyingForm(page: Page, filename: string): Promise<Locator>
 }
 
 /** A reviewer confirms a SNAP approval letter's fields (unverified layouts always need a person), then re-runs. */
-export async function reviewerConfirmsSnapLetter(page: Page, filename: string, letter: { date: string; recipient: string }): Promise<void> {
+export async function reviewerConfirmsSnapLetter(page: Page, filename: string, letter: { date: string; recipient: string; member?: string }): Promise<void> {
   const form = await keyingForm(page, filename);
   await form.getByLabel("What this document is").selectOption({ label: "Benefits award letter" });
+  // The reviewer says whose letter it is: the person must be on the household roster (proposed rules).
+  await form.getByLabel("Whose document(optional)").selectOption({ label: letter.member ?? "Dana Sample" });
   await form.getByLabel("Program").selectOption({ label: "SNAP" });
   await form.getByLabel("Letter date(optional)").fill(letter.date);
   await form.getByLabel("What the letter shows").selectOption({ label: "Approved" });

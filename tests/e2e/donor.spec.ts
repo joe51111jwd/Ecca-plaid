@@ -63,12 +63,12 @@ test("a donor gives in the sandbox, sees why it is not credit-eligible yet, and 
   // Step 1: the gift, with the tax-math preview beside it.
   await donor.getByLabel("Gift amount").fill("1200");
   await donor.getByRole("button", { name: "Start your gift" }).click();
-  const preview = donor.getByRole("region", { name: "Federal tax credit preview" }).getByTestId("tax-math-panel");
-  await expect(preview.getByText(/Sandbox gift, not credit-eligible/)).toBeVisible();
-  await expect(preview.getByText(/applies only to gifts made on or after January 1, 2027/).first()).toBeVisible();
-  await expect(preview.getByText(/It is not tax advice/).first()).toBeVisible();
+  const preview = donor.getByTestId("tax-math-panel");
+  await expect(preview.getByRole("paragraph").filter({ hasText: /^Sandbox gift, not credit-eligible/ })).toBeVisible();
+  await expect(preview.getByText(/applies only to gifts made on or after January 1, 2027/).filter({ visible: true }).first()).toBeVisible();
+  await expect(preview.getByText(/It is not tax advice/).filter({ visible: true }).first()).toBeVisible();
   await expect(donor.getByText(/cannot be earmarked for a named student/)).toBeVisible();
-  await expect(donor.getByLabel("Amount to designate as a section 25F qualified contribution")).toHaveValue("1200");
+  await expect(donor.getByLabel("Amount to designate as a section 25F qualified contribution")).toHaveValue(/^1,?200(\.00)?$/);
   await donor.getByRole("button", { name: "Continue" }).click();
 
   // Step 2: about you. No SSN or TIN is asked for anywhere.

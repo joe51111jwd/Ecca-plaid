@@ -85,6 +85,9 @@ The end-to-end suite (`tests/e2e`) creates everything it needs through the produ
 
 Browsers: `npx playwright install chromium` if Playwright has none. The handoff test can take up to six minutes
 because a submitted-but-undecided verification reaches the camp through a sync job that runs every five minutes.
+Delete `.next-e2e` before a run (`rm -rf .next-e2e`): a stale build directory from an earlier run can make the dev
+server's pages reload in a loop, and the suite then times out at its first sign-in. Do not run the suite while
+another dev server from the same checkout is running.
 
 ## Environment variables
 

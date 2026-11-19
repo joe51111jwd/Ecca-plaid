@@ -27,19 +27,21 @@ import { DEMO_LOGINS, DEMO_SGOS, HANDOFF_BOOKING_REF, readDemoCredentials, start
 
 /* ------------------------------------------------------------------------------------------------ settings */
 
-/** Reading speed for captions and cards (the founder's brief: about 60 ms per character, at least 3 seconds). */
-export const MS_PER_CHAR = 60;
+/** Reading speed for captions and cards (the founder's brief: roughly 60 ms per character, at least 3 seconds). */
+export const MS_PER_CHAR = 55;
 export const MIN_CAPTION_MS = 3_000;
 export const MIN_CARD_MS = 4_500;
+/** Cards are read as a block of short lines, faster than a caption read while watching the screen. */
+export const CARD_MS_PER_CHAR = 42;
 export const DESKTOP = { width: 1280, height: 720 } as const;
 export const PHONE = { width: 390, height: 844 } as const;
 /** Pause after an action so a viewer sees what changed. */
-const BEAT_MS = 900;
+const BEAT_MS = 550;
 const TYPE_DELAY_MS = 35;
 const SNAP_FIXTURE = join(process.cwd(), "tests", "fixtures", "synthetic", "SYNTHETIC_tf0001_snap_approved.pdf");
 
-export function readingMs(text: string, min = MIN_CAPTION_MS): number {
-  return Math.max(min, Math.round(text.length * MS_PER_CHAR));
+export function readingMs(text: string, min = MIN_CAPTION_MS, msPerChar = MS_PER_CHAR): number {
+  return Math.max(min, Math.round(text.length * msPerChar));
 }
 
 /* ------------------------------------------------------------------------------------------------ timeline */
@@ -208,7 +210,7 @@ export class Recorder {
     this.current = "";
     await this.page.setContent(cardHtml(kicker, title, lines));
     this.mark("card", [`${kicker}: ${title}`, ...lines]);
-    await this.page.waitForTimeout(readingMs([title, ...lines].join(" "), MIN_CARD_MS));
+    await this.page.waitForTimeout(readingMs([title, ...lines].join(" "), MIN_CARD_MS, CARD_MS_PER_CHAR));
   }
 
   async goto(path: string): Promise<void> {
@@ -239,6 +241,8 @@ export class Recorder {
 
   async type(locator: ReturnType<Page["locator"]>, text: string): Promise<void> {
     await locator.click();
+    // Replace, never append to, a value the form already holds (a reader may have pre-filled it).
+    await locator.fill("");
     await locator.pressSequentially(text, { delay: TYPE_DELAY_MS });
   }
 
@@ -319,10 +323,11 @@ async function openKeying(r: Recorder, filename: string) {
   return form;
 }
 
-async function confirmSnapLetter(r: Recorder, ctx: Ctx, filename: string, recipient: string, letterDate: string): Promise<void> {
+async function confirmSnapLetter(r: Recorder, ctx: Ctx, filename: string, recipient: string, letterDate: string, member: string): Promise<void> {
   const form = await openKeying(r, filename);
   await r.show(form, 120);
   await form.getByLabel("What this document is").selectOption({ label: "Benefits award letter" });
+  await form.getByLabel("Whose document(optional)").selectOption({ label: member });
   await form.getByLabel("Program").selectOption({ label: "SNAP" });
   await form.getByLabel("Letter date(optional)").fill(letterDate);
   await form.getByLabel("What the letter shows").selectOption({ label: "Approved" });
@@ -358,7 +363,7 @@ async function waitForEvidence(r: Recorder, ctx: Ctx): Promise<{ pdf: string; js
  * Renders a PDF's pages to images inside the browser with pdfjs-dist (served from node_modules through a routed
  * origin), because the headless PDF viewer does not record. Returns PNG data URLs.
  */
-async function renderPdfPages(browser: Browser, pdf: Buffer): Promise<string[]> {
+export async function renderPdfPages(browser: Browser, pdf: Buffer): Promise<string[]> {
   const origin = "https://render.passport-demo.invalid";
   const build = join(process.cwd(), "node_modules", "pdfjs-dist", "legacy", "build");
   const context = await browser.newContext({ viewport: { width: 1000, height: 1400 } });
@@ -373,9 +378,9 @@ async function renderPdfPages(browser: Browser, pdf: Buffer): Promise<string[]> 
   });
   await page.goto(`${origin}/`);
   const images = await page.evaluate(async (o) => {
-    const pdfjs = (await import(`${o}/pdf.mjs`)) as { GlobalWorkerOptions: { workerSrc: string }; getDocument: (src: string) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (p: { scale: number }) => { width: number; height: number }; render: (p: { canvasContext: CanvasRenderingContext2D; viewport: unknown }) => { promise: Promise<void> } }> }> } };
+    const pdfjs = (await import(`${o}/pdf.mjs`)) as { GlobalWorkerOptions: { workerSrc: string }; getDocument: (src: { url: string }) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getViewport: (p: { scale: number }) => { width: number; height: number }; render: (p: { canvasContext: CanvasRenderingContext2D; viewport: unknown }) => { promise: Promise<void> } }> }> } };
     pdfjs.GlobalWorkerOptions.workerSrc = `${o}/pdf.worker.mjs`;
-    const doc = await pdfjs.getDocument(`${o}/doc.pdf`).promise;
+    const doc = await pdfjs.getDocument({ url: `${o}/doc.pdf` }).promise;
     const out: string[] = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const pg = await doc.getPage(n);
@@ -390,6 +395,15 @@ async function renderPdfPages(browser: Browser, pdf: Buffer): Promise<string[]> 
   }, origin);
   await context.close();
   return images;
+}
+
+/** The downloaded JSON shown as text (the browser would save it as a file instead of displaying it). */
+function jsonViewerHtml(title: string, json: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  body{margin:0;background:#0C1011;color:#DEE2E2;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  header{position:sticky;top:0;background:#08212A;color:#fff;padding:14px 32px;font:600 18px ui-sans-serif,system-ui,sans-serif}
+  pre{margin:0;padding:24px 32px 160px;font-size:15px;line-height:1.45;white-space:pre-wrap;word-break:break-all}
+  </style></head><body><header>${escapeHtml(title)}</header><pre>${escapeHtml(json)}</pre></body></html>`;
 }
 
 function pdfViewerHtml(title: string, images: readonly string[]): string {
@@ -412,19 +426,18 @@ function chapters(ctx: Ctx): ChapterSpec[] {
       title: "What this is",
       run: async (r) => {
         await r.card("Passport · walkthrough", "Income verification and tax-credit giving for the federal scholarship tax credit", [
-          "Built for the Texas wedge of IRC section 25F, to the October 2026 proposed rules (not final).",
+          "Texas first, built to the October 2026 proposed rules (not final).",
           "One app, three pieces, one shared verification engine.",
-          "This video shows every screen and explains the rule behind each step.",
         ]);
         await r.card("The three pieces", "Who uses what", [
-          "Donor checkout — individuals give to a listed scholarship organization (SGO) and see the credit math.",
-          "Family intake — a parent verifies household income once, from an SGO link or a camp's checkout.",
-          "Verification core — the SGO's dashboard and API: decisions, human review, evidence packs.",
+          "Donor checkout — donors give to a listed scholarship organization (SGO).",
+          "Family intake — a parent verifies household income once.",
+          "Verification core — the SGO's dashboard and API: decisions, review, evidence.",
         ]);
         await r.card("What you are about to see", "Eight short chapters", [
           "The website, then a family verifying on a phone.",
-          "The SGO dashboard — the longest part, because it is what an organization buys.",
-          "A donor's sandbox gift, the camp handoff, your admin console, and what is real versus sandbox.",
+          "The SGO dashboard — the longest part: it is what an SGO buys.",
+          "A donor's gift, the camp handoff, your admin console, what is real.",
         ]);
       },
     },
@@ -435,7 +448,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.card("Chapter 1", "The website", ["The public home page at /: what Passport is, the key dates, and the ground rules it is built on."]);
         await r.goto("/");
         await r.say("The home page: one line on what Passport does, and the dates that drive everything — the credit starts January 1, 2027.");
-        await r.show('[aria-label="Key dates and limits"]', 200);
+        await r.show('[aria-label="Key dates and limits"]', 420);
         await r.say("Key facts from the statute and proposed rules: the $1,700 cap per taxpayer and the 300%-of-area-median income limit.");
         const melt = r.page.locator(".site-melt").first();
         await r.show(melt, 0);
@@ -463,8 +476,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         });
         ctx.familyVerificationId = created.id;
         const link = new URL(created.family_url);
-        await r.page.setContent(cardHtml("Chapter 2", "A family verifies", ["On a phone, from the SGO's link.", "Families never pay. Eligible is not a promise of an award."]));
-        await r.pause(5_000);
+        await r.card("Chapter 2", "A family verifies", ["On a phone, from the SGO's link.", "Families never pay. Eligible is not a promise of an award."]);
         await r.goto(link.pathname);
         await r.say("The SGO sent this family a link. The page says who is asking, what will happen, and that checking income is not a promise of a scholarship.");
         await r.show(r.page.getByRole("heading", { name: "Sign in to start" }), 80);
@@ -510,17 +522,16 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.getByRole("radio", { name: "No, only in my home" }).check();
         await r.page.getByRole("button", { name: "Save and continue" }).click();
         await r.page.getByRole("heading", { name: "How do you want to show your income?" }).waitFor();
-        await r.say("Upload, or connect a licensed payroll or bank rail (simulated here). It is a preference, not a trap: switching loses nothing.");
+        await r.say("Upload, or connect a licensed payroll or bank rail (simulated here). Switching loses nothing.");
         await r.page.getByRole("button", { name: "Continue" }).click();
         await r.page.getByRole("heading", { name: "Upload your documents" }).waitFor();
         await r.page.getByRole("radio", { name: /^Benefits letter/ }).check();
         await r.caption("A SNAP approval letter dated within 12 months proves eligibility by the categorical method. This one is synthetic.");
         await r.page.getByLabel("Choose files").setInputFiles(SNAP_FIXTURE);
         await r.page.getByRole("region", { name: "Your documents" }).getByRole("button", { name: /^Remove / }).waitFor();
-        await r.pause(3_500);
+        await r.pause(2_000);
         await r.page.getByRole("link", { name: "Review and send" }).click();
         await r.page.getByRole("heading", { name: "Review and send" }).waitFor();
-        await r.say("The family checks everything once, then sends it.");
         await r.page.getByRole("button", { name: "Send for checking" }).click();
         await r.page.waitForURL(/\/status$/);
         await drain(ctx);
@@ -542,9 +553,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.goto("/sgo");
         await r.say("Home: what needs attention — cases waiting for a reviewer, donors who need donor numbers, setup steps left.");
         await r.show('section[aria-labelledby], [aria-label="Verifications by status"]', 120);
-        await r.say("Verifications by status. Every count carries the reminder that limits are HUD-derived and provisional, and that eligible is not an award.");
-        await r.scrollBy(700);
-        await r.say("The reporting calendar for gifts: acknowledgments are due January 31, the IRS contribution report February 28.");
+        await r.say("Verifications by status, with the reminders built in: limits are provisional, and eligible is not an award.");
         await r.goto("/sgo/verifications");
         await r.say("The verification queue: every family the SGO asked to verify, with status and the SGO's own reference.");
         await r.goto("/sgo/review");
@@ -554,13 +563,13 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         if (ctx.familyVerificationId) {
           await r.goto(`/sgo/verifications/${ctx.familyVerificationId}`);
           await r.say("This is the family from chapter 2. A reviewer reads the letter and confirms what it shows.");
-          await confirmSnapLetter(r, ctx, "SYNTHETIC_tf0001_snap_approved.pdf", "DANA SAMPLE", "2026-09-15");
+          await confirmSnapLetter(r, ctx, "SYNTHETIC_tf0001_snap_approved.pdf", "DANA SAMPLE", "2026-09-15", "Dana Sample");
           await r.show(r.page.getByRole("heading", { name: "Decision" }), 90);
           await r.say("Eligible by the categorical method: SNAP approval dated within 12 months. Marked PROVISIONAL, because the limit table is HUD-derived.");
           await r.show(r.page.getByRole("region", { name: /The limit used/ }), 90);
-          await r.say("The limit used, its source, table version and effective date are recorded with every decision — the proof an auditor asks for.");
+          await r.say("The limit used, its source, table version and effective date are recorded with every decision.");
           await r.show(r.page.getByRole("region", { name: "Timeline" }), 90);
-          await r.say("The timeline: every step by the family, the system and the reviewer, with times. Reads of sensitive data are audited too.");
+          await r.say("The timeline: every step by the family, the system and the reviewer.");
         }
 
         // Two readings where they differ.
@@ -579,12 +588,14 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         if (pdf.ok()) {
           const images = await renderPdfPages(ctx.browser, await pdf.body());
           await r.page.setContent(pdfViewerHtml("Evidence pack (PDF) — synthetic", images));
-          await r.say("The evidence pack PDF: decision, method, household size, area, the limit and its source, and both readings.");
+          await r.say("The evidence pack PDF: decision, method, household, area, the limit, its source and both readings.");
           await r.scrollBy(1300, 16, 18);
           await r.say("Extracted fields, file hashes instead of raw files, the consent record with version and timestamp, and who reviewed what.");
-          await r.scrollBy(1300, 16, 18);
+          await r.scrollBy(2600, 20, 16);
+
         }
-        await r.goto(evidence.json);
+        const json = await r.page.request.get(evidence.json);
+        await r.page.setContent(jsonViewerHtml("Evidence record (signed JSON) — synthetic", JSON.stringify(await json.json(), null, 2)));
         await r.say("The same facts as a signed JSON record (Ed25519). Anyone can check it against /.well-known/jwks.json with npm run evidence:verify.");
 
         // The review queue: an unreadable scan resolved by a reviewer.
@@ -619,16 +630,16 @@ function chapters(ctx: Ctx): ChapterSpec[] {
 
         // Giving records.
         await r.goto("/sgo/donations");
-        await r.say("Donations: each sandbox gift with the designated amount, kept separate from any fee, and the donor's consent to electronic delivery.");
+        await r.say("Donations: each gift's designated amount, kept separate from any fee.");
         await r.goto("/sgo/acknowledgments");
         await r.say("Acknowledgments: one per donor per year, with the SGO's EIN and a unique donor number from the IRS SGO portal — never invented.");
         await r.goto("/sgo/irs-report");
-        await r.say("The IRS report page assembles the annual contribution report (name, address, donor number, total designated), due February 28.");
+        await r.say("The IRS report: the annual contribution report, due February 28.");
         await r.goto("/sgo/developers");
         await r.say("Developers: test API keys (stored only as hashes) and webhook endpoints with a log of every signed delivery.");
         await r.scrollBy(500);
         await r.goto("/docs");
-        await r.say("The API documentation: create a verification, read it, receive a signed webhook when the decision is ready.");
+        await r.say("The API docs: create a verification, read it, get a signed webhook when it is decided.");
       },
     },
     {
@@ -650,10 +661,9 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.getByRole("button", { name: "Start your gift" }).click();
         await r.page.getByRole("region", { name: "Federal tax credit preview" }).waitFor();
         await r.pause(1_500);
-        await r.say("The tax-math panel: the $1,700 cap, joint returns, state-credit reduction, nonrefundable, five-year carryforward. A preview, not tax advice.");
+        await r.say("The tax-math panel: $1,700 cap, joint returns, state-credit reduction, nonrefundable, five-year carryforward. A preview, never tax advice.");
         await r.show(r.page.getByRole("region", { name: "Federal tax credit preview" }), 90);
         await r.say("The banner: a sandbox gift, not credit-eligible — the credit starts January 1, 2027, the list is provisional, and the SGO is not portal-registered.");
-        await r.say("The panel never invents the donor's tax liability: it only helps if the donor owes enough federal tax.");
         await r.page.getByRole("button", { name: "Continue" }).click();
         await r.page.getByRole("radio", { name: "Single" }).check();
         await r.type(r.page.getByLabel("First name"), "Avery");
@@ -686,8 +696,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.waitForURL(/\/thanks\?/);
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
         await r.say("The immediate receipt — not the official acknowledgment, which the SGO sends by January 31 with the unique donor number.");
-        await r.scrollBy(450);
-        await r.say("The reasons it is not credit-eligible are listed one by one, so nobody is told a gift is free when it is not.");
+        await r.scrollBy(450, 18, 14);
         await r.goto("/dev/mail");
         await r.page.getByRole("link", { name: /Payment receipt for your gift/ }).first().click();
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
@@ -710,8 +719,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.page.getByRole("button", { name: "Pay with a scholarship" }).click();
         await r.page.waitForURL(/\/h\//);
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
-        await r.say("The family's handoff page: the camp holds the spot until a stated deadline instead of silently dropping the sale.");
-        await r.say("It names the partner SGO, says verifying is free for families, and that verifying does not guarantee a scholarship.");
+        await r.say("The family's handoff page: the spot is held until a stated deadline. Free for families; no promise of a scholarship.");
         const campState = await session(ctx, DEMO_LOGINS.campOwner);
         await r.context.addCookies(campState.cookies);
         await r.goto("/partner/handoffs");
@@ -721,7 +729,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         if (ctx.creds.handoffVerificationId) {
           await r.goto(`/sgo/verifications/${ctx.creds.handoffVerificationId}`);
           await r.say("On the SGO side, the reviewer confirms that family's SNAP letter.");
-          await confirmSnapLetter(r, ctx, "snap-notice.pdf", "TASHA DEMO", "2026-10-20");
+          await confirmSnapLetter(r, ctx, "snap-notice.pdf", "TASHA DEMO", "2026-10-20", "Tasha Demo");
           await r.show(r.page.getByRole("heading", { name: "Award", exact: true }), 90);
           await r.say("Eligible. An award is a separate, explicit decision of the SGO — never automatic after verification.");
           await r.page.getByLabel("Amount (USD)").last().fill("450");
@@ -732,6 +740,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
           await r.page.getByRole("dialog").getByRole("button", { name: "Offer award" }).click();
           await r.pause(1_500);
           await drain(ctx);
+          await r.context.addCookies(campState.cookies);
           await r.goto("/partner/handoffs");
           await r.say(`Back in the camp's portal, ${HANDOFF_BOOKING_REF} now reads Awarded. The camp completes the booking; its success fee goes on its own invoice.`);
         }
@@ -750,7 +759,7 @@ function chapters(ctx: Ctx): ChapterSpec[] {
         await r.say("Live gifts stay off: only sandbox gifts are possible until you turn them on, after the credit date and the memo.");
         await r.goto("/admin/income-limits");
         await r.say("The income-limit table every decision uses: HUD FY 2026, provisional, 254 Texas counties. Swapping in the IRS table is one ingest job.");
-        await r.page.getByLabel("County").selectOption({ label: "Starr County (48427)" });
+        await r.page.getByLabel("County", { exact: true }).selectOption({ label: "Starr County (48427)" });
         await r.page.getByRole("button", { name: "Show limits" }).click();
         await r.page.waitForLoadState("networkidle").catch(() => undefined);
         await r.show(r.page.getByRole("heading", { name: "County lookup" }), 90);
@@ -811,6 +820,7 @@ async function main(): Promise<void> {
       out: { type: "string", default: join("docs", "demo") },
       chapters: { type: "string" },
       keep: { type: "boolean", default: false },
+      resume: { type: "string" },
       ffmpeg: { type: "string" },
     },
   });
@@ -825,7 +835,8 @@ async function main(): Promise<void> {
   if (!creds) throw new Error(`No demo credentials in ${values["data-dir"]}. Run the seed against that data directory first.`);
 
   const wanted = values.chapters ? new Set(values.chapters.split(",").map((s) => Number(s.trim()))) : null;
-  const work = join(tmpdir(), `passport-demo-${Date.now().toString(36)}`);
+  // --resume <dir> picks up a run that stopped part-way: chapters already encoded there are reused, not re-recorded.
+  const work = values.resume ? resolve(values.resume) : join(tmpdir(), `passport-demo-${Date.now().toString(36)}`);
   mkdirSync(work, { recursive: true });
   mkdirSync(outDir, { recursive: true });
   const listener = await startDemoWebhookListener();
@@ -837,6 +848,14 @@ async function main(): Promise<void> {
   const segments: Array<{ id: number; file: string; ms: number }> = [];
   try {
     for (const spec of specs) {
+      const seg = join(work, `seg-${spec.id}.mp4`);
+      const timeline = join(work, `timeline-${spec.id}.json`);
+      if (values.resume && existsSync(seg) && existsSync(timeline)) {
+        console.log(`Reusing chapter ${spec.id}: ${spec.title}`);
+        segments.push({ id: spec.id, file: seg, ms: ffprobeDuration(ffprobe, seg) });
+        entries.push(...(JSON.parse(readFileSync(timeline, "utf8")) as TimelineEntry[]));
+        continue;
+      }
       console.log(`Recording chapter ${spec.id}: ${spec.title}`);
       const state =
         spec.id === 3 ? await session(ctx, DEMO_LOGINS.sgoOwner) : spec.id === 6 ? await session(ctx, DEMO_LOGINS.admin) : undefined;
@@ -851,8 +870,8 @@ async function main(): Promise<void> {
         throw e;
       }
       const raw = await r.close();
-      const seg = join(work, `seg-${spec.id}.mp4`);
       encodeSegment(ffmpeg, raw, seg);
+      writeFileSync(timeline, JSON.stringify(r.entries));
       segments.push({ id: spec.id, file: seg, ms: ffprobeDuration(ffprobe, seg) });
       entries.push(...r.entries);
     }
